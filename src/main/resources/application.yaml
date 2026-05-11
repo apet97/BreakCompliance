@@ -23,6 +23,13 @@ spring:
 server:
   port: 8080
   shutdown: graceful
+  # Railway terminates TLS at the edge and forwards plain HTTP to the
+  # container with X-Forwarded-Proto/Host/For headers. Without honoring
+  # those, request.getScheme() returns "http" and Spring's CORS processor
+  # mis-classifies same-origin module loads (Origin "https://..." vs request
+  # "http://...") as cross-origin and 403s them. Framework strategy uses
+  # Spring's ForwardedHeaderFilter which is the most portable option.
+  forward-headers-strategy: framework
 
 management:
   endpoints:
