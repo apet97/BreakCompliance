@@ -24,9 +24,12 @@ import org.springframework.stereotype.Component;
  * Dates are sent as {@code yyyy-MM-dd'T'HH:mm:ss} (no timezone suffix); the
  * server interprets them in the user's timezone per the Clockify spec.
  *
- * <p><b>Response key:</b> {@code timeEntries} (camelCase). The previous
- * {@code timeentries} (all-lowercase) silently returned an empty result on
- * every page.
+ * <p><b>Response key:</b> {@code timeentries} (ALL LOWERCASE). The OpenAPI
+ * spec at {@code clockify-api-probe-lab/ATTENDANCEANDTIMEREPORTS.md:885}
+ * labels the field as {@code timeEntries} (camelCase), but a live probe on
+ * 2026-05-11 against {@code reports.api.clockify.me} with a valid X-Api-Key
+ * returned {@code "timeentries"} (along with {@code "totals"}). The spec is
+ * wrong; the live API is right.
  */
 @Component
 public class DetailedReportFetcher {
@@ -63,7 +66,7 @@ public class DetailedReportFetcher {
             } catch (Exception e) {
                 throw new ClockifyApiException("failed to parse detailed report", 0, e);
             }
-            JsonNode entries = root.path("timeEntries");
+            JsonNode entries = root.path("timeentries");
             if (!entries.isArray() || entries.isEmpty()) {
                 break;
             }

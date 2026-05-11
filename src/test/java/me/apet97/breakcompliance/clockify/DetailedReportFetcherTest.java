@@ -25,7 +25,8 @@ import org.mockito.Mockito;
  *       {@code detailedFilter}. No other top-level fields (notably no
  *       {@code exportType}).</li>
  *   <li>Dates are ISO_LOCAL_DATE_TIME without a timezone suffix.</li>
- *   <li>Response key is {@code timeEntries} (camelCase).</li>
+ *   <li>Response key is {@code timeentries} (ALL LOWERCASE — the OpenAPI
+ *       spec says camelCase but live probe shows lowercase).</li>
  * </ul>
  *
  * Each regression below corresponds to a real bug previously deployed that
@@ -49,7 +50,7 @@ class DetailedReportFetcherTest {
     @Test
     void usesV1PathPrefix() {
         Mockito.when(api.post(eq(WS), eq(REPORTS_URL), eq(TOKEN), anyString(), any(), eq(String.class)))
-                .thenReturn("{\"timeEntries\": [], \"totals\": []}");
+                .thenReturn("{\"timeentries\": [], \"totals\": []}");
 
         fetcher.fetch(WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
@@ -64,7 +65,7 @@ class DetailedReportFetcherTest {
     @Test
     void datesAreIsoLocalWithoutTimezoneSuffix() {
         Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("{\"timeEntries\": [], \"totals\": []}");
+                .thenReturn("{\"timeentries\": [], \"totals\": []}");
 
         fetcher.fetch(WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
@@ -83,7 +84,7 @@ class DetailedReportFetcherTest {
     @Test
     void bodyHasOnlyDateRangeAndDetailedFilter() {
         Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("{\"timeEntries\": [], \"totals\": []}");
+                .thenReturn("{\"timeentries\": [], \"totals\": []}");
 
         fetcher.fetch(WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
@@ -102,11 +103,11 @@ class DetailedReportFetcherTest {
     }
 
     @Test
-    void parsesTimeEntriesCamelCaseResponseKey() {
+    void parsesTimeentriesLowercaseResponseKey() {
         Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
                 .thenReturn("""
                         {
-                          "timeEntries": [
+                          "timeentries": [
                             {"_id": "e1", "userId": "u1", "description": "work"},
                             {"_id": "e2", "userId": "u1", "description": "more work"}
                           ],
@@ -126,26 +127,28 @@ class DetailedReportFetcherTest {
     @Test
     void emptyTimeEntriesArrayShortCircuits() {
         Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("{\"timeEntries\": [], \"totals\": []}");
+                .thenReturn("{\"timeentries\": [], \"totals\": []}");
 
         List<Map<String, Object>> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
         assertThat(entries).isEmpty();
-        // Only one page request — short-circuit when timeEntries is empty.
+        // Only one page request — short-circuit when timeentries is empty.
         Mockito.verify(api, Mockito.times(1)).post(any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    void doesNotReadLegacyLowercaseTimeentriesKey() {
-        // Prior code looked for `timeentries` (all-lowercase) — wrong per spec.
-        // Even when a payload uses that misspelling, we must not return its rows.
+    void ignoresSpecsCamelCaseTimeEntriesKey() {
+        // The OpenAPI spec mislabels the field as `timeEntries` (camelCase)
+        // but the live API returns `timeentries` (all-lowercase, confirmed by
+        // probe-lab live call on 2026-05-11). A payload using the spec's
+        // (wrong) casing must not match — we read the live shape only.
         Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
                 .thenReturn("""
                         {
-                          "timeentries": [
-                            {"_id": "wrongKey", "userId": "u1"}
+                          "timeEntries": [
+                            {"_id": "ignoreMe", "userId": "u1"}
                           ]
                         }
                         """);
