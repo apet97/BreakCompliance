@@ -4,14 +4,17 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
+import me.apet97.breakcompliance.domain.RuleTemplatePresets;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
+import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WebhookAuthToken;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
+import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.WebhookAuthTokenRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
 import me.apet97.breakcompliance.util.WebhookPathNormalizer;
@@ -35,16 +38,19 @@ public class InstallationService {
     private final InstallationRepository installationRepo;
     private final WebhookAuthTokenRepository webhookRepo;
     private final WorkspaceSettingsRepository settingsRepo;
+    private final RuleTemplateRepository templatesRepo;
     private final TokenCodec codec;
 
     public InstallationService(
             InstallationRepository installationRepo,
             WebhookAuthTokenRepository webhookRepo,
             WorkspaceSettingsRepository settingsRepo,
+            RuleTemplateRepository templatesRepo,
             TokenCodec codec) {
         this.installationRepo = installationRepo;
         this.webhookRepo = webhookRepo;
         this.settingsRepo = settingsRepo;
+        this.templatesRepo = templatesRepo;
         this.codec = codec;
     }
 
@@ -114,7 +120,25 @@ public class InstallationService {
             settings.setUpdatedAt(now);
             settingsRepo.save(settings);
         }
+        seedDefaultTemplates(workspaceId, now);
         log.info("lifecycle.installed workspace={} addon={}", workspaceId, addonId);
+    }
+
+    /**
+     * Idempotently materialize the built-in rule templates for a workspace
+     * on every INSTALLED delivery. The {@code TemplatesController} also seeds
+     * lazily on first {@code GET /api/templates}, but seeding eagerly here
+     * makes the templates available to the native Clockify structured-settings
+     * page (which Clockify renders server-side off the manifest, before the
+     * sidebar JS ever runs).
+     */
+    private void seedDefaultTemplates(String workspaceId, Instant now) {
+        for (var preset : RuleTemplatePresets.ALL) {
+            RuleTemplate entity = preset.toEntity(workspaceId, now);
+            if (!templatesRepo.existsById(new RuleTemplate.Pk(workspaceId, entity.getId()))) {
+                templatesRepo.save(entity);
+            }
+        }
     }
 
     @Transactional

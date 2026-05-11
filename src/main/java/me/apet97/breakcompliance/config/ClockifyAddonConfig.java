@@ -98,8 +98,8 @@ public class ClockifyAddonConfig {
                 .name("Default rule template")
                 .allowAdmins()
                 .asDropdownSingle()
-                .value("german-arbzg")
-                .allowedValues(List.of("german-arbzg", "california", "custom"))
+                .value("germany-arbg-style")
+                .allowedValues(List.of("germany-arbg-style", "california-style", "custom-basic"))
                 .description("Rule template applied when a workspace has no per-user override.")
                 .build();
 

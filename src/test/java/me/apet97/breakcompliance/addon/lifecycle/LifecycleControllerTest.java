@@ -14,8 +14,11 @@ import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
+import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
+import me.apet97.breakcompliance.persistence.entities.RuleTemplateType;
 import me.apet97.breakcompliance.persistence.entities.WebhookAuthToken;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
+import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.WebhookAuthTokenRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +65,9 @@ class LifecycleControllerTest {
     WorkspaceSettingsRepository settingsRepo;
 
     @Autowired
+    RuleTemplateRepository templatesRepo;
+
+    @Autowired
     TokenCodec codec;
 
     @BeforeEach
@@ -69,6 +75,7 @@ class LifecycleControllerTest {
         webhookRepo.deleteAll();
         installationRepo.deleteAll();
         settingsRepo.deleteAll();
+        templatesRepo.deleteAll();
     }
 
     @Test
@@ -115,6 +122,23 @@ class LifecycleControllerTest {
         }
         assertThat(installationRepo.count()).isEqualTo(1);
         assertThat(webhookRepo.count()).isEqualTo(1);
+        // Eager template seeding must also stay idempotent on retried INSTALLED.
+        assertThat(templatesRepo.findByWorkspaceId(TestJwtForger.DEFAULT_WORKSPACE_ID)).hasSize(3);
+    }
+
+    @Test
+    void installed_seedsBuiltInRuleTemplates() throws Exception {
+        mockMvc.perform(post("/lifecycle/installed")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(INSTALLED_PAYLOAD))
+                .andExpect(status().isOk());
+
+        List<RuleTemplate> seeded = templatesRepo.findByWorkspaceId(TestJwtForger.DEFAULT_WORKSPACE_ID);
+        assertThat(seeded).hasSize(3);
+        assertThat(seeded).allMatch(t -> t.getType() == RuleTemplateType.BUILT_IN);
+        assertThat(seeded).extracting(RuleTemplate::getPresetKey)
+                .containsExactlyInAnyOrder("custom-basic", "germany-arbg-style", "california-style");
     }
 
     @Test

@@ -112,4 +112,31 @@ class ManifestContractTest {
         assertThat(settingIds).containsExactly(
                 "defaultTemplateId", "timezoneStrategy", "fallbackDetectionEnabled");
     }
+
+    @Test
+    void defaultTemplateId_allowedValuesMatchBuiltInPresetKeys() throws Exception {
+        // The native Clockify structured-settings page renders the dropdown
+        // off the manifest. If allowedValues lists IDs that don't correspond
+        // to seeded RuleTemplate rows, admins can pick a ghost ID. Pin them
+        // to the actual preset keys defined in RuleTemplatePresets.
+        MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
+
+        JsonNode generalSettings = root.get("settings").get("tabs").get(0).get("settings");
+        JsonNode defaultTemplate = null;
+        for (JsonNode node : generalSettings) {
+            if ("defaultTemplateId".equals(node.get("id").asText())) {
+                defaultTemplate = node;
+                break;
+            }
+        }
+        assertThat(defaultTemplate).isNotNull();
+
+        List<String> allowedValues = new java.util.ArrayList<>();
+        defaultTemplate.get("allowedValues").forEach(v -> allowedValues.add(v.asText()));
+        assertThat(allowedValues).containsExactlyInAnyOrder(
+                "germany-arbg-style", "california-style", "custom-basic");
+
+        assertThat(defaultTemplate.get("value").asText()).isEqualTo("germany-arbg-style");
+    }
 }
