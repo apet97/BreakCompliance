@@ -40,7 +40,14 @@ public class CorsConfig {
         source.registerCorsConfiguration("/**", config);
 
         FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        // One step lower precedence than Spring Boot's auto-registered
+        // ForwardedHeaderFilter so X-Forwarded-Proto has been applied to the
+        // request before CORS evaluates same-origin. With both at
+        // HIGHEST_PRECEDENCE the order is ambiguous, and Railway-terminated
+        // TLS makes Spring see an "http" scheme while the browser sends an
+        // "https://..." Origin — that mismatch makes DefaultCorsProcessor
+        // 403 same-origin module loads.
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
         return registration;
     }
 }
