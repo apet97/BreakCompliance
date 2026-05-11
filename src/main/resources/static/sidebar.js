@@ -632,7 +632,6 @@ function wireEvents() {
     el("custom-start-date").addEventListener("change", e => { state.customStart = e.target.value; });
     el("custom-end-date").addEventListener("change", e => { state.customEnd = e.target.value; });
     el("run-btn").addEventListener("click", () => { runCompliance(); });
-    el("settings-btn").addEventListener("click", () => { openSettings(); });
 
     for (const radio of document.querySelectorAll('input[name="view-toggle"]')) {
         radio.addEventListener("change", () => {
@@ -644,44 +643,16 @@ function wireEvents() {
     el("export-csv").addEventListener("click", e => downloadExport(e, "csv"));
 }
 
-// Open the native structured-settings page in a new tab. The previous
-// implementation relied on Clockify's postMessage `navigate` event, but
-// the developer portal (developer.clockify.me) doesn't honor it —
-// clicking the button produced no visible action. window.open with the
-// env-correct URL works on BOTH developer.clockify.me and the production
-// app.clockify.me. Iframe sandbox includes `allow-popups`, so the new
-// tab opens at the user's browser top level.
-function openSettings() {
-    showBanner("hidden");
-    const workspaceId = state.session?.workspaceId;
-    const addonId = state.session?.addonId;
-    if (!workspaceId) {
-        showBanner("err", "Not connected. Reload the sidebar to reconnect.");
-        return;
-    }
-
-    // Detect which Clockify surface we're embedded in via parent origin.
-    // The developer portal renders settings at /addon/{addonId}/settings.
-    // Production renders at /workspaces/{wsId}/settings/addons/{key}.
-    const parentOrigin = messenger?.parentOrigin
-        ?? (document.referrer ? new URL(document.referrer).origin : null);
-    let url;
-    if (parentOrigin && parentOrigin.includes("developer.clockify.me") && addonId) {
-        url = `${parentOrigin}/addon/${addonId}/settings`;
-    } else if (parentOrigin) {
-        url = `${parentOrigin}/workspaces/${workspaceId}/settings/addons/${ADDON_KEY}`;
-    } else {
-        // No parent origin discoverable — fall back to text instructions.
-        showBanner("warn",
-            "Open Workspace Settings → Add-ons → Break Compliance → Settings to configure.");
-        return;
-    }
-    const opened = window.open(url, "_blank", "noopener");
-    if (!opened) {
-        // Popup blocker. Surface the URL so the admin can click it manually.
-        showBanner("info", `Pop-up blocked. Open this URL manually: ${url}`);
-    }
-}
+// Settings navigation removed. Clockify's documented `navigate` postMessage
+// only supports a fixed set of locations (per canonical
+// Cldocs/01-canonical-docs/build/window-events.md, currently just "tracker"),
+// not arbitrary paths. Our previous window.open workaround was making things
+// worse: on developer.clockify.me, the URL pattern needs the catalog addon
+// id (which the iframe's JWT claims don't carry — claims.addonId is the
+// per-workspace installation id, a different identifier), so admins landed
+// on an "addon unavailable" page. A static caption in the sidebar header
+// now tells admins where to click in Clockify's own UI:
+//   Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings
 
 // ─────────────────── Boot ───────────────────
 

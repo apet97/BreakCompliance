@@ -72,8 +72,8 @@ public class SidebarHtmlController {
                       </div>
                       <div class="button-row">
                         <button id="run-btn" class="btn-primary" type="button">Check Compliance</button>
-                        <button id="settings-btn" class="btn-secondary" type="button" title="Open Workspace Settings → Add-ons → Break Compliance">Settings</button>
                       </div>
+                      <p class="caption muted" style="margin:6px 0 0;font-size:11px">Configure thresholds &amp; preset in Clockify: <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong>.</p>
                     </div>
                   </header>
                   <div id="status-banner" class="error-banner" style="display:none"></div>
