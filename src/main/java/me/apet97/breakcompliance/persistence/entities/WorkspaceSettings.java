@@ -61,6 +61,16 @@ public class WorkspaceSettings {
     @Column(name = "custom_second_break_threshold_minutes")
     private Integer customSecondBreakThresholdMinutes;
 
+    /**
+     * Last preset the admin selected from the structured-settings preset
+     * dropdown. Used by {@code InstallationService.handleSettingsUpdated}
+     * to detect "preset changed" vs. "admin edited fields" — only the
+     * former triggers an overwrite of the threshold columns with the
+     * preset's values.
+     */
+    @Column(name = "applied_preset_key", nullable = false)
+    private String appliedPresetKey = "custom-basic";
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

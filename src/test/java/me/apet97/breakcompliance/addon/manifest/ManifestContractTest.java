@@ -87,7 +87,7 @@ class ManifestContractTest {
     }
 
     @Test
-    void manifest_declaresIconPathAndStructuredSettings() throws Exception {
+    void manifest_declaresIconPathAndSingleSettingsTab() throws Exception {
         MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
 
@@ -99,70 +99,61 @@ class ManifestContractTest {
 
         JsonNode tabs = settings.get("tabs");
         assertThat(tabs.isArray()).isTrue();
-        assertThat(tabs).hasSize(2);
+        // §18: single tab. General tab and Custom Policy tab were merged into
+        // one "Break Compliance" tab so admins see one editing surface.
+        assertThat(tabs).hasSize(1);
 
-        JsonNode general = tabs.get(0);
-        assertThat(general.get("id").asText()).isEqualTo("general");
-        assertThat(general.get("name").asText()).isEqualTo("General");
-
-        JsonNode generalSettings = general.get("settings");
-        assertThat(generalSettings.isArray()).isTrue();
-        List<String> settingIds = new java.util.ArrayList<>();
-        generalSettings.forEach(node -> settingIds.add(node.get("id").asText()));
-        assertThat(settingIds).containsExactly(
-                "defaultTemplateId", "timezoneStrategy", "fallbackDetectionEnabled");
+        JsonNode tab = tabs.get(0);
+        assertThat(tab.get("id").asText()).isEqualTo("breakCompliance");
+        assertThat(tab.get("name").asText()).isEqualTo("Break Compliance");
     }
 
     @Test
-    void manifest_declaresCustomPolicyTab() throws Exception {
+    void manifest_singleTab_listsElevenFieldsInOrder() throws Exception {
         MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
 
-        JsonNode tabs = root.get("settings").get("tabs");
-        JsonNode customPolicy = tabs.get(1);
-        assertThat(customPolicy.get("id").asText()).isEqualTo("customPolicy");
-        assertThat(customPolicy.get("name").asText()).isEqualTo("Custom Policy");
+        JsonNode tabSettings = root.get("settings").get("tabs").get(0).get("settings");
+        assertThat(tabSettings.isArray()).isTrue();
 
         List<String> ids = new java.util.ArrayList<>();
-        customPolicy.get("settings").forEach(node -> ids.add(node.get("id").asText()));
+        tabSettings.forEach(node -> ids.add(node.get("id").asText()));
+        // Order matters — the preset selector is first so admins land on it,
+        // thresholds in evaluation order, then timezone + fallback at the end.
         assertThat(ids).containsExactly(
-                "customPolicyEnabled",
-                "customWorkThresholdMinutes",
-                "customBreakThresholdMinutes",
-                "customMinBreakSegmentMinutes",
-                "customMaxContinuousWorkMinutes",
-                "customGracePeriodMinutes",
-                "customAllowSplitBreaks",
-                "customSecondWorkThresholdMinutes",
-                "customSecondBreakThresholdMinutes");
+                "appliedPresetKey",
+                "workThresholdMinutes",
+                "breakThresholdMinutes",
+                "minBreakSegmentMinutes",
+                "maxContinuousWorkMinutes",
+                "gracePeriodMinutes",
+                "allowSplitBreaks",
+                "secondWorkThresholdMinutes",
+                "secondBreakThresholdMinutes",
+                "timezoneStrategy",
+                "fallbackDetectionEnabled");
     }
 
     @Test
-    void defaultTemplateId_allowedValuesMatchBuiltInPresetKeys() throws Exception {
-        // The native Clockify structured-settings page renders the dropdown
-        // off the manifest. If allowedValues lists IDs that don't correspond
-        // to seeded RuleTemplate rows, admins can pick a ghost ID. Pin them
-        // to the actual preset keys defined in RuleTemplatePresets.
+    void appliedPresetKey_allowedValuesMatchBuiltInPresetKeys() throws Exception {
         MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
 
-        JsonNode generalSettings = root.get("settings").get("tabs").get(0).get("settings");
-        JsonNode defaultTemplate = null;
-        for (JsonNode node : generalSettings) {
-            if ("defaultTemplateId".equals(node.get("id").asText())) {
-                defaultTemplate = node;
+        JsonNode tabSettings = root.get("settings").get("tabs").get(0).get("settings");
+        JsonNode appliedPreset = null;
+        for (JsonNode node : tabSettings) {
+            if ("appliedPresetKey".equals(node.get("id").asText())) {
+                appliedPreset = node;
                 break;
             }
         }
-        assertThat(defaultTemplate).isNotNull();
+        assertThat(appliedPreset).isNotNull();
 
         List<String> allowedValues = new java.util.ArrayList<>();
-        defaultTemplate.get("allowedValues").forEach(v -> allowedValues.add(v.asText()));
-        // Order matters here: custom-basic must be FIRST so the native
-        // structured-settings dropdown defaults to the editable starter.
+        appliedPreset.get("allowedValues").forEach(v -> allowedValues.add(v.asText()));
         assertThat(allowedValues).containsExactly(
                 "custom-basic", "california-style", "germany-arbzg-style");
 
-        assertThat(defaultTemplate.get("value").asText()).isEqualTo("custom-basic");
+        assertThat(appliedPreset.get("value").asText()).isEqualTo("custom-basic");
     }
 }

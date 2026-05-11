@@ -10,14 +10,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.TreeMap;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
-import me.apet97.breakcompliance.persistence.entities.GroupMembership;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.Severity;
-import me.apet97.breakcompliance.persistence.entities.TargetType;
-import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import org.springframework.stereotype.Component;
@@ -44,26 +40,17 @@ import org.springframework.stereotype.Component;
 public class BreakRuleEngine {
 
     public List<FindingDraft> evaluate(BreakRuleEngineInput input) {
-        Context ctx = buildContext(input);
         List<DayBucket> buckets = bucketEntries(input);
         List<FindingDraft> out = new ArrayList<>();
         boolean fallbackEnabled = input.settings().isFallbackDetectionEnabled();
 
+        // Single active template per workspace: build a synthetic RuleTemplate
+        // from WorkspaceSettings once and evaluate every user-day bucket
+        // against it. No per-user template resolution, no preset lookup —
+        // the structured-settings page is the only source of thresholds.
+        RuleTemplate template = synthesizeWorkspaceTemplate(input);
+
         for (DayBucket bucket : buckets) {
-            RuleTemplate template = resolveTemplateForUser(ctx, bucket.userId());
-            template = applyCustomPolicyOverride(template, input.settings());
-            if (template == null) {
-                out.add(new FindingDraft(
-                        input.workspaceId(),
-                        bucket.userId(),
-                        bucket.date(),
-                        "",
-                        Severity.INFO,
-                        FindingCode.NO_TEMPLATE_ASSIGNED,
-                        "No rule template is assigned to this user and no workspace default is set.",
-                        emptyEvidence(bucket)));
-                continue;
-            }
             if (!template.isEnabled()) {
                 continue;
             }
@@ -126,102 +113,59 @@ public class BreakRuleEngine {
         return out;
     }
 
-    private Context buildContext(BreakRuleEngineInput input) {
-        Map<String, RuleTemplate> templatesById = new HashMap<>();
-        for (RuleTemplate t : input.templates()) {
-            if (Objects.equals(t.getWorkspaceId(), input.workspaceId())) {
-                templatesById.put(t.getId(), t);
-            }
-        }
-
-        Map<String, String> userAssignments = new HashMap<>();
-        List<TemplateAssignment> groupAssignments = new ArrayList<>();
-        for (TemplateAssignment a : input.assignments()) {
-            if (!Objects.equals(a.getWorkspaceId(), input.workspaceId())) {
-                continue;
-            }
-            if (a.getTargetType() == TargetType.USER) {
-                userAssignments.put(a.getTargetId(), a.getTemplateId());
-            } else if (a.getTargetType() == TargetType.GROUP) {
-                groupAssignments.add(a);
-            }
-        }
-        groupAssignments.sort(Comparator
-                .comparing(TemplateAssignment::getTargetId)
-                .thenComparing(TemplateAssignment::getTemplateId));
-        // First-write-wins per targetId so iteration order is deterministic.
-        Map<String, String> groupAssignmentsByGroup = new LinkedHashMap<>();
-        for (TemplateAssignment a : groupAssignments) {
-            groupAssignmentsByGroup.putIfAbsent(a.getTargetId(), a.getTemplateId());
-        }
-
-        Map<String, Set<String>> groupsByUser = new HashMap<>();
-        for (GroupMembership m : input.groupMemberships()) {
-            if (!Objects.equals(m.getWorkspaceId(), input.workspaceId())) {
-                continue;
-            }
-            if (m.getUserId() == null || m.getUserId().isEmpty()) {
-                continue;
-            }
-            if (m.getGroupId() == null || m.getGroupId().isEmpty()) {
-                continue;
-            }
-            groupsByUser.computeIfAbsent(m.getUserId(), k -> new java.util.HashSet<>()).add(m.getGroupId());
-        }
-
-        String defaultTemplateId = input.settings().getDefaultTemplateId();
-        return new Context(templatesById, userAssignments, groupAssignmentsByGroup, groupsByUser, defaultTemplateId);
-    }
-
     /**
-     * If the workspace has custom policy enabled and both core thresholds
-     * set, return a transient copy of the resolved template with all
-     * non-null custom values applied. Each optional custom field falls
-     * through to the underlying template value when null or {@code <= 0}
-     * (sentinel for "inherit"), giving admins granular control without
-     * forcing them to set every field.
+     * Build a transient {@link RuleTemplate} from {@link WorkspaceSettings}.
+     * The workspace has a single active rule template — its values live on
+     * the settings row, and we synthesize a {@code RuleTemplate} so the
+     * existing evaluator code paths (segment evaluation, evidence builder,
+     * etc.) work without changes. Nothing here is persisted.
      *
-     * <p>Returns the input unchanged when custom policy is off, either
-     * core threshold is missing, or the input template is null.
+     * <p>A column whose value is null or {@code <= 0} falls back to the
+     * {@code custom-basic} preset's value so a partially-configured
+     * workspace still evaluates sensibly.
      */
-    private RuleTemplate applyCustomPolicyOverride(RuleTemplate base, WorkspaceSettings settings) {
-        if (base == null) return null;
-        if (!settings.isCustomPolicyEnabled()) return base;
-        Integer work = settings.getCustomWorkThresholdMinutes();
-        Integer brk = settings.getCustomBreakThresholdMinutes();
-        if (work == null || brk == null) return base;
+    private static RuleTemplate synthesizeWorkspaceTemplate(BreakRuleEngineInput input) {
+        WorkspaceSettings settings = input.settings();
+        RuleTemplate fallback = RuleTemplatePresets.CUSTOM_BASIC
+                .toEntity(input.workspaceId(), java.time.Instant.EPOCH);
 
-        RuleTemplate override = new RuleTemplate();
-        override.setWorkspaceId(base.getWorkspaceId());
-        override.setId(base.getId());
-        override.setKey(base.getKey());
-        override.setName(base.getName());
-        override.setDescription(base.getDescription());
-        override.setType(base.getType());
-        override.setPresetKey(base.getPresetKey());
-        override.setVersion(base.getVersion());
-        override.setEnabled(base.isEnabled());
+        RuleTemplate t = new RuleTemplate();
+        t.setWorkspaceId(input.workspaceId());
+        t.setId("workspace-active-template");
+        t.setKey(settings.getAppliedPresetKey() != null
+                ? settings.getAppliedPresetKey() : "custom-basic");
+        t.setName("Workspace active template");
+        t.setDescription("Synthetic template built from WorkspaceSettings thresholds.");
+        t.setType(fallback.getType());
+        t.setPresetKey(settings.getAppliedPresetKey());
+        t.setVersion(1);
+        t.setEnabled(true);
 
-        override.setMinimumValidBreakSegmentMinutes(positiveOr(
+        t.setMinimumValidBreakSegmentMinutes(positiveOr(
                 settings.getCustomMinBreakSegmentMinutes(),
-                base.getMinimumValidBreakSegmentMinutes()));
-        override.setWorkThresholdMinutes(work);
-        override.setRequiredBreakMinutes(brk);
-        override.setMaxContinuousWorkMinutesBeforeBreak(positiveOr(
+                fallback.getMinimumValidBreakSegmentMinutes()));
+        t.setWorkThresholdMinutes(positiveOr(
+                settings.getCustomWorkThresholdMinutes(),
+                fallback.getWorkThresholdMinutes()));
+        t.setRequiredBreakMinutes(positiveOr(
+                settings.getCustomBreakThresholdMinutes(),
+                fallback.getRequiredBreakMinutes()));
+        t.setMaxContinuousWorkMinutesBeforeBreak(positiveOr(
                 settings.getCustomMaxContinuousWorkMinutes(),
-                work));
-        override.setSecondThresholdMinutes(positiveOrNull(settings.getCustomSecondWorkThresholdMinutes()));
-        override.setSecondRequiredBreakMinutes(positiveOrNull(settings.getCustomSecondBreakThresholdMinutes()));
-        override.setAllowSplitBreaks(settings.getCustomAllowSplitBreaks() != null
+                t.getWorkThresholdMinutes()));
+        t.setSecondThresholdMinutes(positiveOrNull(settings.getCustomSecondWorkThresholdMinutes()));
+        t.setSecondRequiredBreakMinutes(positiveOrNull(settings.getCustomSecondBreakThresholdMinutes()));
+        t.setAllowSplitBreaks(settings.getCustomAllowSplitBreaks() != null
                 ? settings.getCustomAllowSplitBreaks()
-                : base.isAllowSplitBreaks());
-        override.setGracePeriodMinutes(nonNegativeOr(
+                : fallback.isAllowSplitBreaks());
+        t.setGracePeriodMinutes(nonNegativeOr(
                 settings.getCustomGracePeriodMinutes(),
-                base.getGracePeriodMinutes()));
+                fallback.getGracePeriodMinutes()));
 
-        override.setCreatedAt(base.getCreatedAt());
-        override.setUpdatedAt(base.getUpdatedAt());
-        return override;
+        java.time.Instant now = java.time.Instant.now();
+        t.setCreatedAt(now);
+        t.setUpdatedAt(now);
+        return t;
     }
 
     private static int positiveOr(Integer custom, int fallback) {
@@ -234,31 +178,6 @@ public class BreakRuleEngine {
 
     private static Integer positiveOrNull(Integer custom) {
         return (custom != null && custom > 0) ? custom : null;
-    }
-
-    private RuleTemplate resolveTemplateForUser(Context ctx, String userId) {
-        String userTemplateId = ctx.userAssignments.get(userId);
-        if (userTemplateId != null) {
-            RuleTemplate t = ctx.templatesById.get(userTemplateId);
-            if (t != null) {
-                return t;
-            }
-        }
-        Set<String> userGroups = ctx.groupsByUser.get(userId);
-        if (userGroups != null && !userGroups.isEmpty()) {
-            for (Map.Entry<String, String> e : ctx.groupAssignments.entrySet()) {
-                if (userGroups.contains(e.getKey())) {
-                    RuleTemplate t = ctx.templatesById.get(e.getValue());
-                    if (t != null) {
-                        return t;
-                    }
-                }
-            }
-        }
-        if (ctx.defaultTemplateId != null) {
-            return ctx.templatesById.get(ctx.defaultTemplateId);
-        }
-        return null;
     }
 
     private List<DayBucket> bucketEntries(BreakRuleEngineInput input) {
@@ -390,14 +309,6 @@ public class BreakRuleEngine {
         }
         evidence.put("entryIds", ids);
         return evidence;
-    }
-
-    private record Context(
-            Map<String, RuleTemplate> templatesById,
-            Map<String, String> userAssignments,
-            Map<String, String> groupAssignments,
-            Map<String, Set<String>> groupsByUser,
-            String defaultTemplateId) {
     }
 
     private record DayBucket(String userId, LocalDate date, List<TimeEntry> entries) {

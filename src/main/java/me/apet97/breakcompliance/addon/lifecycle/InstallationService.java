@@ -128,12 +128,40 @@ public class InstallationService {
             settings.setWorkspaceId(workspaceId);
             settings.setTimezoneStrategy(TimezoneStrategy.ENTRY_TIMEZONE);
             settings.setFallbackDetectionEnabled(false);
+            settings.setAppliedPresetKey("custom-basic");
+            // Seed the threshold columns from the default preset so a fresh
+            // workspace lands on usable values, not all-null. Admin can pick
+            // a different preset in the structured-settings page to overwrite.
+            applyPresetToSettings(settings, "custom-basic");
             settings.setCreatedAt(now);
             settings.setUpdatedAt(now);
             settingsRepo.save(settings);
         }
         seedDefaultTemplates(workspaceId, now);
         log.info("lifecycle.installed workspace={} addon={}", workspaceId, addonId);
+    }
+
+    /**
+     * Overwrite the threshold columns on {@code settings} with the values
+     * from the named preset (one of {@code RuleTemplatePresets.ALL}). No-op
+     * when the preset key is unknown — caller must validate upstream.
+     */
+    private static void applyPresetToSettings(WorkspaceSettings settings, String presetKey) {
+        var preset = RuleTemplatePresets.ALL.stream()
+                .filter(p -> p.key().equals(presetKey))
+                .findFirst()
+                .orElse(null);
+        if (preset == null) return;
+        settings.setCustomWorkThresholdMinutes(preset.workThresholdMinutes());
+        settings.setCustomBreakThresholdMinutes(preset.requiredBreakMinutes());
+        settings.setCustomMinBreakSegmentMinutes(preset.minimumValidBreakSegmentMinutes());
+        settings.setCustomMaxContinuousWorkMinutes(preset.maxContinuousWorkMinutesBeforeBreak());
+        settings.setCustomGracePeriodMinutes(preset.gracePeriodMinutes());
+        settings.setCustomAllowSplitBreaks(preset.allowSplitBreaks());
+        settings.setCustomSecondWorkThresholdMinutes(
+                preset.secondThresholdMinutes() != null ? preset.secondThresholdMinutes() : 0);
+        settings.setCustomSecondBreakThresholdMinutes(
+                preset.secondRequiredBreakMinutes() != null ? preset.secondRequiredBreakMinutes() : 0);
     }
 
     /**
@@ -180,33 +208,70 @@ public class InstallationService {
             fresh.setWorkspaceId(workspaceId);
             fresh.setTimezoneStrategy(TimezoneStrategy.ENTRY_TIMEZONE);
             fresh.setFallbackDetectionEnabled(false);
+            fresh.setAppliedPresetKey("custom-basic");
+            applyPresetToSettings(fresh, "custom-basic");
             fresh.setCreatedAt(now);
             return fresh;
         });
 
-        boolean changed = false;
+        // Phase 1: scan for a preset change. If the incoming appliedPresetKey
+        // differs from the stored value, overwrite all 8 threshold columns
+        // with the preset's values BEFORE applying any per-field edits in
+        // phase 2 (so a single save can "load preset values + tweak one
+        // field" atomically).
+        String incomingPresetKey = extractPresetKey(updates);
+        boolean presetChanged = false;
+        if (incomingPresetKey != null
+                && !incomingPresetKey.equals(settings.getAppliedPresetKey())
+                && isKnownPreset(incomingPresetKey)) {
+            applyPresetToSettings(settings, incomingPresetKey);
+            settings.setAppliedPresetKey(incomingPresetKey);
+            presetChanged = true;
+            log.info("lifecycle.settings-updated.preset-changed workspace={} preset={}",
+                    workspaceId, incomingPresetKey);
+        }
+
+        // Phase 2: apply each per-field update on top of (post-overwrite)
+        // settings. Admin can change preset + tweak a single threshold in
+        // the same SETTINGS_UPDATED delivery and the tweak wins.
+        boolean fieldChanged = false;
         for (Map<String, Object> entry : updates) {
             if (entry == null) continue;
             Object idObj = entry.get("id");
             if (!(idObj instanceof String id) || id.isBlank()) continue;
             Object value = entry.get("value");
-            changed |= applySettingUpdate(settings, id, value);
+            fieldChanged |= applySettingUpdate(settings, id, value);
         }
 
-        if (changed) {
+        if (presetChanged || fieldChanged) {
             settings.setUpdatedAt(now);
             settingsRepo.save(settings);
             log.info("lifecycle.settings-updated workspace={}", workspaceId);
         }
     }
 
+    private static String extractPresetKey(List<Map<String, Object>> updates) {
+        for (Map<String, Object> entry : updates) {
+            if (entry == null) continue;
+            if ("appliedPresetKey".equals(entry.get("id"))
+                    && entry.get("value") instanceof String s
+                    && !s.isBlank()) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isKnownPreset(String key) {
+        return RuleTemplatePresets.ALL.stream().anyMatch(p -> p.key().equals(key));
+    }
+
     private boolean applySettingUpdate(WorkspaceSettings settings, String id, Object value) {
         return switch (id) {
-            case "defaultTemplateId" -> {
-                if (value instanceof String s && !s.isBlank()) {
-                    settings.setDefaultTemplateId(s);
-                    yield true;
-                }
+            case "appliedPresetKey" -> {
+                // Handled by extractPresetKey + applyPresetToSettings in phase 1
+                // so the threshold columns get the preset values BEFORE per-field
+                // edits land. Repeat-application here is a no-op.
                 yield false;
             }
             case "timezoneStrategy" -> {
@@ -227,27 +292,24 @@ public class InstallationService {
                 }
                 yield false;
             }
-            case "customPolicyEnabled" -> {
-                if (value instanceof Boolean b) {
-                    settings.setCustomPolicyEnabled(b);
-                    yield true;
-                }
-                yield false;
-            }
-            case "customWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomWorkThresholdMinutes);
-            case "customBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomBreakThresholdMinutes);
-            case "customMinBreakSegmentMinutes" -> setNullableMinutes(value, settings::setCustomMinBreakSegmentMinutes);
-            case "customMaxContinuousWorkMinutes" -> setNullableMinutes(value, settings::setCustomMaxContinuousWorkMinutes);
-            case "customGracePeriodMinutes" -> setNullableMinutes(value, settings::setCustomGracePeriodMinutes);
-            case "customAllowSplitBreaks" -> {
+            // New manifest field IDs map to the existing custom_* columns so
+            // we don't need a destructive column rename. The "custom_" prefix
+            // is now historical; semantically these are the workspace's
+            // active rule template thresholds.
+            case "workThresholdMinutes" -> setNullableMinutes(value, settings::setCustomWorkThresholdMinutes);
+            case "breakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomBreakThresholdMinutes);
+            case "minBreakSegmentMinutes" -> setNullableMinutes(value, settings::setCustomMinBreakSegmentMinutes);
+            case "maxContinuousWorkMinutes" -> setNullableMinutes(value, settings::setCustomMaxContinuousWorkMinutes);
+            case "gracePeriodMinutes" -> setNullableMinutes(value, settings::setCustomGracePeriodMinutes);
+            case "allowSplitBreaks" -> {
                 if (value instanceof Boolean b) {
                     settings.setCustomAllowSplitBreaks(b);
                     yield true;
                 }
                 yield false;
             }
-            case "customSecondWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondWorkThresholdMinutes);
-            case "customSecondBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondBreakThresholdMinutes);
+            case "secondWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondWorkThresholdMinutes);
+            case "secondBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondBreakThresholdMinutes);
             default -> false;
         };
     }

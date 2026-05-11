@@ -263,18 +263,51 @@ class LifecycleControllerTest {
     }
 
     @Test
-    void settingsUpdated_persistsDefaultTemplateId() throws Exception {
+    void settingsUpdated_appliedPresetKeyChange_overwritesAllThresholds() throws Exception {
         installViaLifecycle();
+        // Install seeds the workspace with custom-basic preset values.
+        WorkspaceSettings beforeSettings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(beforeSettings.getAppliedPresetKey()).isEqualTo("custom-basic");
 
+        // Admin switches to ArbZG — server should overwrite all 8 thresholds
+        // with that preset's values in a single atomic save.
         mockMvc.perform(post("/lifecycle/settings-updated")
                         .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("[{\"id\":\"defaultTemplateId\",\"value\":\"germany-arbzg-style\"}]"))
+                        .content("[{\"id\":\"appliedPresetKey\",\"value\":\"germany-arbzg-style\"}]"))
                 .andExpect(status().isOk());
 
         WorkspaceSettings settings = settingsRepo
                 .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
-        assertThat(settings.getDefaultTemplateId()).isEqualTo("germany-arbzg-style");
+        assertThat(settings.getAppliedPresetKey()).isEqualTo("germany-arbzg-style");
+        // ArbZG §4 thresholds — these are the preset values from
+        // RuleTemplatePresets.GERMANY_ARBZG_STYLE, not the manifest defaults.
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(360);
+        assertThat(settings.getCustomBreakThresholdMinutes()).isEqualTo(30);
+        assertThat(settings.getCustomMinBreakSegmentMinutes()).isEqualTo(15);
+        assertThat(settings.getCustomSecondWorkThresholdMinutes()).isEqualTo(540);
+        assertThat(settings.getCustomSecondBreakThresholdMinutes()).isEqualTo(45);
+    }
+
+    @Test
+    void settingsUpdated_appliedPresetUnchanged_persistsAdminEdit() throws Exception {
+        installViaLifecycle();
+
+        // No preset change — admin just tweaks one threshold. The other
+        // threshold fields and the appliedPresetKey should be preserved.
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"id\":\"workThresholdMinutes\",\"value\":300}]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getAppliedPresetKey()).isEqualTo("custom-basic");
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(300);
+        // Other thresholds unchanged — still the custom-basic seed values.
+        assertThat(settings.getCustomBreakThresholdMinutes()).isEqualTo(15);
     }
 
     @Test
@@ -308,51 +341,63 @@ class LifecycleControllerTest {
     }
 
     @Test
-    void settingsUpdated_persistsCustomPolicyFields() throws Exception {
+    void settingsUpdated_persistsAllEightThresholdEdits() throws Exception {
         installViaLifecycle();
 
         mockMvc.perform(post("/lifecycle/settings-updated")
                         .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("[" +
-                                "{\"id\":\"customPolicyEnabled\",\"value\":true}," +
-                                "{\"id\":\"customWorkThresholdMinutes\",\"value\":180}," +
-                                "{\"id\":\"customBreakThresholdMinutes\",\"value\":20}" +
+                                "{\"id\":\"workThresholdMinutes\",\"value\":180}," +
+                                "{\"id\":\"breakThresholdMinutes\",\"value\":20}," +
+                                "{\"id\":\"minBreakSegmentMinutes\",\"value\":15}," +
+                                "{\"id\":\"maxContinuousWorkMinutes\",\"value\":180}," +
+                                "{\"id\":\"gracePeriodMinutes\",\"value\":10}," +
+                                "{\"id\":\"allowSplitBreaks\",\"value\":false}," +
+                                "{\"id\":\"secondWorkThresholdMinutes\",\"value\":540}," +
+                                "{\"id\":\"secondBreakThresholdMinutes\",\"value\":45}" +
                                 "]"))
                 .andExpect(status().isOk());
 
         WorkspaceSettings settings = settingsRepo
                 .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
-        assertThat(settings.isCustomPolicyEnabled()).isTrue();
+        // Column names retain the "custom_" prefix from the V2 migration —
+        // the manifest field IDs are the un-prefixed forms above. See
+        // applySettingUpdate in InstallationService.
         assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(180);
         assertThat(settings.getCustomBreakThresholdMinutes()).isEqualTo(20);
-    }
-
-    @Test
-    void settingsUpdated_persistsAllSixGranularCustomFields() throws Exception {
-        installViaLifecycle();
-
-        mockMvc.perform(post("/lifecycle/settings-updated")
-                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("[" +
-                                "{\"id\":\"customMinBreakSegmentMinutes\",\"value\":15}," +
-                                "{\"id\":\"customMaxContinuousWorkMinutes\",\"value\":180}," +
-                                "{\"id\":\"customGracePeriodMinutes\",\"value\":10}," +
-                                "{\"id\":\"customAllowSplitBreaks\",\"value\":false}," +
-                                "{\"id\":\"customSecondWorkThresholdMinutes\",\"value\":540}," +
-                                "{\"id\":\"customSecondBreakThresholdMinutes\",\"value\":45}" +
-                                "]"))
-                .andExpect(status().isOk());
-
-        WorkspaceSettings settings = settingsRepo
-                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
         assertThat(settings.getCustomMinBreakSegmentMinutes()).isEqualTo(15);
         assertThat(settings.getCustomMaxContinuousWorkMinutes()).isEqualTo(180);
         assertThat(settings.getCustomGracePeriodMinutes()).isEqualTo(10);
         assertThat(settings.getCustomAllowSplitBreaks()).isFalse();
         assertThat(settings.getCustomSecondWorkThresholdMinutes()).isEqualTo(540);
         assertThat(settings.getCustomSecondBreakThresholdMinutes()).isEqualTo(45);
+    }
+
+    @Test
+    void settingsUpdated_presetChangeAndManualEdit_inSamePayload_editWins() throws Exception {
+        installViaLifecycle();
+
+        // Switch to ArbZG AND override workThresholdMinutes in the same
+        // SETTINGS_UPDATED delivery. Preset overwrite happens first, then
+        // the manual edit lands on top.
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[" +
+                                "{\"id\":\"appliedPresetKey\",\"value\":\"germany-arbzg-style\"}," +
+                                "{\"id\":\"workThresholdMinutes\",\"value\":420}" +
+                                "]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getAppliedPresetKey()).isEqualTo("germany-arbzg-style");
+        // workThreshold = 420 (admin override), NOT 360 (ArbZG preset value).
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(420);
+        // Other thresholds = ArbZG values (not overridden).
+        assertThat(settings.getCustomBreakThresholdMinutes()).isEqualTo(30);
+        assertThat(settings.getCustomSecondWorkThresholdMinutes()).isEqualTo(540);
     }
 
     @Test

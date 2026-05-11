@@ -8,16 +8,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
-import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
-import me.apet97.breakcompliance.persistence.entities.RuleTemplateType;
 import me.apet97.breakcompliance.persistence.entities.Severity;
-import me.apet97.breakcompliance.persistence.entities.TargetType;
-import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import org.junit.jupiter.api.Test;
 
+/**
+ * §18 — the engine evaluates each user-day bucket against a synthetic
+ * {@code RuleTemplate} built from {@link WorkspaceSettings}. No per-user
+ * template resolution, no preset lookup, no {@code RuleTemplate} table
+ * reads. All test inputs go through {@link WorkspaceSettings}.
+ */
 class BreakRuleEngineTest {
 
     private static final String WS = "ws-test";
@@ -26,285 +28,206 @@ class BreakRuleEngineTest {
     private final BreakRuleEngine engine = new BreakRuleEngine();
 
     @Test
-    void noTemplateAssigned_emitsAdvisoryFinding() {
-        WorkspaceSettings settings = settings(null, false);
-        List<TimeEntry> entries = List.of(workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z"));
-
-        List<FindingDraft> findings = engine.evaluate(input(settings, List.of(), List.of(), entries, "2026-05-10", "2026-05-10"));
-
-        assertThat(findings).hasSize(1);
-        FindingDraft f = findings.get(0);
-        assertThat(f.code()).isEqualTo(FindingCode.NO_TEMPLATE_ASSIGNED);
-        assertThat(f.severity()).isEqualTo(Severity.INFO);
-        assertThat(f.userId()).isEqualTo(USER);
-    }
-
-    @Test
     void workOverThreshold_noBreak_emitsMissingRequiredBreak() {
-        RuleTemplate tpl = template("tpl-1", 240, 15, 240, 5); // work>240 needs 15min break, max-continuous 240, grace 5
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        List<TemplateAssignment> assigns = List.of(userAssignment(USER, tpl.getId()));
-        List<TimeEntry> entries = List.of(workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z")); // 480 min work
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z")); // 480 min
 
-        List<FindingDraft> findings = engine.evaluate(
-                input(settings, List.of(tpl), assigns, entries, "2026-05-10", "2026-05-10"));
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
 
         assertThat(findings).extracting(FindingDraft::code)
-                .contains(FindingCode.MISSING_REQUIRED_BREAK, FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED);
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
     }
 
     @Test
-    void workOverThreshold_shortBreak_emitsInsufficientBreakDuration() {
-        // 15-min minimum break segment; work threshold 240, required 30 — caller takes 20-min break (qualifies, but insufficient).
-        RuleTemplate tpl = template("tpl-1", 240, 30, 240, 5);
-        tpl.setMinimumValidBreakSegmentMinutes(15);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
+    void workOverThreshold_shortBreakSegment_doesNotCount() {
+        WorkspaceSettings settings = workspaceSettings(240, 30, 5);
+        settings.setCustomMinBreakSegmentMinutes(15); // 10-min break won't count
+
         List<TimeEntry> entries = List.of(
-                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"), // 240 min work
-                breakEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T13:20:00Z"), // 20 min break (qualifies, below 30)
-                workEntry("e3", "2026-05-10T13:20:00Z", "2026-05-10T15:00:00Z")); // 100 min work
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),  // 240 min
+                breakEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T13:10:00Z"), // 10 min — below min segment
+                workEntry("e3", "2026-05-10T13:10:00Z", "2026-05-10T15:00:00Z")); // 110 min
 
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())), entries, "2026-05-10", "2026-05-10"));
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
 
-        assertThat(findings).extracting(FindingDraft::code).contains(FindingCode.INSUFFICIENT_BREAK_DURATION);
+        // Work 350 > 245; break 0 (10-min segment dropped) → MISSING.
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
     }
 
     @Test
     void workOverThreshold_qualifyingBreak_noViolation() {
-        RuleTemplate tpl = template("tpl-1", 240, 30, 240, 5);
-        tpl.setMinimumValidBreakSegmentMinutes(15);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
+        WorkspaceSettings settings = workspaceSettings(240, 30, 5);
+        settings.setCustomMinBreakSegmentMinutes(15);
+
         List<TimeEntry> entries = List.of(
-                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"), // 240 min
-                breakEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T13:30:00Z"), // 30 min qualifying break
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),  // 240 min
+                breakEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T13:30:00Z"), // 30 min qualifying
                 workEntry("e3", "2026-05-10T13:30:00Z", "2026-05-10T15:00:00Z")); // 90 min
 
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())), entries, "2026-05-10", "2026-05-10"));
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
 
-        // No MISSING_REQUIRED_BREAK / INSUFFICIENT_BREAK_DURATION
         assertThat(findings).extracting(FindingDraft::code).doesNotContain(
                 FindingCode.MISSING_REQUIRED_BREAK, FindingCode.INSUFFICIENT_BREAK_DURATION);
     }
 
     @Test
-    void disabledTemplate_skipsEvaluation() {
-        RuleTemplate tpl = template("tpl-1", 240, 30, 240, 5);
-        tpl.setEnabled(false);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        List<TimeEntry> entries = List.of(workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z"));
-
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())), entries, "2026-05-10", "2026-05-10"));
-
-        assertThat(findings).isEmpty();
-    }
-
-    @Test
     void runningEntry_skipped() {
-        RuleTemplate tpl = template("tpl-1", 240, 30, 240, 5);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
+        WorkspaceSettings settings = workspaceSettings(240, 30, 5);
         TimeEntry running = workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z");
-        running.setEndAt(null); // running
-        List<TimeEntry> entries = List.of(running);
+        running.setEndAt(null);
 
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())), entries, "2026-05-10", "2026-05-10"));
+        List<FindingDraft> findings = engine.evaluate(input(settings, List.of(running), "2026-05-10", "2026-05-10"));
 
         assertThat(findings).isEmpty();
     }
 
     @Test
-    void customPolicyEnabled_overridesTemplateThresholds() {
-        // Template says 480-min threshold (8h) — work of 300 min would not violate.
-        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        settings.setCustomPolicyEnabled(true);
-        settings.setCustomWorkThresholdMinutes(120); // tighter custom: 2h
-        settings.setCustomBreakThresholdMinutes(30);
+    void presetKey_arbzg_evaluatesSecondTier() {
+        // Admin loaded ArbZG preset → settings reflect ArbZG's two-tier rule.
+        // 9 h work → 45 min required. With 30 min taken, INSUFFICIENT for tier 2.
+        WorkspaceSettings settings = workspaceSettings(360, 30, 5);
+        settings.setAppliedPresetKey("germany-arbzg-style");
+        settings.setCustomMinBreakSegmentMinutes(15);
+        settings.setCustomSecondWorkThresholdMinutes(540);
+        settings.setCustomSecondBreakThresholdMinutes(45);
 
         List<TimeEntry> entries = List.of(
-                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")); // 300 min
+                workEntry("e1", "2026-05-10T08:00:00Z", "2026-05-10T17:30:00Z"),  // 570 min
+                breakEntry("e2", "2026-05-10T17:30:00Z", "2026-05-10T18:00:00Z")); // 30 min
 
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
-                entries, "2026-05-10", "2026-05-10"));
-
-        // 300 min > 120 (custom) + 5 (grace) → MISSING_REQUIRED_BREAK
-        assertThat(findings).extracting(FindingDraft::code)
-                .contains(FindingCode.MISSING_REQUIRED_BREAK);
-        FindingDraft missingBreak = findings.stream()
-                .filter(f -> f.code() == FindingCode.MISSING_REQUIRED_BREAK)
-                .findFirst().orElseThrow();
-        assertThat(missingBreak.message()).contains("threshold 120");
-    }
-
-    @Test
-    void customPolicyDisabled_fallsBackToTemplate() {
-        // Custom thresholds present but customPolicyEnabled=false → template wins.
-        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        settings.setCustomPolicyEnabled(false);
-        settings.setCustomWorkThresholdMinutes(120);
-        settings.setCustomBreakThresholdMinutes(30);
-
-        List<TimeEntry> entries = List.of(
-                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")); // 300 min
-
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
-                entries, "2026-05-10", "2026-05-10"));
-
-        // 300 min < 480 (template) → no MISSING/INSUFFICIENT findings
-        assertThat(findings).extracting(FindingDraft::code)
-                .doesNotContain(FindingCode.MISSING_REQUIRED_BREAK, FindingCode.INSUFFICIENT_BREAK_DURATION);
-    }
-
-    @Test
-    void customPolicy_appliesAllGranularOverrides() {
-        // Template: 480 min work, 30 min break, 480 min max continuous, 5 min grace,
-        // 10 min min-segment, allowSplit=true. Custom policy enables all six
-        // granular overrides; the engine should treat the template's fields as
-        // if they were the custom values.
-        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
-        tpl.setMinimumValidBreakSegmentMinutes(10);
-        tpl.setAllowSplitBreaks(true);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        settings.setCustomPolicyEnabled(true);
-        settings.setCustomWorkThresholdMinutes(120);
-        settings.setCustomBreakThresholdMinutes(20);
-        settings.setCustomMinBreakSegmentMinutes(15);          // override 10 → 15
-        settings.setCustomMaxContinuousWorkMinutes(180);       // override 120 (from work) → 180
-        settings.setCustomGracePeriodMinutes(10);              // override 5 → 10
-        settings.setCustomAllowSplitBreaks(false);             // override true → false
-        settings.setCustomSecondWorkThresholdMinutes(240);     // adds a second tier
-        settings.setCustomSecondBreakThresholdMinutes(45);     // 45 min req at 240 min work
-
-        // Worker logs 250 min in one block, then takes one 20-min break (qualifies
-        // because 20 ≥ 15 min segment). Total work 250, total qualifying break 20.
-        // Second tier kicks in (250 > 240 + 10 grace) requiring 45 min break.
-        // Actual 20 < 45 → INSUFFICIENT_BREAK_DURATION on the second tier.
-        List<TimeEntry> entries = List.of(
-                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:10:00Z"), // 250 min
-                breakEntry("e2", "2026-05-10T13:10:00Z", "2026-05-10T13:30:00Z"), // 20 min break (qualifies)
-                workEntry("e3", "2026-05-10T13:30:00Z", "2026-05-10T14:00:00Z")); // 30 min — small tail
-
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
-                entries, "2026-05-10", "2026-05-10"));
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
 
         assertThat(findings).extracting(FindingDraft::code)
                 .contains(FindingCode.INSUFFICIENT_BREAK_DURATION);
         FindingDraft insufficient = findings.stream()
                 .filter(f -> f.code() == FindingCode.INSUFFICIENT_BREAK_DURATION)
                 .findFirst().orElseThrow();
-        // Second-tier required = 45 (from customSecondBreakThresholdMinutes)
         assertThat(insufficient.message()).contains("required 45");
     }
 
     @Test
-    void customPolicy_omittedGranularFieldsInheritFromTemplate() {
-        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
-        tpl.setMinimumValidBreakSegmentMinutes(10);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        settings.setCustomPolicyEnabled(true);
-        settings.setCustomWorkThresholdMinutes(120);
-        settings.setCustomBreakThresholdMinutes(20);
-        // All optional custom fields left null → engine should use template's values.
+    void allowSplitBreaks_off_requiresOneUninterruptedSegment() {
+        // California-style meal rule: 30 min uninterrupted, no split.
+        WorkspaceSettings settings = workspaceSettings(300, 30, 5);
+        settings.setCustomMinBreakSegmentMinutes(10);
+        settings.setCustomAllowSplitBreaks(false);
 
-        // 250 min work, no break. customWork=120, custom-grace=null→template's 5 grace.
-        // 250 > 120 + 5 → MISSING_REQUIRED_BREAK.
+        // Two 15-min breaks summing to 30 — would pass with allowSplit=true,
+        // must FAIL with allowSplit=false because no single segment is 30 min.
         List<TimeEntry> entries = List.of(
-                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:10:00Z"));
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),   // 240 min
+                breakEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T13:15:00Z"),  // 15 min
+                workEntry("e3", "2026-05-10T13:15:00Z", "2026-05-10T16:00:00Z"),   // 165 min
+                breakEntry("e4", "2026-05-10T16:00:00Z", "2026-05-10T16:15:00Z"),  // 15 min
+                workEntry("e5", "2026-05-10T16:15:00Z", "2026-05-10T17:00:00Z")); // 45 min
 
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
-                entries, "2026-05-10", "2026-05-10"));
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.INSUFFICIENT_BREAK_DURATION);
+    }
+
+    @Test
+    void allowSplitBreaks_on_sumsQualifyingSegments() {
+        WorkspaceSettings settings = workspaceSettings(300, 30, 5);
+        settings.setCustomMinBreakSegmentMinutes(10);
+        settings.setCustomAllowSplitBreaks(true);
+
+        // Same payload as the previous test — passes when split is allowed.
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                breakEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T13:15:00Z"),
+                workEntry("e3", "2026-05-10T13:15:00Z", "2026-05-10T16:00:00Z"),
+                breakEntry("e4", "2026-05-10T16:00:00Z", "2026-05-10T16:15:00Z"),
+                workEntry("e5", "2026-05-10T16:15:00Z", "2026-05-10T17:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code).doesNotContain(
+                FindingCode.MISSING_REQUIRED_BREAK, FindingCode.INSUFFICIENT_BREAK_DURATION);
+    }
+
+    @Test
+    void maxContinuousWork_exceeded_emitsFinding() {
+        // 8 h continuous work, no breaks — exceeds max-continuous = 240.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setCustomMaxContinuousWorkMinutes(240);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z")); // 480 min
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED);
+    }
+
+    @Test
+    void emptySettings_fallsBackToCustomBasicDefaults() {
+        // No custom fields set — synthesizeWorkspaceTemplate falls back to
+        // RuleTemplatePresets.CUSTOM_BASIC. With 480 min work, 0 break, the
+        // default work threshold of 240 + grace 5 fires a MISSING.
+        WorkspaceSettings settings = new WorkspaceSettings();
+        settings.setWorkspaceId(WS);
+        settings.setAppliedPresetKey("custom-basic");
+        settings.setTimezoneStrategy(TimezoneStrategy.ENTRY_TIMEZONE);
+        settings.setFallbackDetectionEnabled(false);
+        settings.setCreatedAt(Instant.now());
+        settings.setUpdatedAt(Instant.now());
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
 
         assertThat(findings).extracting(FindingDraft::code)
                 .contains(FindingCode.MISSING_REQUIRED_BREAK);
     }
 
     @Test
-    void customPolicyEnabled_butMissingValues_fallsBackToTemplate() {
-        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        settings.setCustomPolicyEnabled(true);
-        // both thresholds null → cannot apply override, template wins
-
-        List<TimeEntry> entries = List.of(
-                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")); // 300 min
-
-        List<FindingDraft> findings = engine.evaluate(input(
-                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
-                entries, "2026-05-10", "2026-05-10"));
-
-        assertThat(findings).extracting(FindingDraft::code)
-                .doesNotContain(FindingCode.MISSING_REQUIRED_BREAK, FindingCode.INSUFFICIENT_BREAK_DURATION);
-    }
-
-    @Test
     void outputIsDeterministic_sortedByDateUserCode() {
-        RuleTemplate tpl = template("tpl-1", 30, 15, 30, 0);
-        WorkspaceSettings settings = settings(tpl.getId(), false);
-        List<TemplateAssignment> assigns = List.of(
-                userAssignment("user-a", tpl.getId()),
-                userAssignment("user-b", tpl.getId()));
+        WorkspaceSettings settings = workspaceSettings(30, 15, 0);
+
         List<TimeEntry> entries = List.of(
                 workEntryFor("user-a", "ea", "2026-05-11T09:00:00Z", "2026-05-11T10:00:00Z"),
                 workEntryFor("user-b", "eb", "2026-05-10T09:00:00Z", "2026-05-10T10:00:00Z"));
 
-        List<FindingDraft> findings = engine.evaluate(
-                input(settings, List.of(tpl), assigns, entries, "2026-05-10", "2026-05-11"));
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-11"));
 
-        // user-b on 5/10 comes before user-a on 5/11
         assertThat(findings).extracting(FindingDraft::date).containsSequence(
                 LocalDate.parse("2026-05-10"), LocalDate.parse("2026-05-11"));
     }
 
+    @Test
+    void noFindingsBelowThreshold_silentPass() {
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        // 100 min work, well below 240 threshold.
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T10:40:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        // No threshold-related findings at all — work below threshold.
+        assertThat(findings).noneMatch(f -> f.severity() == Severity.VIOLATION);
+    }
+
     // helpers
 
-    private static WorkspaceSettings settings(String defaultTemplateId, boolean fallback) {
+    private static WorkspaceSettings workspaceSettings(int workThreshold, int requiredBreak, int grace) {
         WorkspaceSettings s = new WorkspaceSettings();
         s.setWorkspaceId(WS);
-        s.setDefaultTemplateId(defaultTemplateId);
+        s.setAppliedPresetKey("custom-basic");
         s.setTimezoneStrategy(TimezoneStrategy.ENTRY_TIMEZONE);
-        s.setFallbackDetectionEnabled(fallback);
+        s.setFallbackDetectionEnabled(false);
+        s.setCustomWorkThresholdMinutes(workThreshold);
+        s.setCustomBreakThresholdMinutes(requiredBreak);
+        s.setCustomGracePeriodMinutes(grace);
+        s.setCustomMaxContinuousWorkMinutes(workThreshold);
         s.setCreatedAt(Instant.now());
         s.setUpdatedAt(Instant.now());
         return s;
-    }
-
-    private static RuleTemplate template(String id, int workThreshold, int requiredBreak, int maxContinuous, int grace) {
-        RuleTemplate t = new RuleTemplate();
-        t.setWorkspaceId(WS);
-        t.setId(id);
-        t.setKey("custom-basic");
-        t.setName("Test");
-        t.setType(RuleTemplateType.CUSTOM);
-        t.setEnabled(true);
-        t.setMinimumValidBreakSegmentMinutes(5);
-        t.setWorkThresholdMinutes(workThreshold);
-        t.setRequiredBreakMinutes(requiredBreak);
-        t.setMaxContinuousWorkMinutesBeforeBreak(maxContinuous);
-        t.setGracePeriodMinutes(grace);
-        t.setAllowSplitBreaks(true);
-        t.setCreatedAt(Instant.now());
-        t.setUpdatedAt(Instant.now());
-        return t;
-    }
-
-    private static TemplateAssignment userAssignment(String userId, String templateId) {
-        TemplateAssignment a = new TemplateAssignment();
-        a.setWorkspaceId(WS);
-        a.setTargetType(TargetType.USER);
-        a.setTargetId(userId);
-        a.setTemplateId(templateId);
-        a.setId("a-" + userId);
-        a.setCreatedAt(Instant.now());
-        a.setUpdatedAt(Instant.now());
-        return a;
     }
 
     private static TimeEntry workEntry(String sourceId, String startIso, String endIso) {
@@ -340,18 +263,16 @@ class BreakRuleEngineTest {
 
     private static BreakRuleEngineInput input(
             WorkspaceSettings settings,
-            List<RuleTemplate> templates,
-            List<TemplateAssignment> assignments,
             List<TimeEntry> entries,
             String fromIso,
             String toIso) {
         return new BreakRuleEngineInput(
                 WS,
                 settings,
-                templates,
-                assignments,
+                List.of(),     // templates unused
+                List.of(),     // assignments unused
                 entries,
-                List.of(),
+                List.of(),     // group memberships unused
                 LocalDate.parse(fromIso),
                 LocalDate.parse(toIso));
     }
