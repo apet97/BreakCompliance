@@ -131,3 +131,4 @@ evaluation path; the tables remain only for back-compat / future per-user expans
 - §22 — Settings button removed entirely, static caption added
 - `f7db0e6` (between §17 and §18) — revert §16's camelCase mistake; live API uses
   `timeentries` (lowercase). Confirmed by live probe.
+- §23 — security hardening, SDK conformity audit, and test suite verification
