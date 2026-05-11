@@ -134,31 +134,94 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asCheckbox()
                 .value(Boolean.FALSE)
-                .description("When enabled, the work / break thresholds below override the rule template's defaults for this workspace.")
+                .description("When enabled, the thresholds below override the rule template's defaults for this workspace. All fields are admin-editable.")
                 .build();
 
         ClockifySetting customWork = ClockifySetting.builder()
                 .id("customWorkThresholdMinutes")
-                .name("Custom work threshold (minutes)")
+                .name("Work threshold (minutes)")
                 .allowAdmins()
                 .asNumber()
                 .value(240)
-                .description("Minutes of work after which a break is required. Applies only when custom policy is enabled.")
+                .description("Minutes of work after which a break is required. Required for custom policy.")
                 .build();
 
         ClockifySetting customBreak = ClockifySetting.builder()
                 .id("customBreakThresholdMinutes")
-                .name("Custom required break (minutes)")
+                .name("Required break (minutes)")
                 .allowAdmins()
                 .asNumber()
                 .value(15)
-                .description("Minimum total qualifying break minutes required when over the work threshold. Applies only when custom policy is enabled.")
+                .description("Minimum total qualifying break minutes once over the work threshold. Required for custom policy.")
+                .build();
+
+        ClockifySetting customMinBreakSegment = ClockifySetting.builder()
+                .id("customMinBreakSegmentMinutes")
+                .name("Min break segment (minutes)")
+                .allowAdmins()
+                .asNumber()
+                .value(15)
+                .description("Shortest break segment that counts toward the required break total. Smaller segments are ignored. Set 0 to inherit template default.")
+                .build();
+
+        ClockifySetting customMaxContinuous = ClockifySetting.builder()
+                .id("customMaxContinuousWorkMinutes")
+                .name("Max continuous work (minutes)")
+                .allowAdmins()
+                .asNumber()
+                .value(240)
+                .description("Maximum minutes of uninterrupted work before a break is required. Set 0 to mirror the work threshold above.")
+                .build();
+
+        ClockifySetting customGrace = ClockifySetting.builder()
+                .id("customGracePeriodMinutes")
+                .name("Grace period (minutes)")
+                .allowAdmins()
+                .asNumber()
+                .value(5)
+                .description("Tolerance applied to threshold comparisons (e.g. 245 min work still ALLOWED when threshold=240, grace=5). Set 0 to disable.")
+                .build();
+
+        ClockifySetting customAllowSplit = ClockifySetting.builder()
+                .id("customAllowSplitBreaks")
+                .name("Allow split breaks")
+                .allowAdmins()
+                .asCheckbox()
+                .value(Boolean.TRUE)
+                .description("When ON, the required break total can be reached by summing multiple qualifying segments. When OFF, a single uninterrupted break of the required length is needed (e.g. California meal rule).")
+                .build();
+
+        ClockifySetting customSecondWork = ClockifySetting.builder()
+                .id("customSecondWorkThresholdMinutes")
+                .name("Second-tier work threshold (minutes)")
+                .allowAdmins()
+                .asNumber()
+                .value(0)
+                .description("Optional second-tier work threshold (e.g. ArbZG: 9 h → 45 min). Set 0 to disable the second tier.")
+                .build();
+
+        ClockifySetting customSecondBreak = ClockifySetting.builder()
+                .id("customSecondBreakThresholdMinutes")
+                .name("Second-tier required break (minutes)")
+                .allowAdmins()
+                .asNumber()
+                .value(0)
+                .description("Required break total once the second-tier work threshold is exceeded. Set 0 to disable the second tier.")
                 .build();
 
         ClockifySettingsTab customPolicyTab = ClockifySettingsTab.builder()
                 .id("customPolicy")
                 .name("Custom Policy")
-                .settings(List.of(customEnabled, customWork, customBreak))
+                .settings(List.of(
+                        customEnabled,
+                        customWork,
+                        customBreak,
+                        customMinBreakSegment,
+                        customMaxContinuous,
+                        customGrace,
+                        customAllowSplit,
+                        customSecondWork,
+                        customSecondBreak))
                 .build();
 
         return ClockifySettings.builder()

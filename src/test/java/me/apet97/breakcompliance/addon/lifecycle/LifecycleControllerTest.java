@@ -329,6 +329,33 @@ class LifecycleControllerTest {
     }
 
     @Test
+    void settingsUpdated_persistsAllSixGranularCustomFields() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[" +
+                                "{\"id\":\"customMinBreakSegmentMinutes\",\"value\":15}," +
+                                "{\"id\":\"customMaxContinuousWorkMinutes\",\"value\":180}," +
+                                "{\"id\":\"customGracePeriodMinutes\",\"value\":10}," +
+                                "{\"id\":\"customAllowSplitBreaks\",\"value\":false}," +
+                                "{\"id\":\"customSecondWorkThresholdMinutes\",\"value\":540}," +
+                                "{\"id\":\"customSecondBreakThresholdMinutes\",\"value\":45}" +
+                                "]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getCustomMinBreakSegmentMinutes()).isEqualTo(15);
+        assertThat(settings.getCustomMaxContinuousWorkMinutes()).isEqualTo(180);
+        assertThat(settings.getCustomGracePeriodMinutes()).isEqualTo(10);
+        assertThat(settings.getCustomAllowSplitBreaks()).isFalse();
+        assertThat(settings.getCustomSecondWorkThresholdMinutes()).isEqualTo(540);
+        assertThat(settings.getCustomSecondBreakThresholdMinutes()).isEqualTo(45);
+    }
+
+    @Test
     void settingsUpdated_unknownIdsAreSilentlyIgnored() throws Exception {
         installViaLifecycle();
 

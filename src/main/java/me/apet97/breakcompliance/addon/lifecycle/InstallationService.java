@@ -236,6 +236,18 @@ public class InstallationService {
             }
             case "customWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomWorkThresholdMinutes);
             case "customBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomBreakThresholdMinutes);
+            case "customMinBreakSegmentMinutes" -> setNullableMinutes(value, settings::setCustomMinBreakSegmentMinutes);
+            case "customMaxContinuousWorkMinutes" -> setNullableMinutes(value, settings::setCustomMaxContinuousWorkMinutes);
+            case "customGracePeriodMinutes" -> setNullableMinutes(value, settings::setCustomGracePeriodMinutes);
+            case "customAllowSplitBreaks" -> {
+                if (value instanceof Boolean b) {
+                    settings.setCustomAllowSplitBreaks(b);
+                    yield true;
+                }
+                yield false;
+            }
+            case "customSecondWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondWorkThresholdMinutes);
+            case "customSecondBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondBreakThresholdMinutes);
             default -> false;
         };
     }

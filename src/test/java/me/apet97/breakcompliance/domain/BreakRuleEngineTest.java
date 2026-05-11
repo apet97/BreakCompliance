@@ -162,6 +162,71 @@ class BreakRuleEngineTest {
     }
 
     @Test
+    void customPolicy_appliesAllGranularOverrides() {
+        // Template: 480 min work, 30 min break, 480 min max continuous, 5 min grace,
+        // 10 min min-segment, allowSplit=true. Custom policy enables all six
+        // granular overrides; the engine should treat the template's fields as
+        // if they were the custom values.
+        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
+        tpl.setMinimumValidBreakSegmentMinutes(10);
+        tpl.setAllowSplitBreaks(true);
+        WorkspaceSettings settings = settings(tpl.getId(), false);
+        settings.setCustomPolicyEnabled(true);
+        settings.setCustomWorkThresholdMinutes(120);
+        settings.setCustomBreakThresholdMinutes(20);
+        settings.setCustomMinBreakSegmentMinutes(15);          // override 10 → 15
+        settings.setCustomMaxContinuousWorkMinutes(180);       // override 120 (from work) → 180
+        settings.setCustomGracePeriodMinutes(10);              // override 5 → 10
+        settings.setCustomAllowSplitBreaks(false);             // override true → false
+        settings.setCustomSecondWorkThresholdMinutes(240);     // adds a second tier
+        settings.setCustomSecondBreakThresholdMinutes(45);     // 45 min req at 240 min work
+
+        // Worker logs 250 min in one block, then takes one 20-min break (qualifies
+        // because 20 ≥ 15 min segment). Total work 250, total qualifying break 20.
+        // Second tier kicks in (250 > 240 + 10 grace) requiring 45 min break.
+        // Actual 20 < 45 → INSUFFICIENT_BREAK_DURATION on the second tier.
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:10:00Z"), // 250 min
+                breakEntry("e2", "2026-05-10T13:10:00Z", "2026-05-10T13:30:00Z"), // 20 min break (qualifies)
+                workEntry("e3", "2026-05-10T13:30:00Z", "2026-05-10T14:00:00Z")); // 30 min — small tail
+
+        List<FindingDraft> findings = engine.evaluate(input(
+                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
+                entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.INSUFFICIENT_BREAK_DURATION);
+        FindingDraft insufficient = findings.stream()
+                .filter(f -> f.code() == FindingCode.INSUFFICIENT_BREAK_DURATION)
+                .findFirst().orElseThrow();
+        // Second-tier required = 45 (from customSecondBreakThresholdMinutes)
+        assertThat(insufficient.message()).contains("required 45");
+    }
+
+    @Test
+    void customPolicy_omittedGranularFieldsInheritFromTemplate() {
+        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
+        tpl.setMinimumValidBreakSegmentMinutes(10);
+        WorkspaceSettings settings = settings(tpl.getId(), false);
+        settings.setCustomPolicyEnabled(true);
+        settings.setCustomWorkThresholdMinutes(120);
+        settings.setCustomBreakThresholdMinutes(20);
+        // All optional custom fields left null → engine should use template's values.
+
+        // 250 min work, no break. customWork=120, custom-grace=null→template's 5 grace.
+        // 250 > 120 + 5 → MISSING_REQUIRED_BREAK.
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:10:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(
+                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
+                entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
+    }
+
+    @Test
     void customPolicyEnabled_butMissingValues_fallsBackToTemplate() {
         RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
         WorkspaceSettings settings = settings(tpl.getId(), false);

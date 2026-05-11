@@ -174,14 +174,15 @@ public class BreakRuleEngine {
     }
 
     /**
-     * If the workspace has custom policy enabled and both thresholds set,
-     * return a transient copy of the resolved template with the custom
-     * work/break thresholds applied. Single-tier by design: the secondary
-     * thresholds and max-continuous-work are aligned to the custom work
-     * threshold so admins don't have to reason about template internals.
+     * If the workspace has custom policy enabled and both core thresholds
+     * set, return a transient copy of the resolved template with all
+     * non-null custom values applied. Each optional custom field falls
+     * through to the underlying template value when null or {@code <= 0}
+     * (sentinel for "inherit"), giving admins granular control without
+     * forcing them to set every field.
      *
      * <p>Returns the input unchanged when custom policy is off, either
-     * threshold is missing, or the input template is null.
+     * core threshold is missing, or the input template is null.
      */
     private RuleTemplate applyCustomPolicyOverride(RuleTemplate base, WorkspaceSettings settings) {
         if (base == null) return null;
@@ -200,17 +201,39 @@ public class BreakRuleEngine {
         override.setPresetKey(base.getPresetKey());
         override.setVersion(base.getVersion());
         override.setEnabled(base.isEnabled());
-        override.setMinimumValidBreakSegmentMinutes(base.getMinimumValidBreakSegmentMinutes());
+
+        override.setMinimumValidBreakSegmentMinutes(positiveOr(
+                settings.getCustomMinBreakSegmentMinutes(),
+                base.getMinimumValidBreakSegmentMinutes()));
         override.setWorkThresholdMinutes(work);
         override.setRequiredBreakMinutes(brk);
-        override.setMaxContinuousWorkMinutesBeforeBreak(work);
-        override.setSecondThresholdMinutes(null);
-        override.setSecondRequiredBreakMinutes(null);
-        override.setAllowSplitBreaks(base.isAllowSplitBreaks());
-        override.setGracePeriodMinutes(base.getGracePeriodMinutes());
+        override.setMaxContinuousWorkMinutesBeforeBreak(positiveOr(
+                settings.getCustomMaxContinuousWorkMinutes(),
+                work));
+        override.setSecondThresholdMinutes(positiveOrNull(settings.getCustomSecondWorkThresholdMinutes()));
+        override.setSecondRequiredBreakMinutes(positiveOrNull(settings.getCustomSecondBreakThresholdMinutes()));
+        override.setAllowSplitBreaks(settings.getCustomAllowSplitBreaks() != null
+                ? settings.getCustomAllowSplitBreaks()
+                : base.isAllowSplitBreaks());
+        override.setGracePeriodMinutes(nonNegativeOr(
+                settings.getCustomGracePeriodMinutes(),
+                base.getGracePeriodMinutes()));
+
         override.setCreatedAt(base.getCreatedAt());
         override.setUpdatedAt(base.getUpdatedAt());
         return override;
+    }
+
+    private static int positiveOr(Integer custom, int fallback) {
+        return (custom != null && custom > 0) ? custom : fallback;
+    }
+
+    private static int nonNegativeOr(Integer custom, int fallback) {
+        return (custom != null && custom >= 0) ? custom : fallback;
+    }
+
+    private static Integer positiveOrNull(Integer custom) {
+        return (custom != null && custom > 0) ? custom : null;
     }
 
     private RuleTemplate resolveTemplateForUser(Context ctx, String userId) {

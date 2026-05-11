@@ -43,6 +43,24 @@ public class WorkspaceSettings {
     @Column(name = "custom_break_threshold_minutes")
     private Integer customBreakThresholdMinutes;
 
+    @Column(name = "custom_min_break_segment_minutes")
+    private Integer customMinBreakSegmentMinutes;
+
+    @Column(name = "custom_max_continuous_work_minutes")
+    private Integer customMaxContinuousWorkMinutes;
+
+    @Column(name = "custom_grace_period_minutes")
+    private Integer customGracePeriodMinutes;
+
+    @Column(name = "custom_allow_split_breaks")
+    private Boolean customAllowSplitBreaks;
+
+    @Column(name = "custom_second_work_threshold_minutes")
+    private Integer customSecondWorkThresholdMinutes;
+
+    @Column(name = "custom_second_break_threshold_minutes")
+    private Integer customSecondBreakThresholdMinutes;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

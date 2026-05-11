@@ -126,7 +126,15 @@ class ManifestContractTest {
         List<String> ids = new java.util.ArrayList<>();
         customPolicy.get("settings").forEach(node -> ids.add(node.get("id").asText()));
         assertThat(ids).containsExactly(
-                "customPolicyEnabled", "customWorkThresholdMinutes", "customBreakThresholdMinutes");
+                "customPolicyEnabled",
+                "customWorkThresholdMinutes",
+                "customBreakThresholdMinutes",
+                "customMinBreakSegmentMinutes",
+                "customMaxContinuousWorkMinutes",
+                "customGracePeriodMinutes",
+                "customAllowSplitBreaks",
+                "customSecondWorkThresholdMinutes",
+                "customSecondBreakThresholdMinutes");
     }
 
     @Test
