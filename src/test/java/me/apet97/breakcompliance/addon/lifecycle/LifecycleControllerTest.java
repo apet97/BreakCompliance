@@ -16,7 +16,9 @@ import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplateType;
+import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WebhookAuthToken;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
 import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.WebhookAuthTokenRepository;
@@ -242,17 +244,87 @@ class LifecycleControllerTest {
     }
 
     @Test
-    void settingsUpdated_acks200WithoutMutation() throws Exception {
-        mockMvc.perform(post("/lifecycle/installed")
-                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(INSTALLED_PAYLOAD))
-                .andExpect(status().isOk());
+    void settingsUpdated_emptyArrayLeavesSettingsUntouched() throws Exception {
+        installViaLifecycle();
+        WorkspaceSettings before = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
 
         mockMvc.perform(post("/lifecycle/settings-updated")
                         .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("[]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings after = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(after.getDefaultTemplateId()).isEqualTo(before.getDefaultTemplateId());
+        assertThat(after.getTimezoneStrategy()).isEqualTo(before.getTimezoneStrategy());
+        assertThat(after.isFallbackDetectionEnabled()).isEqualTo(before.isFallbackDetectionEnabled());
+    }
+
+    @Test
+    void settingsUpdated_persistsDefaultTemplateId() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"id\":\"defaultTemplateId\",\"value\":\"germany-arbg-style\"}]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getDefaultTemplateId()).isEqualTo("germany-arbg-style");
+    }
+
+    @Test
+    void settingsUpdated_persistsFallbackDetectionEnabled() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"id\":\"fallbackDetectionEnabled\",\"value\":true}]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.isFallbackDetectionEnabled()).isTrue();
+    }
+
+    @Test
+    void settingsUpdated_persistsTimezoneStrategy() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"id\":\"timezoneStrategy\",\"value\":\"ENTRY_TIMEZONE\"}]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getTimezoneStrategy()).isEqualTo(TimezoneStrategy.ENTRY_TIMEZONE);
+    }
+
+    @Test
+    void settingsUpdated_unknownIdsAreSilentlyIgnored() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"id\":\"unknown-field\",\"value\":\"x\"}]"))
+                .andExpect(status().isOk());
+        // No exception thrown; row remains valid.
+        assertThat(settingsRepo.findById(TestJwtForger.DEFAULT_WORKSPACE_ID)).isPresent();
+    }
+
+    private void installViaLifecycle() throws Exception {
+        mockMvc.perform(post("/lifecycle/installed")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(INSTALLED_PAYLOAD))
                 .andExpect(status().isOk());
     }
 

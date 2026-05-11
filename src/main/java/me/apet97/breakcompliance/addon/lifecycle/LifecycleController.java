@@ -1,6 +1,7 @@
 package me.apet97.breakcompliance.addon.lifecycle;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.ClaimsNormalizer;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
@@ -36,10 +37,11 @@ public class LifecycleController {
         return ResponseEntity.ok().build();
     }
 
-    @PostMapping("/settings-updated")
-    public ResponseEntity<Void> settingsUpdated(HttpServletRequest request) {
-        requireClaims(request);
-        // Phase J6 owns settings persistence; here we just acknowledge.
+    @PostMapping(value = "/settings-updated", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Void> settingsUpdated(
+            HttpServletRequest request, @RequestBody(required = false) List<Map<String, Object>> payload) {
+        NormalizedClaims claims = requireClaims(request);
+        installationService.handleSettingsUpdated(claims, payload == null ? List.of() : payload);
         return ResponseEntity.ok().build();
     }
 

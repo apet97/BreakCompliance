@@ -150,6 +150,75 @@ public class InstallationService {
         }
     }
 
+    /**
+     * Persist a SETTINGS_UPDATED payload. Clockify delivers an array of
+     * {@code {id, value, ...}} entries — one per setting changed in the
+     * native structured-settings page. Unknown ids are ignored; malformed
+     * values for a known id are silently dropped (Clockify's own validation
+     * upstream is the source of truth for accepted values, and we don't want
+     * a single bad field to nack the whole delivery and trigger redelivery
+     * loops).
+     */
+    @Transactional
+    public void handleSettingsUpdated(NormalizedClaims claims, List<Map<String, Object>> updates) {
+        String workspaceId = claims.workspaceId();
+        Instant now = Instant.now();
+        WorkspaceSettings settings = settingsRepo.findById(workspaceId).orElseGet(() -> {
+            WorkspaceSettings fresh = new WorkspaceSettings();
+            fresh.setWorkspaceId(workspaceId);
+            fresh.setTimezoneStrategy(TimezoneStrategy.ENTRY_TIMEZONE);
+            fresh.setFallbackDetectionEnabled(false);
+            fresh.setCreatedAt(now);
+            return fresh;
+        });
+
+        boolean changed = false;
+        for (Map<String, Object> entry : updates) {
+            if (entry == null) continue;
+            Object idObj = entry.get("id");
+            if (!(idObj instanceof String id) || id.isBlank()) continue;
+            Object value = entry.get("value");
+            changed |= applySettingUpdate(settings, id, value);
+        }
+
+        if (changed) {
+            settings.setUpdatedAt(now);
+            settingsRepo.save(settings);
+            log.info("lifecycle.settings-updated workspace={}", workspaceId);
+        }
+    }
+
+    private boolean applySettingUpdate(WorkspaceSettings settings, String id, Object value) {
+        return switch (id) {
+            case "defaultTemplateId" -> {
+                if (value instanceof String s && !s.isBlank()) {
+                    settings.setDefaultTemplateId(s);
+                    yield true;
+                }
+                yield false;
+            }
+            case "timezoneStrategy" -> {
+                if (value instanceof String s && !s.isBlank()) {
+                    try {
+                        settings.setTimezoneStrategy(TimezoneStrategy.valueOf(s));
+                        yield true;
+                    } catch (IllegalArgumentException ignored) {
+                        yield false;
+                    }
+                }
+                yield false;
+            }
+            case "fallbackDetectionEnabled" -> {
+                if (value instanceof Boolean b) {
+                    settings.setFallbackDetectionEnabled(b);
+                    yield true;
+                }
+                yield false;
+            }
+            default -> false;
+        };
+    }
+
     @Transactional
     public void handleStatusChanged(NormalizedClaims claims, String status) {
         installationRepo.findById(new Installation.Pk(claims.workspaceId(), claims.addonId())).ifPresent(install -> {
