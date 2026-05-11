@@ -5,6 +5,9 @@ import com.cake.clockify.addonsdk.clockify.model.ClockifyManifest;
 import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifyComponent;
 import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifyLifecycleEvent;
 import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifyScope;
+import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifySetting;
+import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifySettings;
+import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifySettingsTab;
 import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifyWebhook;
 import java.security.interfaces.RSAPublicKey;
 import java.util.List;
@@ -52,6 +55,7 @@ public class ClockifyAddonConfig {
                         ClockifyScope.REPORTS_READ,
                         ClockifyScope.WORKSPACE_READ))
                 .description(props.description())
+                .iconPath("/icon.svg")
                 .build();
 
         manifest.getLifecycle().add(ClockifyLifecycleEvent.builder()
@@ -83,9 +87,50 @@ public class ClockifyAddonConfig {
                 .label("Break Compliance")
                 .build());
 
-        manifest.setSettings("/settings");
+        manifest.setSettings(buildStructuredSettings());
 
         return manifest;
+    }
+
+    private static ClockifySettings buildStructuredSettings() {
+        ClockifySetting defaultTemplate = ClockifySetting.builder()
+                .id("defaultTemplateId")
+                .name("Default rule template")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("german-arbzg")
+                .allowedValues(List.of("german-arbzg", "california", "custom"))
+                .description("Rule template applied when a workspace has no per-user override.")
+                .build();
+
+        ClockifySetting timezoneStrategy = ClockifySetting.builder()
+                .id("timezoneStrategy")
+                .name("Time-zone strategy")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("ENTRY_TIMEZONE")
+                .allowedValues(List.of("ENTRY_TIMEZONE"))
+                .description("How to determine the day boundary for time entries.")
+                .build();
+
+        ClockifySetting fallbackDetection = ClockifySetting.builder()
+                .id("fallbackDetectionEnabled")
+                .name("Detect missing break entries")
+                .allowAdmins()
+                .asCheckbox()
+                .value(Boolean.FALSE)
+                .description("If on, flag continuous work blocks over the threshold even without an explicit BREAK entry.")
+                .build();
+
+        ClockifySettingsTab generalTab = ClockifySettingsTab.builder()
+                .id("general")
+                .name("General")
+                .settings(List.of(defaultTemplate, timezoneStrategy, fallbackDetection))
+                .build();
+
+        return ClockifySettings.builder()
+                .tabs(List.of(generalTab))
+                .build();
     }
 
     @Bean

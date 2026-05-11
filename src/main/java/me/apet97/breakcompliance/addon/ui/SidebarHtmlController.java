@@ -70,7 +70,6 @@ public class SidebarHtmlController {
                         </div>
                       </div>
                       <button id="run-btn" class="btn-primary">Check Compliance</button>
-                      <a id="settings-link" class="btn-icon" href="/settings" title="Settings" aria-label="Settings">⚙</a>
                     </div>
                   </header>
                   <div id="status-banner" class="error-banner" style="display:none"></div>

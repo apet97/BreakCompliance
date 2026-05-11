@@ -15,10 +15,11 @@ Tokens carried over:
 
 ## Component DOM contract
 
-The JS bundles (`/sidebar.js`, `/settings-page.js`) consume DOM elements by id; the HTML shells in `SidebarHtmlController` and `SettingsHtmlController` provide them:
+The JS bundle (`/sidebar.js`) consumes DOM elements by id; the HTML shell in `SidebarHtmlController` provides them:
 
-- Sidebar: `#jurisdiction-select`, `#date-preset-select`, `#custom-range-inputs`, `#run-btn`, `#settings-link`, `#status-banner`, `#diagnostics`, `#loading`, `#results-container`, `#export-json`, `#export-csv`, view-toggle radios.
-- Settings: `#banner`, `#settings-section`, `#templates-section`, `#assignments-section`, `#signals-section`.
+- Sidebar: `#jurisdiction-select`, `#date-preset-select`, `#custom-range-inputs`, `#run-btn`, `#status-banner`, `#diagnostics`, `#loading`, `#results-container`, `#export-json`, `#export-csv`, view-toggle radios.
+
+Settings UI is delivered by Clockify natively via structured-settings declarations in the manifest (`ClockifySettings`/`Tab`/`Setting` — see `ClockifyAddonConfig.java`); the add-on no longer hosts its own settings page.
 
 The JS modules use `document.createElement` + `textContent` (never `innerHTML`) for dynamic content so user-supplied strings (template names, finding messages) cannot be interpreted as markup.
 

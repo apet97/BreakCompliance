@@ -85,4 +85,31 @@ class ManifestContractTest {
 
         assertThat(body).doesNotContain("_WRITE");
     }
+
+    @Test
+    void manifest_declaresIconPathAndStructuredSettings() throws Exception {
+        MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
+
+        assertThat(root.get("iconPath").asText()).isEqualTo("/icon.svg");
+
+        JsonNode settings = root.get("settings");
+        assertThat(settings).isNotNull();
+        assertThat(settings.isObject()).isTrue();
+
+        JsonNode tabs = settings.get("tabs");
+        assertThat(tabs.isArray()).isTrue();
+        assertThat(tabs).hasSize(1);
+
+        JsonNode general = tabs.get(0);
+        assertThat(general.get("id").asText()).isEqualTo("general");
+        assertThat(general.get("name").asText()).isEqualTo("General");
+
+        JsonNode generalSettings = general.get("settings");
+        assertThat(generalSettings.isArray()).isTrue();
+        List<String> settingIds = new java.util.ArrayList<>();
+        generalSettings.forEach(node -> settingIds.add(node.get("id").asText()));
+        assertThat(settingIds).containsExactly(
+                "defaultTemplateId", "timezoneStrategy", "fallbackDetectionEnabled");
+    }
 }

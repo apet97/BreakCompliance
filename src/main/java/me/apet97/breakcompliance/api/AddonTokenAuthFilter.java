@@ -17,10 +17,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Verifies user-iframe tokens delivered via the {@code X-Addon-Token} header
- * on every {@code /api/*} request and {@code /sidebar} / {@code /settings}
- * UI shells. Distinct from {@link me.apet97.breakcompliance.addon.auth.ClockifyLifecycleAuthFilter}
+ * on every {@code /api/*} request and the {@code /sidebar} UI shell. Distinct
+ * from {@link me.apet97.breakcompliance.addon.auth.ClockifyLifecycleAuthFilter}
  * which guards the {@code /lifecycle/*} endpoints (those use a different
- * header name and different lifetime claims).
+ * header name and different lifetime claims). Settings UI is delivered by
+ * Clockify natively via structured-settings declarations in the manifest, so
+ * the add-on does not serve its own {@code /settings} page.
  */
 @Component
 public class AddonTokenAuthFilter extends OncePerRequestFilter {
@@ -37,7 +39,7 @@ public class AddonTokenAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String uri = request.getRequestURI();
-        return !(uri.startsWith("/api/") || "/sidebar".equals(uri) || "/settings".equals(uri));
+        return !(uri.startsWith("/api/") || "/sidebar".equals(uri));
     }
 
     @Override
