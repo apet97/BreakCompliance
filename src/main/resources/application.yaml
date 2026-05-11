@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: break-compliance
+  datasource:
+    url: jdbc:postgresql://${PGHOST:${DB_HOST:localhost}}:${PGPORT:${DB_PORT:5432}}/${PGDATABASE:${DB_NAME:break_compliance}}
+    username: ${PGUSER:${DATABASE_USERNAME:}}
+    password: ${PGPASSWORD:${DATABASE_PASSWORD:}}
+    hikari:
+      maximum-pool-size: 10
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDISHOST:${REDIS_HOST:localhost}}
+      port: ${REDISPORT:${REDIS_PORT:6379}}
+      username: ${REDISUSER:default}
+      password: ${REDISPASSWORD:}
+      timeout: 2s
+      connect-timeout: 2s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    me.apet97.breakcompliance: DEBUG
+
+breakcompliance:
+  security:
+    extra-frame-ancestors: ${EXTRA_FRAME_ANCESTORS:}
+    enable-hsts: ${ENABLE_HSTS:false}
+  manifest:
+    key: break-compliance
+    name: Break Compliance
+    base-url: ${ADDON_BASE_URL:http://localhost:8080}
+    description: "Review whether Clockify users took required break time. Checks explicit BREAK time entries against configurable rule templates (German ArbZG, California, Custom)."
+  clockify:
+    # Override only if Clockify rotates the published signing key. Default
+    # PEM is embedded in ClockifyAddonConfig.
+    public-key-pem: ${CLOCKIFY_PUBLIC_KEY_PEM:}
+  crypto:
+    active-key-id: ${INSTALLATION_TOKEN_KEY_ID:default}
+    keys:
+      # Deterministic fallback for local dev / CI / Testcontainers. Production
+      # MUST set INSTALLATION_TOKEN_KEY (64 hex chars / AES-256). A startup
+      # check will fail-fast in non-dev profiles once Phase J1.4 wires
+      # encrypted columns to the codec.
+      default: ${INSTALLATION_TOKEN_KEY:00000000000000000000000000000000000000000000000000000000000000aa}

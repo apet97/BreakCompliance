@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Local Maven settings template for installing the Clockify addon-java-sdk
+  from GitHub Packages.
+
+  1. Create a GitHub Personal Access Token at https://github.com/settings/tokens
+     with the read:packages scope.
+  2. Copy this file to ~/.m2/settings.xml (merge with existing file if you
+     already have one).
+  3. Replace YOUR_GITHUB_USERNAME and YOUR_GITHUB_PAT below.
+  4. Run `mvn verify` to confirm dependency resolution works.
+
+  The id "github" matches the <repository id> in pom.xml and the convention
+  used by the SDK's own configure-maven.sh script.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              https://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <servers>
+        <server>
+            <id>github</id>
+            <username>YOUR_GITHUB_USERNAME</username>
+            <password>YOUR_GITHUB_PAT</password>
+        </server>
+    </servers>
+</settings>

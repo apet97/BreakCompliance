@@ -1,0 +1,27 @@
+# ============================================================
+# Java / Maven / Spring Boot
+# ============================================================
+target/
+*.class
+*.jar
+*.war
+.mvn/
+hs_err_pid*
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+dependency-reduced-pom.xml
+
+# OS / temp
+.DS_Store
+*.log
+
+# Secrets
+.env
+.env.*
+!.env.example

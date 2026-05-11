@@ -1,0 +1,42 @@
+package me.apet97.breakcompliance.api;
+
+import jakarta.servlet.http.HttpServletRequest;
+import java.time.LocalDate;
+import java.util.Map;
+import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
+import me.apet97.breakcompliance.addon.auth.RequestAttributes;
+import me.apet97.breakcompliance.persistence.entities.IngestionRun;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/ingest")
+public class IngestionController {
+
+    private final IngestionService service;
+
+    public IngestionController(IngestionService service) {
+        this.service = service;
+    }
+
+    @PostMapping(value = "/detailed-report", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> ingest(
+            HttpServletRequest request, @RequestBody Map<String, String> body) {
+        NormalizedClaims claims = RequestAttributes.claims(request);
+        if (claims == null || claims.workspaceId() == null) {
+            return ResponseEntity.status(401).build();
+        }
+        LocalDate from = LocalDate.parse(body.getOrDefault("dateRangeStart", ""));
+        LocalDate to = LocalDate.parse(body.getOrDefault("dateRangeEnd", ""));
+        IngestionRun run = service.ingest(claims.workspaceId(), from, to);
+        return ResponseEntity.ok(Map.of(
+                "id", run.getId(),
+                "status", run.getStatus().name(),
+                "entriesProcessed", run.getEntriesProcessed(),
+                "errorCode", run.getErrorCode() == null ? "" : run.getErrorCode()));
+    }
+}

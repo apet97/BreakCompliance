@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "restart/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Configure Maven settings for GitHub Packages
+        env:
+          GITHUB_PACKAGES_USER: ${{ secrets.GH_PACKAGES_USER }}
+          GITHUB_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+        run: |
+          mkdir -p ~/.m2
+          {
+            echo '<settings>'
+            echo '  <servers>'
+            echo '    <server>'
+            echo '      <id>github</id>'
+            echo "      <username>${GITHUB_PACKAGES_USER}</username>"
+            echo "      <password>${GITHUB_PACKAGES_PAT}</password>"
+            echo '    </server>'
+            echo '  </servers>'
+            echo '</settings>'
+          } > ~/.m2/settings.xml
+
+      - name: Maven verify
+        run: mvn -B -ntp verify
