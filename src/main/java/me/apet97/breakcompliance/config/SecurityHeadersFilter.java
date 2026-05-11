@@ -16,10 +16,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <ul>
  *   <li><strong>CSP</strong> {@code default-src 'self'; frame-ancestors
- *       https://app.clockify.me [+ extra-frame-ancestors for dev portal]}
- *       — the iframe-embed contract Clockify enforces, with a configurable
- *       allowance for {@code https://developer.clockify.me} during dev-portal
- *       testing.
+ *       https://app.clockify.me https://*.clockify.me [+ extra-frame-ancestors]}
+ *       — the iframe-embed contract Clockify enforces. The wildcard in the
+ *       default ancestor list covers regional subdomains and
+ *       {@code https://developer.clockify.me} so the dev-portal validator
+ *       can iframe-preview components without extra configuration. Operators
+ *       can extend with non-{@code .clockify.me} hosts via the
+ *       {@code EXTRA_FRAME_ANCESTORS} env var (comma-delimited).
  *   <li><strong>X-Content-Type-Options</strong> {@code nosniff}.
  *   <li><strong>Referrer-Policy</strong> {@code no-referrer} — never leak
  *       the addon URL to outbound links from the iframe.
@@ -63,6 +66,7 @@ public class SecurityHeadersFilter extends OncePerRequestFilter {
     private String buildCsp() {
         List<String> ancestors = new ArrayList<>();
         ancestors.add("https://app.clockify.me");
+        ancestors.add("https://*.clockify.me");
         for (String extra : props.extraFrameAncestors()) {
             if (extra != null && !extra.isBlank()) {
                 ancestors.add(extra);

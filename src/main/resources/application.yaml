@@ -42,6 +42,7 @@ breakcompliance:
   security:
     extra-frame-ancestors: ${EXTRA_FRAME_ANCESTORS:}
     enable-hsts: ${ENABLE_HSTS:false}
+    cors-allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
   manifest:
     key: break-compliance
     name: Break Compliance

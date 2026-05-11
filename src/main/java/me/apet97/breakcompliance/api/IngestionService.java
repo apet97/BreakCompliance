@@ -53,7 +53,10 @@ public class IngestionService {
                 codec.decrypt(install.getAuthToken().getKeyId(), install.getAuthToken().getCipher());
         String reportsUrl = install.getReportsUrl();
         if (reportsUrl == null || reportsUrl.isBlank()) {
-            reportsUrl = "https://reports.api.clockify.me";
+            throw new IllegalStateException(
+                    "installation for workspaceId=" + workspaceId
+                            + " is missing reportsUrl; re-install the addon so the INSTALLED lifecycle"
+                            + " captures the workspace's region-specific Clockify endpoints from the JWT claims");
         }
 
         IngestionRun run = newRun(workspaceId, from, to);
