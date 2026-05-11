@@ -17,18 +17,25 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Verifies user-iframe tokens delivered via the {@code X-Addon-Token} header
- * on every {@code /api/*} request and the {@code /sidebar} UI shell. Distinct
- * from {@link me.apet97.breakcompliance.addon.auth.ClockifyLifecycleAuthFilter}
- * which guards the {@code /lifecycle/*} endpoints (those use a different
- * header name and different lifetime claims). Settings UI is delivered by
- * Clockify natively via structured-settings declarations in the manifest, so
- * the add-on does not serve its own {@code /settings} page.
+ * on every {@code /api/*} request and the {@code /sidebar} UI shell. For the
+ * iframe HTML load Clockify can only pass the token as the {@code auth_token}
+ * URL query parameter (a top-level navigation can't set request headers), so
+ * on the {@code /sidebar} route we accept the query-string form too; the
+ * sidebar JS then scrubs it via {@code history.replaceState} and forwards it
+ * as {@code X-Addon-Token} on every subsequent {@code /api/*} call.
+ *
+ * <p>Distinct from {@link me.apet97.breakcompliance.addon.auth.ClockifyLifecycleAuthFilter}
+ * which guards the {@code /lifecycle/*} endpoints (different header name and
+ * different lifetime claims). Settings UI is delivered by Clockify natively
+ * via structured-settings declarations in the manifest, so the add-on does
+ * not serve its own {@code /settings} page.
  */
 @Component
 public class AddonTokenAuthFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(AddonTokenAuthFilter.class);
     private static final String HEADER = "X-Addon-Token";
+    private static final String QUERY_PARAM = "auth_token";
 
     private final ClockifySignatureParser parser;
 
@@ -46,6 +53,9 @@ public class AddonTokenAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String token = request.getHeader(HEADER);
+        if ((token == null || token.isBlank()) && "/sidebar".equals(request.getRequestURI())) {
+            token = request.getParameter(QUERY_PARAM);
+        }
         if (token == null || token.isBlank()) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
