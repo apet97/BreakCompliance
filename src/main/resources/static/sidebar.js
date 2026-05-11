@@ -619,6 +619,7 @@ function wireEvents() {
     el("custom-start-date").addEventListener("change", e => { state.customStart = e.target.value; });
     el("custom-end-date").addEventListener("change", e => { state.customEnd = e.target.value; });
     el("run-btn").addEventListener("click", () => { runCompliance(); });
+    el("settings-btn").addEventListener("click", () => { openSettings(); });
 
     for (const radio of document.querySelectorAll('input[name="view-toggle"]')) {
         radio.addEventListener("change", () => {
@@ -628,6 +629,27 @@ function wireEvents() {
     }
     el("export-json").addEventListener("click", e => downloadExport(e, "json"));
     el("export-csv").addEventListener("click", e => downloadExport(e, "csv"));
+}
+
+// Ask Clockify to navigate the top-level browser to the native
+// structured-settings page for this add-on. The postMessage helper targets
+// the parent origin only (never "*"). When the parent doesn't have the
+// add-on iframe loaded with a navigate listener (e.g. preview surfaces),
+// the message goes nowhere — show explicit text instructions as the
+// graceful fallback so the user is never silently stuck.
+function openSettings() {
+    showBanner("hidden");
+    const workspaceId = state.session?.workspaceId;
+    if (!workspaceId) {
+        showBanner("err", "Not connected. Reload the sidebar to reconnect.");
+        return;
+    }
+    const path = `/workspaces/${workspaceId}/settings/addons/${ADDON_KEY}`;
+    const dispatched = messenger?.navigate?.(path);
+    if (!dispatched) {
+        showBanner("warn",
+            "Open Workspace Settings → Add-ons → Break Compliance → Settings to configure.");
+    }
 }
 
 // ─────────────────── Boot ───────────────────

@@ -69,7 +69,10 @@ public class SidebarHtmlController {
                           </div>
                         </div>
                       </div>
-                      <button id="run-btn" class="btn-primary">Check Compliance</button>
+                      <div class="button-row">
+                        <button id="run-btn" class="btn-primary" type="button">Check Compliance</button>
+                        <button id="settings-btn" class="btn-secondary" type="button" title="Open Workspace Settings → Add-ons → Break Compliance">Settings</button>
+                      </div>
                     </div>
                   </header>
                   <div id="status-banner" class="error-banner" style="display:none"></div>
