@@ -6,10 +6,12 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.ClaimsNormalizer;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
+import me.apet97.breakcompliance.config.BreakComplianceSecurityProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -38,9 +40,11 @@ public class AddonTokenAuthFilter extends OncePerRequestFilter {
     private static final String QUERY_PARAM = "auth_token";
 
     private final ClockifySignatureParser parser;
+    private final BreakComplianceSecurityProperties securityProps;
 
-    public AddonTokenAuthFilter(ClockifySignatureParser parser) {
+    public AddonTokenAuthFilter(ClockifySignatureParser parser, BreakComplianceSecurityProperties securityProps) {
         this.parser = parser;
+        this.securityProps = securityProps;
     }
 
     @Override
@@ -72,6 +76,17 @@ public class AddonTokenAuthFilter extends OncePerRequestFilter {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
+        // Replay-protection: reject tokens whose iat claim is older than the
+        // configured ceiling (default 30 min — matches the documented
+        // ~30 min token rotation window). Operators can tighten this via
+        // breakcompliance.security.sidebar-token-max-iat-age-seconds when
+        // the sidebar refreshes more aggressively, or loosen it during local
+        // dev. Tokens missing iat are not rejected (older Clockify schemas
+        // may not include the claim).
+        if (!isIatAcceptable(claims, request.getRequestURI())) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            return;
+        }
         NormalizedClaims normalized;
         try {
             normalized = ClaimsNormalizer.normalize(claims);
@@ -85,5 +100,26 @@ public class AddonTokenAuthFilter extends OncePerRequestFilter {
         }
         request.setAttribute(RequestAttributes.NORMALIZED_CLAIMS, normalized);
         chain.doFilter(request, response);
+    }
+
+    private boolean isIatAcceptable(Map<String, Object> claims, String path) {
+        Object iatObj = claims.get("iat");
+        if (!(iatObj instanceof Number)) {
+            return true; // missing iat → don't reject; honored only when present
+        }
+        long iat = ((Number) iatObj).longValue();
+        long now = Instant.now().getEpochSecond();
+        long skew = securityProps.iatClockSkewSeconds();
+        long maxAge = securityProps.sidebarTokenMaxIatAgeSeconds();
+        if (iat > now + skew) {
+            log.debug("api.auth.iat-in-future path={} iat={} now={}", path, iat, now);
+            return false;
+        }
+        long ageSec = now - iat;
+        if (ageSec > maxAge + skew) {
+            log.debug("api.auth.iat-too-old path={} ageSec={} maxAge={}", path, ageSec, maxAge);
+            return false;
+        }
+        return true;
     }
 }

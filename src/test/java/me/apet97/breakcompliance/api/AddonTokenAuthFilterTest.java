@@ -4,6 +4,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
 import me.apet97.breakcompliance.addon.auth.TestJwtForger;
 import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
@@ -87,5 +90,38 @@ class AddonTokenAuthFilterTest {
         String token = TestJwtForger.forgeInstalledToken();
         mockMvc.perform(get("/api/session").header("X-Addon-Token", token))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void apiEndpoint_rejectsTokenWithIatOlderThanCeiling() throws Exception {
+        // Forge a token whose iat is 2 hours old. The default ceiling
+        // (sidebar-token-max-iat-age-seconds=1800) + 60s skew → reject.
+        Instant pastIat = Instant.now().minus(Duration.ofHours(2));
+        Instant futureExp = Instant.now().plus(Duration.ofHours(1)); // exp still valid
+        String stale = TestJwtForger.forge(Map.of(), pastIat, futureExp);
+
+        mockMvc.perform(get("/api/session").header("X-Addon-Token", stale))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void apiEndpoint_acceptsTokenWithIatInsideCeiling() throws Exception {
+        // Forge a token whose iat is 10 min old — well inside the default 30 min ceiling.
+        Instant recentIat = Instant.now().minus(Duration.ofMinutes(10));
+        Instant futureExp = Instant.now().plus(Duration.ofHours(1));
+        String fresh = TestJwtForger.forge(Map.of(), recentIat, futureExp);
+
+        mockMvc.perform(get("/api/session").header("X-Addon-Token", fresh))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void sidebar_rejectsTokenWithIatOlderThanCeiling() throws Exception {
+        Instant pastIat = Instant.now().minus(Duration.ofHours(2));
+        Instant futureExp = Instant.now().plus(Duration.ofHours(1));
+        String stale = TestJwtForger.forge(Map.of(), pastIat, futureExp);
+
+        mockMvc.perform(get("/sidebar").param("auth_token", stale))
+                .andExpect(status().isUnauthorized());
     }
 }

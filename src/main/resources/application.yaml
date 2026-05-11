@@ -50,6 +50,12 @@ breakcompliance:
     extra-frame-ancestors: ${EXTRA_FRAME_ANCESTORS:}
     enable-hsts: ${ENABLE_HSTS:false}
     cors-allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
+    # iat replay protection on user/sidebar JWTs. Tokens older than this
+    # ceiling are rejected with 401. Default 30 min matches Clockify's
+    # documented token rotation window; tighten when the sidebar refreshes
+    # more aggressively, loosen during local dev with long-lived test tokens.
+    sidebar-token-max-iat-age-seconds: ${SIDEBAR_TOKEN_MAX_IAT_AGE_SECONDS:1800}
+    iat-clock-skew-seconds: ${IAT_CLOCK_SKEW_SECONDS:60}
   manifest:
     key: break-compliance-jvm
     name: Break Compliance
