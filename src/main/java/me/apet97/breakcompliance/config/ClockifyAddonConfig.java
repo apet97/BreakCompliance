@@ -10,11 +10,14 @@ import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifySettings;
 import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifySettingsTab;
 import com.cake.clockify.addonsdk.clockify.model.v1_3.ClockifyWebhook;
 import java.security.interfaces.RSAPublicKey;
+import java.time.Duration;
 import java.util.List;
 import me.apet97.breakcompliance.addon.auth.PublicKeyParser;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
 
 /**
  * Builds the v1.3 Clockify manifest at startup and exposes it as a Spring
@@ -243,5 +246,21 @@ public class ClockifyAddonConfig {
     public ClockifySignatureParser clockifySignatureParser(
             BreakComplianceManifestProperties manifestProps, RSAPublicKey clockifyPublicKey) {
         return new ClockifySignatureParser(manifestProps.key(), clockifyPublicKey);
+    }
+
+    /**
+     * Shared {@link RestClient} reused by every outbound Clockify call.
+     * Previously {@code ClockifyApi} called {@code RestClient.create()} per
+     * request, which under burst load (4× retries on each 429 / 5xx) churned
+     * thread pools, connection factories, and TCP handshakes. The shared
+     * client lets the underlying request factory pool sockets, with explicit
+     * connect + read timeouts that match the addon's quick-acknowledge SLA.
+     */
+    @Bean
+    public RestClient clockifyRestClient() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout((int) Duration.ofSeconds(10).toMillis());
+        factory.setReadTimeout((int) Duration.ofSeconds(30).toMillis());
+        return RestClient.builder().requestFactory(factory).build();
     }
 }

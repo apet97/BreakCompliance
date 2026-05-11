@@ -75,11 +75,22 @@ public class DetailedReportFetcher {
                 all.add(mapper.convertValue(entry, Map.class));
             }
             
+            // Pagination stop conditions, in order of preference:
+            //   1. Clockify sends `Last-Page: true` when it knows this is the
+            //      final page. This is the canonical contract per the
+            //      marketplace docs and is set on a strict majority of
+            //      responses.
+            //   2. Some legacy / regional builds omit the header on the final
+            //      page; if the returned entry count is below PAGE_SIZE we
+            //      treat that as a soft terminator. This is safe because
+            //      Clockify always fills a page when there are more rows
+            //      available — `< PAGE_SIZE` implies "nothing more".
+            //   3. MAX_PAGES is the hard safety net so a runaway loop can
+            //      never burn a worker thread indefinitely.
             String lastPageStr = response.getHeaders().getFirst("Last-Page");
             if (lastPageStr != null && lastPageStr.equals("true")) {
                 break;
             }
-            
             if (entries.size() < PAGE_SIZE) {
                 break;
             }

@@ -6,24 +6,41 @@ import java.util.Set;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 
 /**
- * Classifies an ingested time entry as {@code BREAK} or {@code WORK}.
+ * Classifies an ingested time entry as {@code BREAK}, {@code WORK}, or
+ * {@code IGNORED}.
  *
- * <p>Canonical Detailed Report {@code type} wins: {@code BREAK} is a break,
- * any other explicit non-empty type is work. When the workspace has
- * {@code fallback_detection_enabled = true} AND the canonical type is
- * missing/blank, we do a conservative word-boundary marker scan over
- * {@code description} + {@code tags}. The heuristic is advisory and never
- * overrides an explicit non-BREAK canonical type — this matches the TS
+ * <p>Canonical Detailed Report {@code type} wins:
+ * <ul>
+ *   <li>{@code BREAK} → {@link Kind#BREAK}: counts toward qualifying-break minutes.</li>
+ *   <li>{@code TIME_OFF}, {@code HOLIDAY} → {@link Kind#IGNORED}: skipped entirely by
+ *       the engine; the user wasn't working, so neither work-threshold nor
+ *       continuous-work calculations should include these minutes.
+ *       (Before this rule the engine misclassified PTO/holiday days as work
+ *       and reported false-positive missing-break findings.)</li>
+ *   <li>Any other explicit non-empty type (e.g. {@code REGULAR}) → {@link Kind#WORK}.</li>
+ * </ul>
+ *
+ * <p>When the workspace has {@code fallback_detection_enabled = true} AND the
+ * canonical type is missing/blank, we do a conservative word-boundary marker
+ * scan over {@code description} + {@code tags}. The heuristic is advisory
+ * and never overrides an explicit canonical type — this matches the TS
  * {@code classifyIngestedEntryForBreakDetection} contract.
  */
 public final class EntryClassifier {
 
     public enum Kind {
         BREAK,
-        WORK
+        WORK,
+        /** PTO / holiday entries — count as neither work nor break. */
+        IGNORED
     }
 
     private static final Set<String> MARKERS = Set.of("break", "pause", "lunch", "rest");
+    /**
+     * Canonical Detailed Report {@code type} values that mean "the user was
+     * not working" — skipped entirely by the rule engine.
+     */
+    private static final Set<String> IGNORED_TYPES = Set.of("TIME_OFF", "HOLIDAY");
 
     private EntryClassifier() {
     }
@@ -31,7 +48,10 @@ public final class EntryClassifier {
     public static Kind classify(TimeEntry entry, boolean fallbackDetectionEnabled) {
         String canonical = extractType(entry);
         if (canonical != null) {
-            return "BREAK".equalsIgnoreCase(canonical) ? Kind.BREAK : Kind.WORK;
+            String upper = canonical.toUpperCase();
+            if ("BREAK".equals(upper)) return Kind.BREAK;
+            if (IGNORED_TYPES.contains(upper)) return Kind.IGNORED;
+            return Kind.WORK;
         }
         if (!fallbackDetectionEnabled) {
             return Kind.WORK;

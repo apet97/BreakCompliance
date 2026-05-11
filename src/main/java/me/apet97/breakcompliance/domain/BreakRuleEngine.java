@@ -18,6 +18,8 @@ import me.apet97.breakcompliance.persistence.entities.Severity;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -41,6 +43,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class BreakRuleEngine {
+
+    private static final Logger log = LoggerFactory.getLogger(BreakRuleEngine.class);
 
     public List<FindingDraft> evaluate(BreakRuleEngineInput input) {
         List<DayBucket> buckets = bucketEntries(input);
@@ -183,6 +187,15 @@ public class BreakRuleEngine {
         return (custom != null && custom > 0) ? custom : null;
     }
 
+    /**
+     * Groups entries into (user, date) buckets using the workspace's
+     * {@link TimezoneStrategy}. With {@code ENTRY_TIMEZONE} the bucket date
+     * is derived from {@code entry.raw.timeInterval.timeZone} (the entry's
+     * own timezone string from Clockify); unparseable timezone strings fall
+     * back to UTC and emit a debug log so admins notice systemic drift.
+     * Cross-workspace, missing user, and running entries are silently
+     * skipped — they're filtered out at the boundary, not in the engine.
+     */
     private List<DayBucket> bucketEntries(BreakRuleEngineInput input) {
         Map<String, TreeMap<LocalDate, List<TimeEntry>>> byUser = new HashMap<>();
         for (TimeEntry entry : input.entries()) {
@@ -201,7 +214,9 @@ public class BreakRuleEngine {
                     if (ti.get("timeZone") instanceof String tz && !tz.isBlank()) {
                         try {
                             zoneId = ZoneId.of(tz);
-                        } catch (Exception ignored) {
+                        } catch (Exception e) {
+                            log.debug("engine.bucket.invalid-timezone workspace={} entry={} tz={} reason={}",
+                                    input.workspaceId(), entry.getSourceEntryId(), tz, e.getClass().getSimpleName());
                         }
                     }
                 }
@@ -245,6 +260,13 @@ public class BreakRuleEngine {
             entryIds.add(entry.getSourceEntryId());
             int minutes = durationMinutes(entry);
             EntryClassifier.Kind kind = EntryClassifier.classify(entry, fallbackEnabled);
+            if (kind == EntryClassifier.Kind.IGNORED) {
+                // TIME_OFF / HOLIDAY entries are not work and not breaks —
+                // the user wasn't on the clock. Don't reset the continuous-work
+                // counter either (an IGNORED block that lands mid-day shouldn't
+                // accidentally satisfy a break requirement).
+                continue;
+            }
             if (kind == EntryClassifier.Kind.BREAK) {
                 if (minutes >= template.getMinimumValidBreakSegmentMinutes()) {
                     qualifyingBreakMinutes += minutes;

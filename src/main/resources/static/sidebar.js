@@ -479,17 +479,51 @@ function displayUserName(findings, userId) {
     return userId;
 }
 
+function enumerateDates(startIso, endIso) {
+    // Inclusive day-by-day enumeration. Returns ISO strings.
+    const out = [];
+    if (!startIso || !endIso) return out;
+    const start = new Date(`${startIso}T00:00:00Z`);
+    const end = new Date(`${endIso}T00:00:00Z`);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return out;
+    // Cap defensively at ~6 weeks so a bad input can't blow up the DOM.
+    const MAX_DAYS = 45;
+    let count = 0;
+    for (let d = start; d <= end && count < MAX_DAYS; d.setUTCDate(d.getUTCDate() + 1)) {
+        out.push(`${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`);
+        count++;
+    }
+    return out;
+}
+
+function statusIconMeta(severity) {
+    const cls = severityClass(severity);
+    if (cls === "pass") return { icon: "✓", srLabel: "Pass" };
+    if (cls === "warn") return { icon: "!", srLabel: "Warning" };
+    return { icon: "✗", srLabel: "Violation" };
+}
+
 function renderPivot(container) {
     const byUser = new Map();
-    const allDates = new Set();
     for (const f of state.findings) {
         if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
         const byDate = byUser.get(f.userId);
         if (!byDate.has(f.date)) byDate.set(f.date, []);
         byDate.get(f.date).push(f);
-        allDates.add(f.date);
     }
-    const sortedDates = [...allDates].sort();
+
+    // Show every day in the run's range (not just days with findings) so an
+    // 8h block of green cells reads as "this user was checked and passed",
+    // not "the table is missing days". Fall back to the union of finding
+    // dates if no range is recorded (defensive).
+    let sortedDates = state.lastRunRange
+        ? enumerateDates(state.lastRunRange.start, state.lastRunRange.end)
+        : [];
+    if (sortedDates.length === 0) {
+        const fromFindings = new Set();
+        for (const f of state.findings) fromFindings.add(f.date);
+        sortedDates = [...fromFindings].sort();
+    }
 
     // Pre-compute display names so each row picks the best available name.
     const namesByUser = new Map();
@@ -507,7 +541,7 @@ function renderPivot(container) {
         const d = new Date(`${date}T00:00:00Z`);
         const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] ?? "";
         const dayDate = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-        const th = create("th", { className: "day-col" });
+        const th = create("th", { className: "day-col", title: date });
         th.appendChild(create("div", { className: "day-name", text: dayName }));
         th.appendChild(create("div", { className: "day-date", text: dayDate }));
         headerRow.appendChild(th);
@@ -523,16 +557,24 @@ function renderPivot(container) {
         for (const date of sortedDates) {
             const findings = byDate.get(date) ?? [];
             if (findings.length === 0) {
-                const cell = create("td", { className: "day-cell status-none" });
+                // No findings for this user-day. Could be a clean pass, a
+                // PTO/holiday day (engine filters TIME_OFF/HOLIDAY), or no
+                // entries recorded. "·" + a tooltip explains.
+                const cell = create("td", {
+                    className: "day-cell status-none",
+                    title: `${date} — no findings`,
+                });
+                cell.appendChild(create("span", { className: "sr-only", text: "No findings" }));
                 cell.appendChild(create("span", { className: "status-icon", text: "·" }));
                 row.appendChild(cell);
                 continue;
             }
             const worst = pickWorstSeverityFinding(findings);
             const cls = severityClass(worst.severity);
-            const icon = cls === "pass" ? "✓" : cls === "warn" ? "!" : "✗";
+            const { icon, srLabel } = statusIconMeta(worst.severity);
             const summary = `${formatMinutes(worst.evidence.workMinutes)} · ${formatMinutes(worst.evidence.breakMinutes)}`;
             const cell = create("td", { className: `day-cell status-${cls}`, title: worst.message });
+            cell.appendChild(create("span", { className: "sr-only", text: `${srLabel}: ` }));
             cell.appendChild(create("span", { className: "status-icon", text: icon }));
             cell.appendChild(create("div", { className: "cell-detail", text: summary }));
             row.appendChild(cell);
@@ -567,10 +609,11 @@ function renderChecklist(container) {
             const findings = byDate.get(date);
             const worst = pickWorstSeverityFinding(findings);
             const cls = severityClass(worst.severity);
-            const icon = cls === "pass" ? "✓" : cls === "warn" ? "!" : "✗";
+            const { icon, srLabel } = statusIconMeta(worst.severity);
             const summary = `Work: ${formatMinutes(worst.evidence.workMinutes)} | Break: ${formatMinutes(worst.evidence.breakMinutes)}`;
             const section = create("div", { className: `day-section status-${cls}` });
             const header = create("div", { className: "day-header" });
+            header.appendChild(create("span", { className: "sr-only", text: `${srLabel}: ` }));
             header.appendChild(create("span", { className: "day-status-icon", text: icon }));
             header.appendChild(create("span", { className: "day-label", text: date }));
             header.appendChild(create("span", { className: "day-summary", text: summary }));
@@ -745,7 +788,13 @@ function wireEvents() {
         }
     });
     document.addEventListener("keydown", e => {
-        if (e.key === "Escape" && state.detailsOpen) toggleActiveTemplateDetails(false);
+        if (e.key === "Escape" && state.detailsOpen) {
+            toggleActiveTemplateDetails(false);
+            // Return focus to the chip so keyboard users keep their place
+            // instead of falling back to <body>.
+            const chip = document.getElementById("active-template-chip");
+            chip?.focus?.();
+        }
     });
 
     for (const radio of document.querySelectorAll('input[name="view-toggle"]')) {
@@ -757,11 +806,34 @@ function wireEvents() {
 }
 
 // Refresh the "Last checked" relative time once a minute so the label
-// doesn't go stale while the sidebar is open.
+// doesn't go stale while the sidebar is open. The interval pauses when
+// the iframe is hidden (Clockify switches to another sidebar entry, or
+// the browser tab is backgrounded) so we don't burn CPU on a non-visible
+// surface; on re-show, an immediate refresh corrects any drift that
+// accumulated while we were paused.
+let lastCheckedTicker = null;
 function startLastCheckedTicker() {
-    setInterval(() => {
+    if (lastCheckedTicker != null) return; // idempotent
+    lastCheckedTicker = setInterval(() => {
         if (state.lastRunAt) renderLastChecked();
     }, 30 * 1000);
+}
+function stopLastCheckedTicker() {
+    if (lastCheckedTicker != null) {
+        clearInterval(lastCheckedTicker);
+        lastCheckedTicker = null;
+    }
+}
+function wireVisibilityChange() {
+    document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+            stopLastCheckedTicker();
+        } else {
+            // Coming back from hidden — fresh-render once, then resume.
+            if (state.lastRunAt) renderLastChecked();
+            startLastCheckedTicker();
+        }
+    });
 }
 
 // Settings navigation removed. Clockify's documented `navigate` postMessage
@@ -802,6 +874,7 @@ function initAuthAndMessenger() {
 function init() {
     document.title = ADDON_TITLE;
     wireEvents();
+    wireVisibilityChange();
     startLastCheckedTicker();
     loadInitialData();
 }

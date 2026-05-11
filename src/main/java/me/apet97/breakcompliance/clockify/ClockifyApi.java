@@ -48,10 +48,12 @@ public class ClockifyApi {
     private static final int MAX_5XX_RETRIES = 4;
     private static final int MAX_429_RETRIES = 4;
 
+    private final RestClient restClient;
     private final ClockifyRateLimiter rateLimiter;
     private final ObjectMapper objectMapper;
 
-    public ClockifyApi(ClockifyRateLimiter rateLimiter, ObjectMapper objectMapper) {
+    public ClockifyApi(RestClient clockifyRestClient, ClockifyRateLimiter rateLimiter, ObjectMapper objectMapper) {
+        this.restClient = clockifyRestClient;
         this.rateLimiter = rateLimiter;
         this.objectMapper = objectMapper;
     }
@@ -59,7 +61,7 @@ public class ClockifyApi {
     public <T> T get(String workspaceId, String baseUrl, String addonToken, String path, Class<T> type) {
         validateBaseUrl(baseUrl);
         String url = baseUrl + path;
-        return executeWithRetry(workspaceId, attempt -> RestClient.create()
+        return executeWithRetry(workspaceId, attempt -> restClient
                 .get()
                 .uri(URI.create(url))
                 .header("X-Addon-Token", addonToken)
@@ -71,7 +73,7 @@ public class ClockifyApi {
     public <T> T post(String workspaceId, String baseUrl, String addonToken, String path, Object body, Class<T> type) {
         validateBaseUrl(baseUrl);
         String url = baseUrl + path;
-        return executeWithRetry(workspaceId, attempt -> RestClient.create()
+        return executeWithRetry(workspaceId, attempt -> restClient
                 .post()
                 .uri(URI.create(url))
                 .header("X-Addon-Token", addonToken)
@@ -85,7 +87,7 @@ public class ClockifyApi {
     public <T> org.springframework.http.ResponseEntity<T> postWithHeaders(String workspaceId, String baseUrl, String addonToken, String path, Object body, Class<T> type) {
         validateBaseUrl(baseUrl);
         String url = baseUrl + path;
-        return executeWithRetry(workspaceId, attempt -> RestClient.create()
+        return executeWithRetry(workspaceId, attempt -> restClient
                 .post()
                 .uri(URI.create(url))
                 .header("X-Addon-Token", addonToken)

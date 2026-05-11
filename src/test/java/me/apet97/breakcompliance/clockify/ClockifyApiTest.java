@@ -24,6 +24,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
 
 class ClockifyApiTest {
 
@@ -47,7 +49,13 @@ class ClockifyApiTest {
     void resetWireMockAndApi() {
         WireMock.configureFor("localhost", wireMock.port());
         wireMock.resetAll();
-        api = new ClockifyApi(new InMemoryRateLimiter(), new ObjectMapper());
+        // Mirror the production bean wiring — short timeouts so retry tests
+        // don't drag.
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(2000);
+        factory.setReadTimeout(2000);
+        RestClient client = RestClient.builder().requestFactory(factory).build();
+        api = new ClockifyApi(client, new InMemoryRateLimiter(), new ObjectMapper());
     }
 
     @Test

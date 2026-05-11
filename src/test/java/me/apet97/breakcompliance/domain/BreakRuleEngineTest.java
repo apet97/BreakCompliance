@@ -213,6 +213,50 @@ class BreakRuleEngineTest {
         assertThat(findings).noneMatch(f -> f.severity() == Severity.VIOLATION);
     }
 
+    @Test
+    void timeOffEntry_excludedFromWorkMinutes_noBreakViolation() {
+        // A full-day PTO entry must NOT count toward the daily work-threshold
+        // calculation. Before the fix the canonical TIME_OFF type was
+        // classified as WORK (anything-not-BREAK), which produced
+        // false-positive MISSING_REQUIRED_BREAK findings on PTO days.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+
+        List<TimeEntry> entries = List.of(
+                timeOffEntry("e1", "2026-05-10T08:00:00Z", "2026-05-10T16:00:00Z")); // 480 min PTO
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).isEmpty();
+    }
+
+    @Test
+    void holidayEntry_excludedFromWorkMinutes_noBreakViolation() {
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+
+        List<TimeEntry> entries = List.of(
+                holidayEntry("e1", "2026-05-10T00:00:00Z", "2026-05-10T08:00:00Z")); // 8h HOLIDAY
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).isEmpty();
+    }
+
+    @Test
+    void timeOffMixedWithWork_onlyWorkMinutesCountToThreshold() {
+        // 3h work + 5h PTO on the same day. Without the IGNORED rule the
+        // engine would tally 8h and fire a MISSING break finding; with the
+        // rule only the 3h work counts and the day passes.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T12:00:00Z"),     // 180 min work
+                timeOffEntry("e2", "2026-05-10T12:00:00Z", "2026-05-10T17:00:00Z")); // 300 min PTO
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).isEmpty();
+    }
+
     // helpers
 
     private static WorkspaceSettings workspaceSettings(int workThreshold, int requiredBreak, int grace) {
@@ -243,6 +287,18 @@ class BreakRuleEngineTest {
     private static TimeEntry breakEntry(String sourceId, String startIso, String endIso) {
         TimeEntry e = baseEntry(USER, sourceId, startIso, endIso);
         e.setRaw(Map.of("type", "BREAK"));
+        return e;
+    }
+
+    private static TimeEntry timeOffEntry(String sourceId, String startIso, String endIso) {
+        TimeEntry e = baseEntry(USER, sourceId, startIso, endIso);
+        e.setRaw(Map.of("type", "TIME_OFF"));
+        return e;
+    }
+
+    private static TimeEntry holidayEntry(String sourceId, String startIso, String endIso) {
+        TimeEntry e = baseEntry(USER, sourceId, startIso, endIso);
+        e.setRaw(Map.of("type", "HOLIDAY"));
         return e;
     }
 
