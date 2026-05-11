@@ -4,8 +4,12 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -42,6 +46,7 @@ public class ClockifyApi {
     private static final Logger log = LoggerFactory.getLogger(ClockifyApi.class);
     private static final Duration MAX_BACKOFF = Duration.ofSeconds(30);
     private static final int MAX_5XX_RETRIES = 4;
+    private static final int MAX_429_RETRIES = 4;
 
     private final ClockifyRateLimiter rateLimiter;
     private final ObjectMapper objectMapper;
@@ -94,14 +99,24 @@ public class ClockifyApi {
     private <T> T executeWithRetry(String workspaceId, Attempt<T> attempt) {
         Duration backoff = Duration.ofSeconds(1);
         int retries = 0;
+        int rateLimitRetries = 0;
         while (true) {
             rateLimiter.acquire(workspaceId);
             try {
                 return attempt.invoke(retries);
             } catch (HttpClientErrorException.TooManyRequests e) {
-                Duration retryAfter = parseRetryAfter(e.getResponseHeaders()).orElse(Duration.ofSeconds(1));
-                log.info("clockify.429 workspace={} retry_after={}", workspaceId, retryAfter);
+                if (rateLimitRetries >= MAX_429_RETRIES) {
+                    throw new ClockifyApiException(
+                            "Clockify 429 after " + MAX_429_RETRIES + " retries",
+                            e.getStatusCode().value(), e);
+                }
+                Duration retryAfter = parseRetryAfter(e.getResponseHeaders())
+                        .map(ClockifyApi::cap)
+                        .orElse(Duration.ofSeconds(1));
+                log.info("clockify.429 workspace={} retry_after={} attempt={}",
+                        workspaceId, retryAfter, rateLimitRetries + 1);
                 sleep(retryAfter.toMillis());
+                rateLimitRetries++;
             } catch (HttpServerErrorException e) {
                 if (retries >= MAX_5XX_RETRIES) {
                     throw new ClockifyApiException(
@@ -155,20 +170,42 @@ public class ClockifyApi {
         }
     }
 
-    private static java.util.Optional<Duration> parseRetryAfter(HttpHeaders headers) {
+    /**
+     * Parse {@code Retry-After} per RFC 7231 §7.1.3 — either a non-negative
+     * delta in seconds OR an HTTP-date. Returns {@link Optional#empty()} for
+     * malformed values so the caller falls back to its own backoff. The
+     * caller is expected to {@link #cap(Duration)} the value at
+     * {@link #MAX_BACKOFF} so a hostile or buggy server can't pin our
+     * worker thread for hours.
+     */
+    static Optional<Duration> parseRetryAfter(HttpHeaders headers) {
         if (headers == null) {
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
-        String value = headers.getFirst(HttpHeaders.RETRY_AFTER);
-        if (value == null || value.isBlank()) {
-            return java.util.Optional.empty();
+        String raw = headers.getFirst(HttpHeaders.RETRY_AFTER);
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
         }
+        String value = raw.trim();
+        // delta-seconds form (most common): e.g. "30"
         try {
-            long seconds = Long.parseLong(value.trim());
-            return java.util.Optional.of(Duration.ofSeconds(Math.max(1, seconds)));
+            long seconds = Long.parseLong(value);
+            return Optional.of(Duration.ofSeconds(Math.max(1, seconds)));
         } catch (NumberFormatException ignored) {
-            return java.util.Optional.empty();
+            // fall through to HTTP-date
         }
+        // HTTP-date form: e.g. "Wed, 21 Oct 2015 07:28:00 GMT"
+        try {
+            Instant target = ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            Duration delta = Duration.between(Instant.now(), target);
+            return Optional.of(delta.isNegative() || delta.isZero() ? Duration.ofSeconds(1) : delta);
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Duration cap(Duration d) {
+        return d.compareTo(MAX_BACKOFF) > 0 ? MAX_BACKOFF : d;
     }
 
     private static Duration doubleCapped(Duration d) {

@@ -13,10 +13,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 
 class ClockifyApiTest {
 
@@ -115,6 +122,54 @@ class ClockifyApiTest {
         assertThatThrownBy(() -> api.get("ws-1", "https://api.evil.com", "tok", "/path", String.class))
                 .isInstanceOf(ClockifyApiException.class)
                 .hasMessageContaining(".clockify.me");
+    }
+
+    @Test
+    void retryAfter_httpDateForm_parsesCorrectly() {
+        HttpHeaders headers = new HttpHeaders();
+        Instant target = Instant.now().plus(Duration.ofSeconds(5));
+        String httpDate = DateTimeFormatter.RFC_1123_DATE_TIME
+                .format(ZonedDateTime.ofInstant(target, ZoneOffset.UTC));
+        headers.add(HttpHeaders.RETRY_AFTER, httpDate);
+
+        Optional<Duration> parsed = ClockifyApi.parseRetryAfter(headers);
+
+        assertThat(parsed).isPresent();
+        // Allow some clock jitter between target computation and parse.
+        assertThat(parsed.get().getSeconds()).isBetween(3L, 6L);
+    }
+
+    @Test
+    void retryAfter_secondsForm_parsesCorrectly() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.RETRY_AFTER, "30");
+
+        Optional<Duration> parsed = ClockifyApi.parseRetryAfter(headers);
+
+        assertThat(parsed).contains(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void retryAfter_malformed_returnsEmpty() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.RETRY_AFTER, "not-a-number-or-date");
+
+        assertThat(ClockifyApi.parseRetryAfter(headers)).isEmpty();
+    }
+
+    @Test
+    void sustained429_throwsAfterMaxRetries() {
+        // Always-429 — must abort after 4 retries instead of looping forever.
+        stubFor(get(urlEqualTo("/always-limited"))
+                .willReturn(aResponse().withStatus(429).withHeader("Retry-After", "1")));
+
+        long startMs = System.currentTimeMillis();
+        assertThatThrownBy(() -> api.get("ws-1", baseUrl, "tok", "/always-limited", String.class))
+                .isInstanceOf(ClockifyApiException.class)
+                .hasMessageContaining("429");
+        long elapsedMs = System.currentTimeMillis() - startMs;
+        // 4 retries × ~1s each ≈ 4s minimum (small jitter allowed).
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(3000);
     }
 
     /** Test double for the rate limiter — no Redis, never blocks. */
