@@ -47,7 +47,7 @@ class TemplatesControllerTest {
                 .andExpect(jsonPath("$.templates").isArray())
                 .andExpect(jsonPath("$.templates", Matchers.hasSize(3)))
                 .andExpect(jsonPath("$.templates[*].presetKey",
-                        Matchers.containsInAnyOrder("custom-basic", "germany-arbg-style", "california-style")));
+                        Matchers.containsInAnyOrder("custom-basic", "germany-arbzg-style", "california-style")));
     }
 
     @Test

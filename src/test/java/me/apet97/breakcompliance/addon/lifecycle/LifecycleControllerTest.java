@@ -140,7 +140,7 @@ class LifecycleControllerTest {
         assertThat(seeded).hasSize(3);
         assertThat(seeded).allMatch(t -> t.getType() == RuleTemplateType.BUILT_IN);
         assertThat(seeded).extracting(RuleTemplate::getPresetKey)
-                .containsExactlyInAnyOrder("custom-basic", "germany-arbg-style", "california-style");
+                .containsExactlyInAnyOrder("custom-basic", "germany-arbzg-style", "california-style");
     }
 
     @Test
@@ -269,12 +269,12 @@ class LifecycleControllerTest {
         mockMvc.perform(post("/lifecycle/settings-updated")
                         .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("[{\"id\":\"defaultTemplateId\",\"value\":\"germany-arbg-style\"}]"))
+                        .content("[{\"id\":\"defaultTemplateId\",\"value\":\"germany-arbzg-style\"}]"))
                 .andExpect(status().isOk());
 
         WorkspaceSettings settings = settingsRepo
                 .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
-        assertThat(settings.getDefaultTemplateId()).isEqualTo("germany-arbg-style");
+        assertThat(settings.getDefaultTemplateId()).isEqualTo("germany-arbzg-style");
     }
 
     @Test

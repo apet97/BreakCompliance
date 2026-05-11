@@ -46,9 +46,9 @@ public class SidebarHtmlController {
                       <div class="control-group">
                         <label for="jurisdiction-select">Jurisdiction</label>
                         <select id="jurisdiction-select">
-                          <option value="custom-basic">Custom</option>
-                          <option value="germany-arbg-style">German ArbZG §4</option>
-                          <option value="california-style">California</option>
+                          <option value="custom-basic">Custom policy</option>
+                          <option value="california-style">California (IWC meal/rest)</option>
+                          <option value="germany-arbzg-style">Germany ArbZG §3 + §4</option>
                         </select>
                       </div>
                       <div class="control-group">

@@ -98,9 +98,9 @@ public class ClockifyAddonConfig {
                 .name("Default rule template")
                 .allowAdmins()
                 .asDropdownSingle()
-                .value("germany-arbg-style")
-                .allowedValues(List.of("germany-arbg-style", "california-style", "custom-basic"))
-                .description("Rule template applied when a workspace has no per-user override.")
+                .value("custom-basic")
+                .allowedValues(List.of("custom-basic", "california-style", "germany-arbzg-style"))
+                .description("Rule template applied when a workspace has no per-user override. Pick custom-basic to edit thresholds in the Custom Policy tab.")
                 .build();
 
         ClockifySetting timezoneStrategy = ClockifySetting.builder()

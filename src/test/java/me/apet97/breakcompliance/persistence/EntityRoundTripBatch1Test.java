@@ -79,11 +79,11 @@ class EntityRoundTripBatch1Test {
         RuleTemplate t = new RuleTemplate();
         t.setWorkspaceId("ws-2");
         t.setId("tpl-1");
-        t.setKey("germany-arbg-style");
+        t.setKey("germany-arbzg-style");
         t.setName("Germany ArbZG");
         t.setDescription("German labour law");
         t.setType(RuleTemplateType.BUILT_IN);
-        t.setPresetKey("germany-arbg-style");
+        t.setPresetKey("germany-arbzg-style");
         t.setMinimumValidBreakSegmentMinutes(15);
         t.setWorkThresholdMinutes(360);
         t.setRequiredBreakMinutes(30);
@@ -97,14 +97,14 @@ class EntityRoundTripBatch1Test {
         ruleTemplateRepo.saveAndFlush(t);
 
         RuleTemplate loaded = ruleTemplateRepo.findById(new RuleTemplate.Pk("ws-2", "tpl-1")).orElseThrow();
-        assertThat(loaded.getKey()).isEqualTo("germany-arbg-style");
+        assertThat(loaded.getKey()).isEqualTo("germany-arbzg-style");
         assertThat(loaded.getType()).isEqualTo(RuleTemplateType.BUILT_IN);
         assertThat(loaded.getRequiredBreakMinutes()).isEqualTo(30);
         assertThat(loaded.getSecondThresholdMinutes()).isEqualTo(540);
         assertThat(loaded.getSecondRequiredBreakMinutes()).isEqualTo(45);
 
         assertThat(ruleTemplateRepo.findByWorkspaceId("ws-2")).hasSize(1);
-        assertThat(ruleTemplateRepo.findByWorkspaceIdAndKey("ws-2", "germany-arbg-style")).isPresent();
+        assertThat(ruleTemplateRepo.findByWorkspaceIdAndKey("ws-2", "germany-arbzg-style")).isPresent();
     }
 
     @Test

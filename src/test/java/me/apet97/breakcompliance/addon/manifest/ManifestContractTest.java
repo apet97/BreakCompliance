@@ -150,9 +150,11 @@ class ManifestContractTest {
 
         List<String> allowedValues = new java.util.ArrayList<>();
         defaultTemplate.get("allowedValues").forEach(v -> allowedValues.add(v.asText()));
-        assertThat(allowedValues).containsExactlyInAnyOrder(
-                "germany-arbg-style", "california-style", "custom-basic");
+        // Order matters here: custom-basic must be FIRST so the native
+        // structured-settings dropdown defaults to the editable starter.
+        assertThat(allowedValues).containsExactly(
+                "custom-basic", "california-style", "germany-arbzg-style");
 
-        assertThat(defaultTemplate.get("value").asText()).isEqualTo("germany-arbg-style");
+        assertThat(defaultTemplate.get("value").asText()).isEqualTo("custom-basic");
     }
 }
