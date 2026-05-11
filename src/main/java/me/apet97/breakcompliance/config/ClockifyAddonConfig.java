@@ -79,6 +79,14 @@ public class ClockifyAddonConfig {
                 .onNewTimeEntry()
                 .path("/webhook/new-time-entry")
                 .build());
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeEntryUpdated()
+                .path("/webhook/time-entry-updated")
+                .build());
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeEntryDeleted()
+                .path("/webhook/time-entry-deleted")
+                .build());
 
         manifest.getComponents().add(ClockifyComponent.builder()
                 .sidebar()

@@ -26,8 +26,8 @@ public class WebhookController {
         this.signals = signals;
     }
 
-    @PostMapping(value = "/new-time-entry", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Void> newTimeEntry(HttpServletRequest request, @RequestBody(required = false) byte[] body) {
+    @PostMapping(value = {"/new-time-entry", "/time-entry-updated", "/time-entry-deleted"}, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Void> timeEntryWebhook(HttpServletRequest request, @RequestBody(required = false) byte[] body) {
         NormalizedClaims claims = (NormalizedClaims) request.getAttribute(RequestAttributes.NORMALIZED_CLAIMS);
         String eventType = (String) request.getAttribute("breakcompliance.webhook-event-type");
         if (claims == null || eventType == null) {

@@ -639,8 +639,6 @@ function wireEvents() {
             renderResults();
         });
     }
-    el("export-json").addEventListener("click", e => downloadExport(e, "json"));
-    el("export-csv").addEventListener("click", e => downloadExport(e, "csv"));
 }
 
 // Settings navigation removed. Clockify's documented `navigate` postMessage
@@ -665,10 +663,16 @@ function initAuthAndMessenger() {
     const theme = (new URLSearchParams(window.location.search).get("theme") ?? "").toUpperCase();
     if (theme === "DARK" || theme === "LIGHT") applyTheme(theme);
 
+    messenger.on("URL_CHANGED", () => {
+        const urlToken = readAuthTokenFromQuery();
+        if (urlToken) {
+            addonToken = urlToken;
+            stripAuthTokenFromUrl();
+        }
+    });
+
     setInterval(() => {
         messenger.refreshAddonToken();
-        const refreshed = readAuthTokenFromQuery();
-        if (refreshed) addonToken = refreshed;
     }, TOKEN_REFRESH_INTERVAL_MS);
 }
 

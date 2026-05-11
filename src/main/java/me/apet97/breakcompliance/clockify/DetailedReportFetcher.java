@@ -56,7 +56,8 @@ public class DetailedReportFetcher {
             body.put("detailedFilter", Map.of("page", page, "pageSize", PAGE_SIZE));
 
             String path = "/v1/workspaces/" + workspaceId + "/reports/detailed";
-            String raw = api.post(workspaceId, reportsUrl, addonToken, path, body, String.class);
+            org.springframework.http.ResponseEntity<String> response = api.postWithHeaders(workspaceId, reportsUrl, addonToken, path, body, String.class);
+            String raw = response.getBody();
             if (raw == null || raw.isBlank()) {
                 break;
             }
@@ -73,6 +74,12 @@ public class DetailedReportFetcher {
             for (JsonNode entry : entries) {
                 all.add(mapper.convertValue(entry, Map.class));
             }
+            
+            String lastPageStr = response.getHeaders().getFirst("Last-Page");
+            if (lastPageStr != null && lastPageStr.equals("true")) {
+                break;
+            }
+            
             if (entries.size() < PAGE_SIZE) {
                 break;
             }

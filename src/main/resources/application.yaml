@@ -72,4 +72,4 @@ breakcompliance:
       # MUST set INSTALLATION_TOKEN_KEY (64 hex chars / AES-256). A startup
       # check will fail-fast in non-dev profiles once Phase J1.4 wires
       # encrypted columns to the codec.
-      default: ${INSTALLATION_TOKEN_KEY:00000000000000000000000000000000000000000000000000000000000000aa}
+      default: ${INSTALLATION_TOKEN_KEY}

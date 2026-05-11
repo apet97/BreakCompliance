@@ -2,6 +2,7 @@ package me.apet97.breakcompliance.domain;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -11,10 +12,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.TreeMap;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.Severity;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
+import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import org.springframework.stereotype.Component;
 
@@ -192,7 +195,18 @@ public class BreakRuleEngine {
             if (entry.getEndAt() == null || entry.getStartAt() == null) {
                 continue; // running or malformed
             }
-            LocalDate date = entry.getStartAt().atZone(ZoneOffset.UTC).toLocalDate();
+            ZoneId zoneId = ZoneOffset.UTC;
+            if (input.settings().getTimezoneStrategy() == TimezoneStrategy.ENTRY_TIMEZONE) {
+                if (entry.getRaw() != null && entry.getRaw().get("timeInterval") instanceof Map<?, ?> ti) {
+                    if (ti.get("timeZone") instanceof String tz && !tz.isBlank()) {
+                        try {
+                            zoneId = ZoneId.of(tz);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+            }
+            LocalDate date = entry.getStartAt().atZone(zoneId).toLocalDate();
             if (date.isBefore(input.dateRangeStart()) || date.isAfter(input.dateRangeEnd())) {
                 continue;
             }

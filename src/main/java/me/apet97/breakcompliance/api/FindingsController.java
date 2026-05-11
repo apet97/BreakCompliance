@@ -34,8 +34,11 @@ public class FindingsController {
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
-        LocalDate from = LocalDate.parse(body.getOrDefault("dateRangeStart", ""));
-        LocalDate to = LocalDate.parse(body.getOrDefault("dateRangeEnd", ""));
+        RequestValidator.requireAdmin(claims);
+        RequestValidator.DateRange range = RequestValidator.parseAndValidateDates(
+                body.get("dateRangeStart"), body.get("dateRangeEnd"));
+        LocalDate from = range.from();
+        LocalDate to = range.to();
         List<Finding> findings = findingsService.evaluateAndReplace(claims.workspaceId(), from, to);
         return ResponseEntity.ok(Map.of(
                 "findingsCreated", findings.size(),
@@ -52,8 +55,9 @@ public class FindingsController {
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
-        LocalDate from = LocalDate.parse(fromIso);
-        LocalDate to = LocalDate.parse(toIso);
+        RequestValidator.DateRange range = RequestValidator.parseAndValidateDates(fromIso, toIso);
+        LocalDate from = range.from();
+        LocalDate to = range.to();
         List<Finding> findings = findingsService.list(claims.workspaceId(), from, to);
         List<Map<String, Object>> body = findings.stream().map(this::toJsonShape).toList();
         return ResponseEntity.ok(Map.of("findings", body));

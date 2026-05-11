@@ -47,8 +47,11 @@ public class RefreshSignalsController {
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
-        LocalDate from = LocalDate.parse(body.getOrDefault("dateRangeStart", ""));
-        LocalDate to = LocalDate.parse(body.getOrDefault("dateRangeEnd", ""));
+        RequestValidator.requireAdmin(claims);
+        RequestValidator.DateRange range = RequestValidator.parseAndValidateDates(
+                body.get("dateRangeStart"), body.get("dateRangeEnd"));
+        LocalDate from = range.from();
+        LocalDate to = range.to();
         ingestion.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
         var emitted = findings.evaluateAndReplace(claims.workspaceId(), from, to);
         return ResponseEntity.ok(Map.of(

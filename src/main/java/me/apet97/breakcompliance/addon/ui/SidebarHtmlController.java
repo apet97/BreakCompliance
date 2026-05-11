@@ -87,8 +87,6 @@ public class SidebarHtmlController {
                   </div>
                   <div id="results-container" class="results-container"></div>
                   <div class="actions-row" style="margin-top:12px">
-                    <a id="export-json" class="btn-link" href="#">Export JSON</a>
-                    <a id="export-csv" class="btn-link" href="#">Export CSV</a>
                   </div>
                 </div>
                 <script type="module" src="/sidebar.js"></script>

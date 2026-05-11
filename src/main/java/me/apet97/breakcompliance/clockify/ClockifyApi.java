@@ -82,6 +82,20 @@ public class ClockifyApi {
                 .body(type));
     }
 
+    public <T> org.springframework.http.ResponseEntity<T> postWithHeaders(String workspaceId, String baseUrl, String addonToken, String path, Object body, Class<T> type) {
+        validateBaseUrl(baseUrl);
+        String url = baseUrl + path;
+        return executeWithRetry(workspaceId, attempt -> RestClient.create()
+                .post()
+                .uri(URI.create(url))
+                .header("X-Addon-Token", addonToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toEntity(type));
+    }
+
     /** Convenience for endpoints that return a raw JSON list of objects. */
     public List<Map<String, Object>> postReturningList(
             String workspaceId, String baseUrl, String addonToken, String path, Object body) {

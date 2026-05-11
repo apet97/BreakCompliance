@@ -138,7 +138,7 @@ public class WebhookAuthFilter extends OncePerRequestFilter {
         }
 
         String headerEvent = firstHeader(request, EVENT_TYPE_HEADER);
-        if (headerEvent != null && !headerEvent.equalsIgnoreCase(stored.get().getEventType())) {
+        if (headerEvent == null || !headerEvent.equalsIgnoreCase(stored.get().getEventType())) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }

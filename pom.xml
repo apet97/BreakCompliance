@@ -135,6 +135,15 @@
                     </excludes>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <environmentVariables>
+                        <INSTALLATION_TOKEN_KEY>00000000000000000000000000000000000000000000000000000000000000aa</INSTALLATION_TOKEN_KEY>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

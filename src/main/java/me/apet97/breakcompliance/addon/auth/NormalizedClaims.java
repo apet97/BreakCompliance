@@ -14,4 +14,8 @@ public record NormalizedClaims(
         String reportsUrl,
         String userId,
         String workspaceRole) {
+
+    public boolean isAdmin() {
+        return "ADMIN".equalsIgnoreCase(workspaceRole) || "OWNER".equalsIgnoreCase(workspaceRole);
+    }
 }

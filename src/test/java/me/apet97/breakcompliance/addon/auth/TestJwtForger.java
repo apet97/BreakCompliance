@@ -51,6 +51,7 @@ public final class TestJwtForger {
         claims.put("addonId", DEFAULT_ADDON_ID);
         claims.put("backendUrl", DEFAULT_BACKEND_URL);
         claims.put("type", "addon");
+        claims.put("workspaceRole", "ADMIN");
         claims.putAll(overrides);
 
         return Jwts.builder()
@@ -69,6 +70,7 @@ public final class TestJwtForger {
         claims.put("addonId", DEFAULT_ADDON_ID);
         claims.put("backendUrl", DEFAULT_BACKEND_URL);
         claims.put("type", "addon");
+        claims.put("workspaceRole", "ADMIN");
         claims.putAll(overrides);
         return Jwts.builder()
                 .setIssuer("clockify")

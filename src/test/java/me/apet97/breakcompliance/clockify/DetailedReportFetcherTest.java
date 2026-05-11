@@ -47,16 +47,29 @@ class DetailedReportFetcherTest {
         fetcher = new DetailedReportFetcher(api, new ObjectMapper());
     }
 
+    private void mockResponse(String body) {
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        org.springframework.http.ResponseEntity<String> response = new org.springframework.http.ResponseEntity<>(body, headers, org.springframework.http.HttpStatus.OK);
+        Mockito.when(api.postWithHeaders(any(), any(), any(), any(), any(), eq(String.class)))
+                .thenReturn(response);
+    }
+    
+    private void mockResponse(String body, String url) {
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        org.springframework.http.ResponseEntity<String> response = new org.springframework.http.ResponseEntity<>(body, headers, org.springframework.http.HttpStatus.OK);
+        Mockito.when(api.postWithHeaders(eq(WS), eq(REPORTS_URL), eq(TOKEN), anyString(), any(), eq(String.class)))
+                .thenReturn(response);
+    }
+
     @Test
     void usesV1PathPrefix() {
-        Mockito.when(api.post(eq(WS), eq(REPORTS_URL), eq(TOKEN), anyString(), any(), eq(String.class)))
-                .thenReturn("{\"timeentries\": [], \"totals\": []}");
+        mockResponse("{\"timeentries\": [], \"totals\": []}", "");
 
         fetcher.fetch(WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
         ArgumentCaptor<String> pathCaptor = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(api).post(eq(WS), eq(REPORTS_URL), eq(TOKEN),
+        Mockito.verify(api).postWithHeaders(eq(WS), eq(REPORTS_URL), eq(TOKEN),
                 pathCaptor.capture(), any(), eq(String.class));
 
         assertThat(pathCaptor.getValue()).isEqualTo("/v1/workspaces/" + WS + "/reports/detailed");
@@ -64,8 +77,7 @@ class DetailedReportFetcherTest {
 
     @Test
     void datesAreIsoLocalWithoutTimezoneSuffix() {
-        Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("{\"timeentries\": [], \"totals\": []}");
+        mockResponse("{\"timeentries\": [], \"totals\": []}");
 
         fetcher.fetch(WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
@@ -83,8 +95,7 @@ class DetailedReportFetcherTest {
 
     @Test
     void bodyHasOnlyDateRangeAndDetailedFilter() {
-        Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("{\"timeentries\": [], \"totals\": []}");
+        mockResponse("{\"timeentries\": [], \"totals\": []}");
 
         fetcher.fetch(WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
@@ -104,16 +115,15 @@ class DetailedReportFetcherTest {
 
     @Test
     void parsesTimeentriesLowercaseResponseKey() {
-        Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("""
-                        {
-                          "timeentries": [
-                            {"_id": "e1", "userId": "u1", "description": "work"},
-                            {"_id": "e2", "userId": "u1", "description": "more work"}
-                          ],
-                          "totals": []
-                        }
-                        """);
+        mockResponse("""
+                {
+                  "timeentries": [
+                    {"_id": "e1", "userId": "u1", "description": "work"},
+                    {"_id": "e2", "userId": "u1", "description": "more work"}
+                  ],
+                  "totals": []
+                }
+                """);
 
         List<Map<String, Object>> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
@@ -126,8 +136,7 @@ class DetailedReportFetcherTest {
 
     @Test
     void emptyTimeEntriesArrayShortCircuits() {
-        Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("{\"timeentries\": [], \"totals\": []}");
+        mockResponse("{\"timeentries\": [], \"totals\": []}");
 
         List<Map<String, Object>> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
@@ -135,7 +144,7 @@ class DetailedReportFetcherTest {
 
         assertThat(entries).isEmpty();
         // Only one page request — short-circuit when timeentries is empty.
-        Mockito.verify(api, Mockito.times(1)).post(any(), any(), any(), any(), any(), any());
+        Mockito.verify(api, Mockito.times(1)).postWithHeaders(any(), any(), any(), any(), any(), eq(String.class));
     }
 
     @Test
@@ -144,14 +153,13 @@ class DetailedReportFetcherTest {
         // but the live API returns `timeentries` (all-lowercase, confirmed by
         // probe-lab live call on 2026-05-11). A payload using the spec's
         // (wrong) casing must not match — we read the live shape only.
-        Mockito.when(api.post(any(), any(), any(), any(), any(), any()))
-                .thenReturn("""
-                        {
-                          "timeEntries": [
-                            {"_id": "ignoreMe", "userId": "u1"}
-                          ]
-                        }
-                        """);
+        mockResponse("""
+                {
+                  "timeEntries": [
+                    {"_id": "ignoreMe", "userId": "u1"}
+                  ]
+                }
+                """);
 
         List<Map<String, Object>> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
@@ -163,7 +171,7 @@ class DetailedReportFetcherTest {
     @SuppressWarnings("unchecked")
     private Map<String, Object> captureRequestBody() {
         ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
-        Mockito.verify(api).post(any(), any(), any(), any(), bodyCaptor.capture(), any());
+        Mockito.verify(api).postWithHeaders(any(), any(), any(), any(), bodyCaptor.capture(), eq(String.class));
         return (Map<String, Object>) bodyCaptor.getValue();
     }
 }

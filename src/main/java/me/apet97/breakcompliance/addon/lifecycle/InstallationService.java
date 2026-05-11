@@ -46,6 +46,7 @@ public class InstallationService {
     private final RuleTemplateRepository templatesRepo;
     private final PayloadDriftLogger driftLogger;
     private final TokenCodec codec;
+    private final WorkspaceDataDeletionService deletionService;
 
     public InstallationService(
             InstallationRepository installationRepo,
@@ -53,13 +54,15 @@ public class InstallationService {
             WorkspaceSettingsRepository settingsRepo,
             RuleTemplateRepository templatesRepo,
             PayloadDriftLogger driftLogger,
-            TokenCodec codec) {
+            TokenCodec codec,
+            WorkspaceDataDeletionService deletionService) {
         this.installationRepo = installationRepo;
         this.webhookRepo = webhookRepo;
         this.settingsRepo = settingsRepo;
         this.templatesRepo = templatesRepo;
         this.driftLogger = driftLogger;
         this.codec = codec;
+        this.deletionService = deletionService;
     }
 
     @Transactional
@@ -185,6 +188,7 @@ public class InstallationService {
     public void handleDeleted(NormalizedClaims claims) {
         Installation.Pk pk = new Installation.Pk(claims.workspaceId(), claims.addonId());
         if (installationRepo.existsById(pk)) {
+            deletionService.deleteWorkspaceData(claims.workspaceId());
             installationRepo.deleteById(pk);
             log.info("lifecycle.deleted workspace={} addon={}", claims.workspaceId(), claims.addonId());
         }
