@@ -72,7 +72,12 @@ public class SecurityHeadersFilter extends OncePerRequestFilter {
                 ancestors.add(extra);
             }
         }
-        return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-                + "connect-src 'self' https://*.clockify.me; frame-ancestors " + String.join(" ", ancestors);
+        return "default-src 'self'; "
+                + "script-src 'self'; "
+                + "style-src 'self' 'unsafe-inline' https://resources.developer.clockify.me; "
+                + "img-src 'self' data: https://resources.developer.clockify.me; "
+                + "font-src 'self' https://resources.developer.clockify.me; "
+                + "connect-src 'self' https://*.clockify.me; "
+                + "frame-ancestors " + String.join(" ", ancestors);
     }
 }

@@ -30,6 +30,11 @@ public class SidebarHtmlController {
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <title>Break Compliance</title>
+                <!-- Clockify-native UI baseline (colors, typography, controls).
+                     Our /styles.css below overrides where the layout needs to
+                     diverge for the narrow sidebar form factor. CSP allows
+                     this origin in style-src/img-src/font-src. -->
+                <link rel="stylesheet" href="https://resources.developer.clockify.me/ui/latest/css/main.min.css">
                 <link rel="stylesheet" href="/styles.css">
               </head>
               <body>

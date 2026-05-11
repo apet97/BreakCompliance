@@ -63,6 +63,18 @@ class SecurityHeadersFilterTest {
     }
 
     @Test
+    void cspAllowsClockifyUiCdnInStyleAndImgAndFontSrc() throws Exception {
+        // The sidebar loads Clockify's native UI stylesheet from
+        // resources.developer.clockify.me. The CDN serves fonts and images
+        // too, so style-src, img-src, and font-src all whitelist it.
+        MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
+        String csp = result.getResponse().getHeader("Content-Security-Policy");
+        assertThat(csp).contains("style-src 'self' 'unsafe-inline' https://resources.developer.clockify.me");
+        assertThat(csp).contains("img-src 'self' data: https://resources.developer.clockify.me");
+        assertThat(csp).contains("font-src 'self' https://resources.developer.clockify.me");
+    }
+
+    @Test
     void corsPreflightFromDeveloperPortalIsAllowed() throws Exception {
         MvcResult result = mockMvc.perform(options("/manifest")
                         .header(HttpHeaders.ORIGIN, "https://developer.clockify.me")
