@@ -488,7 +488,11 @@ async function runCompliance() {
         setRunButtonState(false);
         if (err instanceof HttpError) {
             const code = String(err.body?.error ?? err.message);
-            if (err.status === 503 && code === "installation_not_found") {
+            if (err.status === 503 && code === "reports_unavailable") {
+                // Dev-portal / non-production workspace: not a real failure, friendly notice.
+                showBanner("warn", err.body?.message
+                    ?? "Reports API is unavailable in this workspace. Install in a production Clockify workspace to run full compliance checks.");
+            } else if (err.status === 503 && code === "installation_not_found") {
                 showBanner("err",
                     "Add-on not installed for this workspace yet. Re-install from the marketplace and try again.");
             } else {

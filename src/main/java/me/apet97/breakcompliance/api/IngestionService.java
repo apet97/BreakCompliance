@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
@@ -97,6 +98,15 @@ public class IngestionService {
             run.setEntriesProcessed(processed);
             run.setCompletedAt(Instant.now());
             log.info("ingestion.completed workspace={} entries={}", workspaceId, processed);
+        } catch (ClockifyApiException e) {
+            run.setStatus(IngestionStatus.FAILED);
+            run.setErrorCode("ClockifyApi:" + e.statusCode());
+            run.setCompletedAt(Instant.now());
+            runRepo.saveAndFlush(run);
+            log.warn("ingestion.failed.clockify workspace={} status={}", workspaceId, e.statusCode());
+            // Propagate so the controller can map status-specific responses
+            // (notably 401 → user-friendly 503 reports_unavailable).
+            throw e;
         } catch (Exception e) {
             run.setStatus(IngestionStatus.FAILED);
             run.setErrorCode(e.getClass().getSimpleName());

@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
+import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -32,7 +33,23 @@ public class IngestionController {
         }
         LocalDate from = LocalDate.parse(body.getOrDefault("dateRangeStart", ""));
         LocalDate to = LocalDate.parse(body.getOrDefault("dateRangeEnd", ""));
-        IngestionRun run = service.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
+        IngestionRun run;
+        try {
+            run = service.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
+        } catch (ClockifyApiException e) {
+            // The Clockify developer portal returns 401 for the detailed-report
+            // endpoint — surface it as a structured, non-fatal 503 so the
+            // sidebar can render a friendly banner instead of "ingestion failed:
+            // ClockifyApiException". Production workspaces with reports access
+            // will not hit this branch. Other ClockifyApiException statuses keep
+            // the legacy FAILED-recorded-in-body path (controller-level rethrow).
+            if (e.statusCode() == 401) {
+                return ResponseEntity.status(503).body(Map.of(
+                        "error", "reports_unavailable",
+                        "message", "Reports API is unavailable in the Clockify developer environment. Install in a production Clockify workspace to run full compliance checks."));
+            }
+            throw e;
+        }
         return ResponseEntity.ok(Map.of("run", Map.of(
                 "id", run.getId(),
                 "status", run.getStatus().name(),
