@@ -12,7 +12,7 @@ The add-on sits between Clockify and the workspace admin's browser. The three tr
 
 Specific threats handled:
 
-- **Forged Clockify-signed tokens** — Mitigated by `ClockifySignatureParser` (RS256 + `iss=clockify` + `type=addon` + `sub=break-compliance`) plus an explicit `exp` requirement and post-normalisation `workspaceId`+`addonId` presence check in the filter.
+- **Forged Clockify-signed tokens** — Mitigated by `ClockifySignatureParser` (RS256 + `iss=clockify` + `type=addon` + `sub=break-compliance-jvm`) plus an explicit `exp` requirement and post-normalisation `workspaceId`+`addonId` presence check in the filter.
 - **Replay of a valid token against a different addon's webhook route** — Mitigated by the third check in `WebhookAuthFilter`: the `authToken` claim in the JWT must match the decrypted stored `authToken` for `(workspace_id, addon_id, normalized_path)`.
 - **Cross-workspace data probing** — Mitigated by composite PKs with `workspace_id` leading every tenant-scoped table; the controllers derive `workspaceId` only from verified claims, never from the request body or query.
 - **Server-side credential leak via response or log** — Mitigated by the AES-GCM-256 token codec keeping plaintext out of the database, Logback `%replace` converters masking JWT triplets and token-header patterns before any line reaches the appender, and `Cache-Control: no-store` on every `/api/*` response.

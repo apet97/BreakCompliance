@@ -29,7 +29,7 @@ public final class TestJwtForger {
     public static final RSAPublicKey PUBLIC_KEY = (RSAPublicKey) KEYPAIR.getPublic();
     public static final RSAPrivateKey PRIVATE_KEY = (RSAPrivateKey) KEYPAIR.getPrivate();
 
-    public static final String MANIFEST_KEY = "break-compliance";
+    public static final String MANIFEST_KEY = "break-compliance-jvm";
     public static final String DEFAULT_WORKSPACE_ID = "ws-test";
     public static final String DEFAULT_ADDON_ID = "69e81390556e8f94308aaad8";
     public static final String DEFAULT_BACKEND_URL = "https://api.clockify.me/api";

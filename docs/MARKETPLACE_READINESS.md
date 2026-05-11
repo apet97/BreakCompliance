@@ -7,7 +7,7 @@ A pre-flight checklist for submitting Break Compliance to the [Clockify Marketpl
 ## Add-on identity
 
 - **Name:** Break Compliance
-- **Manifest key:** `break-compliance`
+- **Manifest key:** `break-compliance-jvm` (distinct from the older TypeScript-on-CF-Worker version under key `break-compliance`)
 - **Schema version:** `1.3`
 - **Minimal subscription plan:** `BASIC`
 - **Surface:** Admin-only sidebar inside Clockify. Custom settings page (admin-only by Clockify convention).
@@ -28,7 +28,7 @@ No `_WRITE` scopes. The add-on never modifies time entries, never starts/stops t
 ## Security posture
 
 - **Encrypted installation storage** — AES-GCM-256 token codec; every `Installation.authToken` and `WebhookAuthToken.authToken` row stores ciphertext only, with a per-row `keyId` to support key rotation. Plaintext never reaches the database.
-- **JWT verification** — `ClockifySignatureParser` enforces RS256, `iss=clockify`, `type=addon`, `sub=break-compliance`; the filter additionally requires `exp` and rejects normalized claims missing `workspaceId` or `addonId`.
+- **JWT verification** — `ClockifySignatureParser` enforces RS256, `iss=clockify`, `type=addon`, `sub=break-compliance-jvm`; the filter additionally requires `exp` and rejects normalized claims missing `workspaceId` or `addonId`.
 - **No raw token exposure** — Logback `%replace` converters mask JWT triplets and `authToken`/`X-Addon-Token`/`Clockify-Signature` values before any line reaches an appender.
 - **Server-side install token** — every Clockify API call uses the verified per-workspace installation token. The browser receives only the user iframe token, scoped by Clockify to the viewing user.
 - **Per-workspace API rate limiting** — Redis fixed-window counter caps outbound Clockify calls at 50 req/sec per workspace so one large tenant cannot starve others.

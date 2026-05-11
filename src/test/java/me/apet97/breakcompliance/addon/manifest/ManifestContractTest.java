@@ -45,7 +45,7 @@ class ManifestContractTest {
     @Test
     void manifest_topLevelFieldsMatchTs() throws Exception {
         mockMvc.perform(get("/manifest"))
-                .andExpect(jsonPath("$.key").value("break-compliance"))
+                .andExpect(jsonPath("$.key").value("break-compliance-jvm"))
                 .andExpect(jsonPath("$.name").value("Break Compliance"))
                 .andExpect(jsonPath("$.minimalSubscriptionPlan").value("BASIC"))
                 .andExpect(jsonPath("$.description").exists())

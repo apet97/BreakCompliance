@@ -44,7 +44,7 @@ breakcompliance:
     enable-hsts: ${ENABLE_HSTS:false}
     cors-allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
   manifest:
-    key: break-compliance
+    key: break-compliance-jvm
     name: Break Compliance
     base-url: ${ADDON_BASE_URL:http://localhost:8080}
     description: "Review whether Clockify users took required break time. Checks explicit BREAK time entries against configurable rule templates (German ArbZG, California, Custom)."
