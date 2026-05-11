@@ -49,7 +49,7 @@ public class RefreshSignalsController {
         }
         LocalDate from = LocalDate.parse(body.getOrDefault("dateRangeStart", ""));
         LocalDate to = LocalDate.parse(body.getOrDefault("dateRangeEnd", ""));
-        ingestion.ingest(claims.workspaceId(), from, to);
+        ingestion.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
         var emitted = findings.evaluateAndReplace(claims.workspaceId(), from, to);
         return ResponseEntity.ok(Map.of(
                 "findingsCount", emitted.size(),

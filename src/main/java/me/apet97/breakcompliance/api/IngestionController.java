@@ -32,7 +32,7 @@ public class IngestionController {
         }
         LocalDate from = LocalDate.parse(body.getOrDefault("dateRangeStart", ""));
         LocalDate to = LocalDate.parse(body.getOrDefault("dateRangeEnd", ""));
-        IngestionRun run = service.ingest(claims.workspaceId(), from, to);
+        IngestionRun run = service.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
         return ResponseEntity.ok(Map.of(
                 "id", run.getId(),
                 "status", run.getStatus().name(),

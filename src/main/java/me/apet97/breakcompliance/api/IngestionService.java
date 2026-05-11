@@ -45,18 +45,41 @@ public class IngestionService {
 
     @Transactional
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to) {
+        return ingest(workspaceId, from, to, null);
+    }
+
+    /**
+     * Run an ingestion using a per-request {@code reportsUrl} (typically read
+     * from the caller's user-token JWT claims). The dev-portal lifecycle JWT
+     * does not include {@code reportsUrl}, so the persisted installation row
+     * may be missing it; the user-token JWT always carries it per the
+     * environments-and-regions spec. When the override is present and the
+     * install row was missing the value, the row is backfilled so later
+     * background jobs (without a user request) can still call the reports
+     * API for this workspace.
+     */
+    @Transactional
+    public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
         Installation install = installationRepo
                 .findByWorkspaceId(workspaceId)
                 .orElseThrow(() -> new IllegalStateException(
                         "no installation for workspaceId=" + workspaceId + "; install the addon first"));
         String token =
                 codec.decrypt(install.getAuthToken().getKeyId(), install.getAuthToken().getCipher());
-        String reportsUrl = install.getReportsUrl();
-        if (reportsUrl == null || reportsUrl.isBlank()) {
+
+        String reportsUrl = nonBlank(reportsUrlOverride);
+        if (reportsUrl == null) {
+            reportsUrl = nonBlank(install.getReportsUrl());
+        } else if (nonBlank(install.getReportsUrl()) == null) {
+            install.setReportsUrl(reportsUrl);
+            installationRepo.save(install);
+        }
+        if (reportsUrl == null) {
             throw new IllegalStateException(
-                    "installation for workspaceId=" + workspaceId
-                            + " is missing reportsUrl; re-install the addon so the INSTALLED lifecycle"
-                            + " captures the workspace's region-specific Clockify endpoints from the JWT claims");
+                    "no reportsUrl available for workspaceId=" + workspaceId
+                            + "; the request JWT is missing the reportsUrl claim and the persisted"
+                            + " installation has no cached value — re-open the addon so a fresh user"
+                            + " token provides the workspace's region-specific reports endpoint");
         }
 
         IngestionRun run = newRun(workspaceId, from, to);
@@ -120,6 +143,10 @@ public class IngestionService {
         run.setCreatedAt(now);
         run.setCompletedAt(now);
         return run;
+    }
+
+    private static String nonBlank(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static String stringValue(Object... candidates) {
