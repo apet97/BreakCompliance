@@ -67,6 +67,15 @@ body[data-clockify-theme='dark'] {
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/*
+ * Global HTML5 `hidden` precedence. Our author CSS (and Clockify's CDN
+ * baseline) declares display:flex/grid on `.loading`, `.diagnostics`,
+ * `.header-controls`, etc.; those rules outrank the UA `[hidden]{display:none}`
+ * baseline and would otherwise reveal hidden nodes. This one line restores
+ * the expected HTML5 behaviour across every element + theme.
+ */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: var(--font-family);
