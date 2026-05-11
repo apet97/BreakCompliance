@@ -37,6 +37,40 @@ public final class ClaimsNormalizer {
                 pickString(claims, "workspaceRole"));
     }
 
+    /**
+     * Fills missing {@code backendUrl} / {@code userId} on the already-normalised
+     * JWT claims from the INSTALLED lifecycle body. The dev-portal install
+     * sometimes ships a lifecycle JWT without those claims while still
+     * including them in the JSON body under their legacy aliases ({@code
+     * apiUrl}, {@code asUser}, {@code addonUserId}). Keeping the body-vs-claim
+     * alias knowledge alongside the JWT alias knowledge so callers don't have
+     * to know which side carried which field.
+     */
+    public static NormalizedClaims enrichFromInstalledPayload(
+            NormalizedClaims claims, Map<String, Object> payload) {
+        if (claims == null) {
+            throw new IllegalArgumentException("claims must not be null");
+        }
+        if (payload == null) {
+            return claims;
+        }
+        String backendUrl = claims.backendUrl();
+        if (backendUrl == null || backendUrl.isBlank()) {
+            backendUrl = normalizeBackendUrl(pickString(payload, "apiUrl"));
+        }
+        String userId = claims.userId();
+        if (userId == null || userId.isBlank()) {
+            userId = pickString(payload, "asUser", "addonUserId");
+        }
+        return new NormalizedClaims(
+                claims.workspaceId(),
+                claims.addonId(),
+                backendUrl,
+                claims.reportsUrl(),
+                userId,
+                claims.workspaceRole());
+    }
+
     static String normalizeBackendUrl(String raw) {
         if (raw == null) {
             return null;

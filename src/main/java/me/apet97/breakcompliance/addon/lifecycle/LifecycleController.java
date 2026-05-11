@@ -2,6 +2,7 @@ package me.apet97.breakcompliance.addon.lifecycle;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
+import me.apet97.breakcompliance.addon.auth.ClaimsNormalizer;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
 import org.springframework.http.MediaType;
@@ -23,7 +24,7 @@ public class LifecycleController {
 
     @PostMapping(value = "/installed", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> installed(HttpServletRequest request, @RequestBody Map<String, Object> payload) {
-        NormalizedClaims claims = requireClaims(request);
+        NormalizedClaims claims = ClaimsNormalizer.enrichFromInstalledPayload(requireClaims(request), payload);
         installationService.handleInstalled(claims, payload);
         return ResponseEntity.ok().build();
     }

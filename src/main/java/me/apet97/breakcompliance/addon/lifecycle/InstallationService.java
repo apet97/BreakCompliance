@@ -54,6 +54,12 @@ public class InstallationService {
         String addonId = claims.addonId();
         Instant now = Instant.now();
 
+        if (claims.backendUrl() == null || claims.backendUrl().isBlank()) {
+            throw new IllegalArgumentException(
+                    "INSTALLED missing backendUrl after enrichment; payload.apiUrl was: "
+                            + payload.get("apiUrl"));
+        }
+
         String authTokenPlaintext = stringValue(payload.get("authToken"));
         if (authTokenPlaintext == null) {
             throw new IllegalArgumentException("INSTALLED payload missing authToken");

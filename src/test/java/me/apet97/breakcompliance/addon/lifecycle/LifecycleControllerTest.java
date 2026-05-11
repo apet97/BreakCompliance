@@ -84,7 +84,9 @@ class LifecycleControllerTest {
                 .orElseThrow();
         assertThat(install.getStatus()).isEqualTo(InstallationStatus.ACTIVE);
         assertThat(install.getBackendUrl()).isEqualTo(TestJwtForger.DEFAULT_BACKEND_URL);
-        assertThat(install.getInstallerUserId()).isNull(); // 'user' claim not set in token; payload's 'asUser' is not a claim
+        // JWT's 'user' claim is unset, but the body's 'asUser' is read as fallback via
+        // ClaimsNormalizer.enrichFromInstalledPayload — see INSTALLED payload spec.
+        assertThat(install.getInstallerUserId()).isEqualTo("user-1");
         String decryptedInstall = codec.decrypt(install.getAuthToken().getKeyId(), install.getAuthToken().getCipher());
         assertThat(decryptedInstall).isEqualTo("install-secret-token");
 
@@ -228,6 +230,44 @@ class LifecycleControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("[]"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void installed_devPortalShape_backendUrlComesFromBodyApiUrlWhenJwtLacksIt() throws Exception {
+        // Dev-portal lifecycle JWT carries only the bare minimum claims —
+        // workspaceId, addonId, type, iss, sub, exp. It does NOT include
+        // backendUrl. The body still has apiUrl, which our enrichment must
+        // pull through so the Installation row's backend_url is populated.
+        Map<String, Object> overrides = new java.util.HashMap<>();
+        overrides.put("backendUrl", null); // strip the default
+        String tokenWithoutBackendUrl = TestJwtForger.forge(overrides);
+
+        String payload = """
+                {
+                  "addonId": "69e81390556e8f94308aaad8",
+                  "workspaceId": "ws-test",
+                  "authToken": "install-secret-token",
+                  "asUser": "user-from-body",
+                  "apiUrl": "https://api.clockify.me",
+                  "addonUserId": "addon-user-from-body",
+                  "webhooks": []
+                }
+                """;
+
+        mockMvc.perform(post("/lifecycle/installed")
+                        .header("X-Addon-Lifecycle-Token", tokenWithoutBackendUrl)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk());
+
+        Installation install = installationRepo
+                .findById(new Installation.Pk(TestJwtForger.DEFAULT_WORKSPACE_ID, TestJwtForger.DEFAULT_ADDON_ID))
+                .orElseThrow();
+        // body.apiUrl was "https://api.clockify.me" (no /api suffix); enrichment
+        // applies the same trailing-/api normalization as the JWT path
+        assertThat(install.getBackendUrl()).isEqualTo("https://api.clockify.me/api");
+        // body.asUser preferred over body.addonUserId
+        assertThat(install.getInstallerUserId()).isEqualTo("user-from-body");
     }
 
     @Test
