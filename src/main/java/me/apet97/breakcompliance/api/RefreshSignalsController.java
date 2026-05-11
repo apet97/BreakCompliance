@@ -52,7 +52,13 @@ public class RefreshSignalsController {
                 body.get("dateRangeStart"), body.get("dateRangeEnd"));
         LocalDate from = range.from();
         LocalDate to = range.to();
-        ingestion.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
+        try {
+            ingestion.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
+        } catch (InstallationInactiveException e) {
+            return ResponseEntity.status(503).body(Map.of(
+                    "error", "installation_inactive",
+                    "message", "This workspace's add-on is currently inactive. Re-enable it from Workspace Settings → Add-ons → Break Compliance to run compliance checks."));
+        }
         var emitted = findings.evaluateAndReplace(claims.workspaceId(), from, to);
         return ResponseEntity.ok(Map.of(
                 "findingsCount", emitted.size(),

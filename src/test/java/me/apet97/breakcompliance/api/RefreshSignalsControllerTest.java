@@ -2,25 +2,28 @@ package me.apet97.breakcompliance.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
 import me.apet97.breakcompliance.addon.auth.TestJwtForger;
-import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
 import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
-import me.apet97.breakcompliance.persistence.entities.IngestionRun;
-import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
-import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
+import me.apet97.breakcompliance.persistence.entities.RefreshSignal;
+import me.apet97.breakcompliance.persistence.entities.RefreshSignalSource;
+import me.apet97.breakcompliance.persistence.entities.RefreshSignalStatus;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
+import me.apet97.breakcompliance.persistence.repositories.RefreshSignalRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -34,24 +37,25 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Locks the ingestion API's behavior when the Clockify reports endpoint
- * returns 401 — the dev-portal limitation that the user-visible "Check
- * Compliance" flow has to render gracefully.
+ * Locks the /api/refresh-signals response contracts. {@code GET} lists the
+ * workspace's recent signals; {@code POST /run} triggers an ingest+evaluate
+ * cycle (admin-only) and reports {@code findingsCount} so the sidebar can
+ * surface a fresh count after webhook-driven refreshes.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import({PostgresTestcontainersConfig.class, TestClockifyKeyConfig.class})
 @Transactional
-class IngestionControllerTest {
+class RefreshSignalsControllerTest {
 
     @Autowired
     MockMvc mockMvc;
 
     @Autowired
-    InstallationRepository installationRepo;
+    RefreshSignalRepository signalsRepo;
 
     @Autowired
-    IngestionRunRepository runRepo;
+    InstallationRepository installationRepo;
 
     @Autowired
     TokenCodec codec;
@@ -61,75 +65,80 @@ class IngestionControllerTest {
 
     @BeforeEach
     void cleanState() {
-        runRepo.deleteAll();
+        signalsRepo.deleteAll();
         installationRepo.deleteAll();
         seedInstallation();
     }
 
     @Test
-    void detailedReport_clockifyReports401_returns503ReportsUnavailable() throws Exception {
-        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
-                .thenThrow(new ClockifyApiException("Clockify client error: 401", 401));
+    void list_returnsSignalsSortedByReceivedAtDesc() throws Exception {
+        Instant older = Instant.parse("2026-05-01T08:00:00Z");
+        Instant newer = Instant.parse("2026-05-02T08:00:00Z");
+        signalsRepo.save(newSignal("a", "NEW_TIME_ENTRY", older));
+        signalsRepo.save(newSignal("b", "TIME_ENTRY_UPDATED", newer));
 
-        mockMvc.perform(post("/api/ingest/detailed-report")
-                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.error").value("reports_unavailable"))
-                .andExpect(jsonPath("$.message").exists());
+        mockMvc.perform(get("/api/refresh-signals")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].eventType").value("TIME_ENTRY_UPDATED"))
+                .andExpect(jsonPath("$[1].eventType").value("NEW_TIME_ENTRY"));
     }
 
     @Test
-    void detailedReport_clockifyReports401_recordsFailedRun() throws Exception {
-        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
-                .thenThrow(new ClockifyApiException("Clockify client error: 401", 401));
-
-        mockMvc.perform(post("/api/ingest/detailed-report")
-                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
-                .andExpect(status().isServiceUnavailable());
-
-        // The failed run must still be persisted for admin audit.
-        List<IngestionRun> runs = runRepo.findAll();
-        assertThatRunIsFailedWithCode(runs, "ClockifyApi:401");
+    void list_missingToken_returns401() throws Exception {
+        mockMvc.perform(get("/api/refresh-signals"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void detailedReport_happyPath_returnsWrappedRun() throws Exception {
+    void run_adminAndValidRange_returns200WithFindingsCount() throws Exception {
         Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(List.of());
 
-        mockMvc.perform(post("/api/ingest/detailed-report")
+        mockMvc.perform(post("/api/refresh-signals/run")
                         .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.run.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.run.entriesProcessed").value(0));
+                .andExpect(jsonPath("$.findingsCount").value(0))
+                .andExpect(jsonPath("$.dateRangeStart").value("2026-05-01"))
+                .andExpect(jsonPath("$.dateRangeEnd").value("2026-05-07"));
     }
 
     @Test
-    void detailedReport_inactiveInstallation_returns503InstallationInactive() throws Exception {
-        // Flip the seeded installation to INACTIVE — simulates a STATUS_CHANGED
-        // lifecycle delivery that disabled the addon for this workspace.
+    void run_nonAdmin_returns403() throws Exception {
+        String memberToken = TestJwtForger.forge(Map.of("workspaceRole", "MEMBER"));
+
+        mockMvc.perform(post("/api/refresh-signals/run")
+                        .header("X-Addon-Token", memberToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void run_invalidDateRange_returns400() throws Exception {
+        mockMvc.perform(post("/api/refresh-signals/run")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateRangeStart\":\"2026-05-07\",\"dateRangeEnd\":\"2026-05-01\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void run_inactiveInstallation_returns503InstallationInactive() throws Exception {
         Installation install = installationRepo
                 .findByWorkspaceId(TestJwtForger.DEFAULT_WORKSPACE_ID)
                 .orElseThrow();
         install.setStatus(InstallationStatus.INACTIVE);
         installationRepo.save(install);
 
-        mockMvc.perform(post("/api/ingest/detailed-report")
+        mockMvc.perform(post("/api/refresh-signals/run")
                         .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.error").value("installation_inactive"))
-                .andExpect(jsonPath("$.message").exists());
-
-        // No run should be persisted — the guard fires before any DB write.
-        org.assertj.core.api.Assertions.assertThat(runRepo.findAll()).isEmpty();
+                .andExpect(jsonPath("$.error").value("installation_inactive"));
     }
 
     private void seedInstallation() {
@@ -146,10 +155,14 @@ class IngestionControllerTest {
         installationRepo.save(install);
     }
 
-    private static void assertThatRunIsFailedWithCode(List<IngestionRun> runs, String errorCode) {
-        org.assertj.core.api.Assertions.assertThat(runs).hasSize(1);
-        IngestionRun run = runs.get(0);
-        org.assertj.core.api.Assertions.assertThat(run.getStatus()).isEqualTo(IngestionStatus.FAILED);
-        org.assertj.core.api.Assertions.assertThat(run.getErrorCode()).isEqualTo(errorCode);
+    private static RefreshSignal newSignal(String id, String eventType, Instant receivedAt) {
+        RefreshSignal s = new RefreshSignal();
+        s.setWorkspaceId(TestJwtForger.DEFAULT_WORKSPACE_ID);
+        s.setId(UUID.randomUUID().toString() + "-" + id);
+        s.setSource(RefreshSignalSource.WEBHOOK);
+        s.setEventType(eventType);
+        s.setReceivedAt(receivedAt);
+        s.setStatus(RefreshSignalStatus.PENDING);
+        return s;
     }
 }

@@ -11,6 +11,7 @@ import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
 import me.apet97.breakcompliance.persistence.entities.Installation;
+import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
@@ -65,6 +66,12 @@ public class IngestionService {
                 .findByWorkspaceId(workspaceId)
                 .orElseThrow(() -> new IllegalStateException(
                         "no installation for workspaceId=" + workspaceId + "; install the addon first"));
+        if (install.getStatus() != InstallationStatus.ACTIVE) {
+            // Lifecycle STATUS_CHANGED to INACTIVE means Clockify expects us
+            // to stop all operations for this workspace. Bail before reading
+            // the token or creating a run record.
+            throw new InstallationInactiveException(workspaceId);
+        }
         String token =
                 codec.decrypt(install.getAuthToken().getKeyId(), install.getAuthToken().getCipher());
 

@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
-import java.util.TreeMap;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.Severity;
@@ -32,10 +31,11 @@ import org.springframework.stereotype.Component;
  *   <li>Detailed Report is the source of truth — never call Clockify here,
  *       never edit time entries.
  *   <li>Skip running entries (no {@code endAt}).
- *   <li>Resolution order: USER assignment > GROUP assignment (sorted by
- *       {@code (targetId, templateId)}; first match wins) > workspace default
- *       > {@code NO_TEMPLATE_ASSIGNED}.
- *   <li>UTC date bucketing.
+ *   <li>Single active template per workspace synthesised from
+ *       {@link WorkspaceSettings} — no per-user template resolution.
+ *   <li>Date bucketing per {@link TimezoneStrategy}: {@code ENTRY_TIMEZONE}
+ *       uses {@code timeInterval.timeZone} from each entry; any other
+ *       strategy falls back to UTC.
  *   <li>Stable output ordering: {@code (date, userId, code)}.
  * </ul>
  */
@@ -307,21 +307,6 @@ public class BreakRuleEngine {
         evidence.put("requiredBreakMinutes", requiredBreakMinutes);
         evidence.put("thresholdMinutes", thresholdMinutes);
         evidence.put("entryIds", segments.entryIds);
-        return evidence;
-    }
-
-    private static Map<String, Object> emptyEvidence(DayBucket bucket) {
-        Map<String, Object> evidence = new LinkedHashMap<>();
-        evidence.put("workMinutes", 0);
-        evidence.put("breakMinutes", 0);
-        evidence.put("maxContinuousWorkMinutes", 0);
-        evidence.put("requiredBreakMinutes", 0);
-        evidence.put("thresholdMinutes", 0);
-        List<String> ids = new ArrayList<>();
-        for (TimeEntry e : bucket.entries()) {
-            ids.add(e.getSourceEntryId());
-        }
-        evidence.put("entryIds", ids);
         return evidence;
     }
 

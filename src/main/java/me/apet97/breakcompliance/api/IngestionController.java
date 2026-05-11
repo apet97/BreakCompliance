@@ -39,6 +39,13 @@ public class IngestionController {
         IngestionRun run;
         try {
             run = service.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
+        } catch (InstallationInactiveException e) {
+            // Lifecycle STATUS_CHANGED → INACTIVE: stop all operations for
+            // this workspace per the marketplace contract. Friendly 503 so
+            // the sidebar surfaces it as a banner.
+            return ResponseEntity.status(503).body(Map.of(
+                    "error", "installation_inactive",
+                    "message", "This workspace's add-on is currently inactive. Re-enable it from Workspace Settings → Add-ons → Break Compliance to run compliance checks."));
         } catch (ClockifyApiException e) {
             // The Clockify developer portal returns 401 for the detailed-report
             // endpoint — surface it as a structured, non-fatal 503 so the

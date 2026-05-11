@@ -7,9 +7,14 @@
 // (no fragment, no reload) so the token never leaks into Referer / access
 // logs. Every subsequent /api/* call uses the `x-addon-token` header.
 //
-// The parent (Clockify) frame is reached via postMessage with the target
-// origin set to ancestorOrigins[0] (or document.referrer fallback). We
-// never postMessage to "*".
+// The parent (Clockify) frame is reached via postMessage. Outbound messages
+// follow the canonical shape documented at
+// docs/clockify-marketplace/build/window-events.md: a JSON-stringified
+// `{ action, payload }` object. We tighten the documented example's `"*"`
+// target origin to the validated parent origin (ancestorOrigins[0] or the
+// document.referrer fallback) — never `"*"`. Inbound events from Clockify
+// use `{ title, body }`; the parser also tolerates the legacy
+// `{ action, payload }` shape some older builds emit.
 //
 // This file is hand-authored ES module — no bundler, no package.json.
 
@@ -137,9 +142,14 @@ function createMessenger() {
     }
     window.addEventListener("message", onMessage);
 
-    function dispatch(title, body) {
+    function dispatch(action, payload) {
         if (!parentOrigin || !target?.postMessage) return false;
-        target.postMessage({ title, body: body ?? {} }, parentOrigin);
+        // Canonical outbound shape per docs/clockify-marketplace/build/
+        // window-events.md: JSON-stringified `{ action, payload }`. Strict
+        // target origin (not "*").
+        target.postMessage(
+            JSON.stringify({ action, payload: payload ?? {} }),
+            parentOrigin);
         return true;
     }
 
@@ -598,28 +608,6 @@ async function loadInitialData() {
         return;
     }
     updateFormFromState();
-}
-
-// ─────────────────── Export ───────────────────
-
-function downloadExport(event, format) {
-    event.preventDefault();
-    const range = computeDateRange();
-    if ("error" in range) { showBanner("err", range.error); return; }
-
-    const path = format === "json" ? "/api/findings/export.json" : "/api/findings/export.csv";
-    const params = new URLSearchParams({ dateRangeStart: range.start, dateRangeEnd: range.end });
-
-    api(`${path}?${params}`).then(payload => {
-        const text = format === "json" ? JSON.stringify(payload, null, 2) : String(payload);
-        const blob = new Blob([text], { type: format === "json" ? "application/json" : "text/csv" });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `break-compliance-${range.start}-${range.end}.${format}`;
-        anchor.click();
-        URL.revokeObjectURL(url);
-    }).catch(err => showBanner("err", err instanceof HttpError ? `Export failed: ${err.message}` : "Export failed."));
 }
 
 // ─────────────────── Event wiring ───────────────────
