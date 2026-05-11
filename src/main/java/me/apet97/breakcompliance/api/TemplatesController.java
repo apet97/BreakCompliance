@@ -43,7 +43,7 @@ public class TemplatesController {
 
     @GetMapping("/api/templates")
     @Transactional
-    public ResponseEntity<List<Map<String, Object>>> list(HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> list(HttpServletRequest request) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
@@ -52,7 +52,7 @@ public class TemplatesController {
         List<Map<String, Object>> body = templates.findByWorkspaceId(claims.workspaceId()).stream()
                 .map(this::toBody)
                 .toList();
-        return ResponseEntity.ok(body);
+        return ResponseEntity.ok(Map.of("templates", body));
     }
 
     @PostMapping(value = "/api/templates", consumes = MediaType.APPLICATION_JSON_VALUE)

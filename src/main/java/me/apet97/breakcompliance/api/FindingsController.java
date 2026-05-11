@@ -38,13 +38,13 @@ public class FindingsController {
         LocalDate to = LocalDate.parse(body.getOrDefault("dateRangeEnd", ""));
         List<Finding> findings = findingsService.evaluateAndReplace(claims.workspaceId(), from, to);
         return ResponseEntity.ok(Map.of(
-                "count", findings.size(),
+                "findingsCreated", findings.size(),
                 "dateRangeStart", from.toString(),
                 "dateRangeEnd", to.toString()));
     }
 
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> list(
+    public ResponseEntity<Map<String, Object>> list(
             HttpServletRequest request,
             @RequestParam("dateRangeStart") String fromIso,
             @RequestParam("dateRangeEnd") String toIso) {
@@ -56,7 +56,7 @@ public class FindingsController {
         LocalDate to = LocalDate.parse(toIso);
         List<Finding> findings = findingsService.list(claims.workspaceId(), from, to);
         List<Map<String, Object>> body = findings.stream().map(this::toJsonShape).toList();
-        return ResponseEntity.ok(body);
+        return ResponseEntity.ok(Map.of("findings", body));
     }
 
     private Map<String, Object> toJsonShape(Finding f) {
