@@ -25,3 +25,6 @@ dependency-reduced-pom.xml
 .env
 .env.*
 !.env.example
+
+# Session-state directory (transient agent memory)
+.remember/
