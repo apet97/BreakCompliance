@@ -30,6 +30,21 @@ public class SidebarHtmlController {
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <title>Break Compliance</title>
+                <!-- Apply theme synchronously BEFORE the body paints so a dark-mode
+                     Clockify host doesn't flash light first. The script reads
+                     ?theme=DARK|LIGHT from the iframe URL (Clockify always passes
+                     it) and sets a data-attribute the CSS keys on. Failing
+                     silently leaves the default (light) palette. -->
+                <script>
+                  (function () {
+                    try {
+                      var t = (new URLSearchParams(location.search).get('theme') || '').toUpperCase();
+                      if (t === 'DARK' || t === 'LIGHT') {
+                        document.documentElement.setAttribute('data-clockify-theme', t.toLowerCase());
+                      }
+                    } catch (e) { /* defensive: never block paint on script errors */ }
+                  })();
+                </script>
                 <!-- Clockify-native UI baseline (colors, typography, controls).
                      Our /styles.css below overrides where the layout needs to
                      diverge for the narrow sidebar form factor. CSP allows
@@ -38,15 +53,27 @@ public class SidebarHtmlController {
                 <link rel="stylesheet" href="/styles.css">
               </head>
               <body>
-                <div class="app-container">
+                <div class="app-container" role="application" aria-label="Break Compliance">
                   <header class="app-header">
                     <h1>Break Compliance</h1>
-                    <p id="session-status" class="caption muted" style="margin:0 0 8px;font-size:11px">Connecting…</p>
+                    <p id="session-status" class="caption muted" aria-live="polite">Connecting…</p>
+                    <div class="active-template-row">
+                      <span class="control-label">Active template</span>
+                      <button
+                        id="active-template-chip"
+                        class="active-template-chip"
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded="false"
+                        title="Click to see the active thresholds"
+                      >
+                        <span id="active-template-label">—</span>
+                        <span class="chip-caret" aria-hidden="true">▾</span>
+                      </button>
+                      <div id="active-template-details" class="active-template-details" role="dialog" aria-label="Active template thresholds" hidden></div>
+                    </div>
+                    <p class="caption muted hint">Configure thresholds &amp; preset in <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong>.</p>
                     <div class="header-controls">
-                      <div class="control-group">
-                        <label>Active template</label>
-                        <p id="active-template-label" class="readonly-value">—</p>
-                      </div>
                       <div class="control-group">
                         <label for="date-preset-select">Date Range</label>
                         <select id="date-preset-select">
@@ -58,7 +85,7 @@ public class SidebarHtmlController {
                           <option value="custom_range">Custom Range</option>
                         </select>
                       </div>
-                      <div id="custom-range-inputs" class="control-group custom-range-group" style="display:none">
+                      <div id="custom-range-inputs" class="control-group custom-range-group" hidden>
                         <div class="date-range-row">
                           <div class="date-input-group">
                             <label for="custom-start-date">From</label>
@@ -72,22 +99,22 @@ public class SidebarHtmlController {
                       </div>
                       <div class="button-row">
                         <button id="run-btn" class="btn-primary" type="button">Check Compliance</button>
+                        <button id="refresh-btn" class="btn-icon" type="button" title="Re-run the last check" aria-label="Refresh">↻</button>
                       </div>
-                      <p class="caption muted" style="margin:6px 0 0;font-size:11px">Configure thresholds &amp; preset in Clockify: <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong>.</p>
                     </div>
                   </header>
-                  <div id="status-banner" class="error-banner" style="display:none"></div>
-                  <div id="diagnostics" class="diagnostics" style="display:none"></div>
-                  <div class="view-toggle">
+                  <div id="status-banner" class="error-banner" role="status" aria-live="polite" hidden></div>
+                  <div id="diagnostics" class="diagnostics" hidden></div>
+                  <p id="last-checked" class="caption muted last-checked" hidden></p>
+                  <fieldset class="view-toggle" aria-label="View mode">
+                    <legend class="sr-only">View</legend>
                     <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span>Pivot Table</span></label>
                     <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span>Checklist</span></label>
+                  </fieldset>
+                  <div id="loading" class="loading" role="status" aria-live="polite" hidden>
+                    <div class="loading-spinner" aria-hidden="true"></div><span>Checking compliance…</span>
                   </div>
-                  <div id="loading" class="loading" style="display:none">
-                    <div class="loading-spinner"></div><span>Checking compliance…</span>
-                  </div>
-                  <div id="results-container" class="results-container"></div>
-                  <div class="actions-row" style="margin-top:12px">
-                  </div>
+                  <div id="results-container" class="results-container" aria-live="polite"></div>
                 </div>
                 <script type="module" src="/sidebar.js"></script>
               </body>

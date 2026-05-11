@@ -12,7 +12,7 @@ A pre-flight checklist for submitting Break Compliance to the [Clockify Marketpl
 - **Minimal subscription plan:** `BASIC`
 - **Surface:** Admin-only sidebar inside Clockify. Custom settings page (admin-only by Clockify convention).
 - **Description:** "Review whether Clockify users took required break time. Checks explicit BREAK time entries against configurable rule templates (German ArbZG, California, Custom)."
-- **Icon:** `/icon.svg` (replace before submission with the design-system-approved mark)
+- **Icon:** `/icon.svg` — 64×64 designed mark (Clockify-blue tile with a clock face paused at the 4-hour break threshold and a green compliance check overlay). Vector-only, no external resources, < 2 KB.
 
 ## Scopes (least-required)
 
@@ -43,7 +43,7 @@ No `_WRITE` scopes. The add-on never modifies time entries, never starts/stops t
 
 - `INSTALLED` — verify JWT, encrypt + persist install token, normalise + persist each webhook auth token, seed default workspace settings, return 200 within the 3-second budget.
 - `DELETED` — atomic delete by `(workspace_id, addon_id)`; FK cascade on `webhook_auth_tokens` cleans up secondary rows. App-data (settings, templates, findings, etc.) is kept per `docs/DATA_RETENTION.md`.
-- `SETTINGS_UPDATED` — acknowledged with 200 (settings persistence flows through `/api/settings`).
+- `SETTINGS_UPDATED` — accepts the canonical Clockify object wrapper `{workspaceId, addonId, settings: [...]}` (the live shape verified on the developer portal on 2026-05-11) and falls back to the legacy bare-array shape and to single `{id,value}` objects for resilience. Unknown shapes are recorded by `PayloadDriftLogger` and acknowledged 200 to avoid retry storms. Preset changes overwrite the eight threshold columns from the named preset before per-field edits land, so admins can flip preset + tweak one field in a single save.
 - `STATUS_CHANGED` — flips `installations.status` between ACTIVE and INACTIVE.
 
 ## Submission checklist
@@ -73,8 +73,21 @@ No `_WRITE` scopes. The add-on never modifies time entries, never starts/stops t
 # 5. Register the manifest URL with Clockify's developer portal (https://<custom-domain>/manifest).
 ```
 
+## Live-test evidence
+
+Run on 2026-05-11 against the developer portal workspace `69bda6b317a0c5babe34b4ff`:
+
+- ✅ Install via manifest URL — `lifecycle.installed` logged at 21:35:16.
+- ✅ Sidebar iframe mounts (`/sidebar?auth_token=…`, 1003×734) and renders the active-template chip + "Connected · {workspaceId}" status.
+- ✅ Check Compliance — 15 entries ingested, 5 findings produced, pivot table rendered.
+- ✅ Findings list (`/api/findings`) — `{findings: [...]}` shape matches sidebar destructuring.
+- ✅ STATUS_CHANGED → INACTIVE — Check Compliance returns the friendly `503 installation_inactive` banner instead of a 500.
+- ✅ SETTINGS_UPDATED with canonical object wrapper — payload is unwrapped and persisted (verified end-to-end after the 2026-05-12 §24 fix; the prior 21:40 + 21:44 400-responses no longer reproduce).
+- ✅ X-Addon-Token header path (every `/api/*` success implies the header was sent; `auth_token` query parameter scrubbed via `history.replaceState`).
+- ✅ CSP `frame-ancestors` admits `developer.clockify.me`.
+
 ## Open follow-ups before submission
 
-- Replace the placeholder `icon.svg` with the design-system mark.
-- Capture sidebar + settings screenshots (mobile + desktop widths) for the listing gallery.
+- Capture sidebar + settings screenshots (laptop + mobile widths) for the listing gallery.
 - Soak a staging install in two test workspaces for the Phase 12 smoke checklist before flipping the production manifest URL.
+- Marketing assets (gallery, demo video) — out of scope for the repo; supplied at submission time.

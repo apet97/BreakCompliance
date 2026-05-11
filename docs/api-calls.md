@@ -146,19 +146,41 @@ Receivers: `src/main/java/me/apet97/breakcompliance/addon/lifecycle/LifecycleCon
 }
 ```
 
-### SETTINGS_UPDATED payload (live — array of changed fields)
+### SETTINGS_UPDATED payload (live — canonical object wrapper)
+
+The dev portal and the canonical Clockify docs
+(`docs/clockify-marketplace/build/manifest/lifecycle.md:96-134`) wrap the
+array of changed fields inside an object that also carries
+`workspaceId`/`addonId`/`asUser`. Verified against the live developer
+portal on 2026-05-11 (Railway log
+`HttpMessageNotReadableException: ...from Object value` confirmed the wrapper
+shape — the §24 fix accepts it).
 
 ```json
-[
-  { "id": "appliedPresetKey", "value": "germany-arbzg-style" },
-  { "id": "workThresholdMinutes", "value": 360 }
-]
+{
+  "workspaceId": "69bda6b317a0c5babe34b4ff",
+  "addonId":     "6a024b931421fb8f26af8100",
+  "settings": [
+    { "id": "appliedPresetKey",     "name": "Load preset values",     "value": "germany-arbzg-style" },
+    { "id": "workThresholdMinutes", "name": "Work threshold (minutes)", "value": 360 }
+  ]
+}
 ```
+
+`SettingsUpdatedPayload.extractUpdates` accepts three shapes for resilience:
+
+| Shape | Source | Behaviour |
+|---|---|---|
+| `{settings: [...]}` (object wrapper) | Live dev portal + canonical docs | Unwrapped, list passed to handler. |
+| `[{id, value}, …]` (bare array) | Earlier dev-portal builds, legacy spec | Used as-is. |
+| `{id, value}` (single field) | Defensive | Wrapped as singleton list. |
+| Anything else | Drift | `PayloadDriftLogger` WARN once, 200 returned. |
 
 `InstallationService.handleSettingsUpdated`:
 1. Scans for `appliedPresetKey` change → overwrites all 8 threshold columns from
    `RuleTemplatePresets.{value}.toEntity(...)`.
-2. Applies per-field edits on top.
+2. Applies per-field edits on top (manual edits win over the preset value
+   when both arrive in the same delivery).
 
 ---
 
@@ -202,6 +224,7 @@ trigger live engine evaluation.
 | Detailed-report response root key | `timeEntries` | `timeentries` (all-lowercase) | Use lowercase. See commit `f7db0e6`. |
 | Date format in body | `YYYY-MM-DDTHH:MM:SS.ssssss` | accepts `YYYY-MM-DDTHH:MM:SS` (no fractional) | Use seconds-only `yyyy-MM-dd'T'HH:mm:ss`. |
 | `exportType` field | optional | ignored for detailed-report | Don't send. |
+| `SETTINGS_UPDATED` body shape | (`api-calls.md` previously documented a bare array) | Canonical Clockify docs and the live dev portal both deliver `{workspaceId, addonId, settings: [...]}` | Parser accepts wrapper, bare array, and singleton object. See §24 + `SettingsUpdatedPayload`. |
 
 ---
 

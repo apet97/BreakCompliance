@@ -132,3 +132,4 @@ evaluation path; the tables remain only for back-compat / future per-user expans
 - `f7db0e6` (between §17 and §18) — revert §16's camelCase mistake; live API uses
   `timeentries` (lowercase). Confirmed by live probe.
 - §23 — security hardening, SDK conformity audit, and test suite verification
+- §24 — launch-readiness sweep: live SETTINGS_UPDATED payload fix (the dev portal sends the canonical `{settings: [...]}` object wrapper, our handler now accepts wrapper / bare array / singleton via `SettingsUpdatedPayload`); sidebar UI/UX optimisation (active-template chip with thresholds popover, "Last checked" relative timestamp, refresh button, empty-state polish, theme-flicker fix, dark-mode WCAG-AA contrast, narrow-viewport responsive, a11y aria/focus/sr-only); marketplace asset polish (designed 64×64 icon, support email filled in `docs/PRIVACY.md`, `MARKETPLACE_READINESS.md` reflects live-test evidence); 197 tests green.

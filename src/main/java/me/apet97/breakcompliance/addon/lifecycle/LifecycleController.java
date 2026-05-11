@@ -1,8 +1,11 @@
 package me.apet97.breakcompliance.addon.lifecycle;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import me.apet97.breakcompliance.addon.auth.ClaimsNormalizer;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
@@ -17,10 +20,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/lifecycle")
 public class LifecycleController {
 
-    private final InstallationService installationService;
+    /**
+     * Top-level keys we expect in the canonical SETTINGS_UPDATED wrapper.
+     * Anything outside this set emits a one-shot WARN via
+     * {@link PayloadDriftLogger}; the handler still runs.
+     */
+    private static final Set<String> KNOWN_SETTINGS_UPDATED_KEYS =
+            Set.of("settings", "workspaceId", "addonId", "asUser", "addonUserId");
 
-    public LifecycleController(InstallationService installationService) {
+    private final InstallationService installationService;
+    private final ObjectMapper objectMapper;
+    private final PayloadDriftLogger driftLogger;
+
+    public LifecycleController(
+            InstallationService installationService,
+            ObjectMapper objectMapper,
+            PayloadDriftLogger driftLogger) {
         this.installationService = installationService;
+        this.objectMapper = objectMapper;
+        this.driftLogger = driftLogger;
     }
 
     @PostMapping(value = "/installed", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -39,9 +57,18 @@ public class LifecycleController {
 
     @PostMapping(value = "/settings-updated", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> settingsUpdated(
-            HttpServletRequest request, @RequestBody(required = false) List<Map<String, Object>> payload) {
+            HttpServletRequest request, @RequestBody(required = false) JsonNode payload) {
         NormalizedClaims claims = requireClaims(request);
-        installationService.handleSettingsUpdated(claims, payload == null ? List.of() : payload);
+        // Drift-log unknown top-level keys on the canonical wrapper shape so a
+        // schema bump emits a one-shot WARN.
+        if (payload != null && payload.isObject()) {
+            driftLogger.check(
+                    "lifecycle.settings-updated",
+                    SettingsUpdatedPayload.asObjectMap(payload, objectMapper),
+                    KNOWN_SETTINGS_UPDATED_KEYS);
+        }
+        List<Map<String, Object>> updates = SettingsUpdatedPayload.extractUpdates(payload, objectMapper);
+        installationService.handleSettingsUpdated(claims, updates);
         return ResponseEntity.ok().build();
     }
 

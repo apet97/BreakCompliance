@@ -1,6 +1,6 @@
 # Privacy Policy — Break Compliance for Clockify
 
-_Last updated: 2026-05-11._
+_Last updated: 2026-05-12._
 
 ## What Break Compliance is
 
@@ -68,4 +68,7 @@ See `docs/DATA_RETENTION.md` for per-table policy.
 
 ## Contact
 
-`<your-support-email>` — replace before submission.
+For privacy questions, security disclosures, data-subject requests, or any
+other matter relating to the add-on's handling of Clockify workspace data,
+contact **petkovic.aleksandar037@gmail.com**. The operator commits to
+acknowledging requests within 7 business days.

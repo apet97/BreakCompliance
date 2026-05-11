@@ -39,19 +39,28 @@
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+html[data-clockify-theme='dark'],
+html[data-clockify-theme='dark'] body,
+body.dark,
 body.dark-mode,
 body[data-clockify-theme='dark'] {
-  --bg-primary:    #1A1A2E;
-  --bg-secondary:  #16213E;
-  --bg-card:       #0F3460;
-  --text-primary:  #E2E8F0;
+  --bg-primary:    #0F172A;
+  --bg-secondary:  #1E293B;
+  --bg-card:       #1E293B;
+  --text-primary:  #F1F5F9;
   --text-secondary:#94A3B8;
   --border-color:  #334155;
   --accent-color:  #60A5FA;
   --accent-hover:  #3B82F6;
-  --pass-bg:       #064E3B;
-  --warn-bg:       #78350F;
-  --fail-bg:       #7F1D1D;
+  --accent-ring:   rgba(96, 165, 250, 0.30);
+  /* Higher-contrast status backgrounds + text under dark mode — WCAG AA on
+     dark backgrounds means lighter status text on darker chip backgrounds. */
+  --pass-color:    #34D399;
+  --pass-bg:       rgba(16, 185, 129, 0.18);
+  --warn-color:    #FBBF24;
+  --warn-bg:       rgba(245, 158, 11, 0.20);
+  --fail-color:    #F87171;
+  --fail-bg:       rgba(239, 68, 68, 0.18);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
 }
@@ -77,7 +86,90 @@ a:hover { text-decoration: underline; }
 
 /* Header */
 .app-header { margin-bottom: 12px; }
-.app-header h1 { font-size: 16px; font-weight: 600; margin: 0 0 10px; }
+.app-header h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+.app-header .caption { margin: 0 0 8px; font-size: 11px; }
+.app-header .hint { margin: 6px 0 12px; font-size: 11px; line-height: 1.45; }
+.app-header .hint strong { color: var(--text-primary); font-weight: 600; }
+
+/* Active template chip + threshold popover */
+.active-template-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.active-template-row .control-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.active-template-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.active-template-chip:hover { background: var(--bg-card); border-color: var(--accent-color); }
+.active-template-chip:focus-visible {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.active-template-chip .chip-caret {
+  font-size: 9px;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+.active-template-chip[aria-expanded="true"] .chip-caret {
+  transform: rotate(180deg);
+  color: var(--accent-color);
+}
+.active-template-details {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+}
+.active-template-details[hidden] { display: none; }
+.active-template-details .threshold-list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.active-template-details dt { color: var(--text-secondary); }
+.active-template-details dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+.active-template-details p.muted { font-size: 12px; margin: 0; }
+
+/* Screen-reader-only utility */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}
 
 .header-controls {
   display: flex;
@@ -449,71 +541,58 @@ select:focus, input:focus {
 
 .no-data { color: var(--text-secondary); font-style: italic; font-size: 12px; }
 
-/* Settings page-only structures (workspace settings, templates list,
-   assignments, refresh signals, runner) */
-.section-stack > * + * { margin-top: 12px; }
-.kv-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-color);
-  font-size: 12px;
-}
-.kv-row:last-child { border-bottom: none; }
-.kv-row .key { color: var(--text-secondary); font-weight: 500; }
-.kv-row .value { font-variant-numeric: tabular-nums; color: var(--text-primary); }
-
-.template-card {
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  background: var(--bg-card);
-}
-.template-card + .template-card { margin-top: 8px; }
-.template-card .template-name { font-weight: 600; font-size: 13px; }
-.template-card .template-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
-.template-card .template-thresholds { font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-variant-numeric: tabular-nums; }
-
-.assignments-list { display: flex; flex-direction: column; gap: 6px; }
-.assignment-row {
-  display: flex; gap: 8px; align-items: center;
-  padding: 6px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 12px;
-}
-.assignment-row .badge {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-}
-.assignment-row .target-id { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; color: var(--text-primary); }
-.assignment-row .template-id { color: var(--text-secondary); margin-left: auto; }
-
-.signals-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
-.signal-row {
-  display: flex; gap: 8px; align-items: center;
-  padding: 6px 8px;
-  border-left: 3px solid var(--none-color);
-  background: var(--bg-secondary);
-  border-radius: 0 4px 4px 0;
-  font-size: 12px;
-}
-.signal-row.status-PENDING { border-left-color: var(--warn-color); }
-.signal-row.status-ACKNOWLEDGED { border-left-color: var(--pass-color); }
-.signal-row .signal-event { font-weight: 500; }
-.signal-row .signal-time { color: var(--text-secondary); margin-left: auto; font-size: 11px; }
-
 .muted { color: var(--text-secondary); }
 .tabular { font-variant-numeric: tabular-nums; }
-.actions-row { display: flex; gap: 6px; justify-content: flex-end; }
+.section-stack > * + * { margin-top: 12px; }
+
+/* Button row for the primary CTA + the refresh icon button */
+.button-row { display: flex; gap: 6px; flex: 0 0 100%; }
+.button-row .btn-primary { flex: 1; }
+
+/* Last-checked relative timestamp */
+.last-checked {
+  margin: -4px 0 8px;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* Empty states (no run yet OR run-with-no-findings) */
+.empty-state {
+  padding: 24px 16px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  text-align: center;
+}
+.empty-state.ok {
+  border-color: var(--pass-color);
+  background: var(--pass-bg);
+}
+.empty-state .empty-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.empty-state .empty-detail {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.empty-state.ok .empty-detail { color: inherit; opacity: 0.9; }
+
+/* Narrow-viewport polish — Clockify's mobile rendering or a wide-sidebar
+   collapse should keep the pivot legible. */
+@media (max-width: 720px) {
+  .pivot-table th, .pivot-table td { padding: 6px 4px; font-size: 11px; }
+  .user-col { max-width: 96px; }
+  .day-col { min-width: 48px; }
+  .day-name { font-size: 11px; }
+  .day-date { font-size: 9px; }
+  .status-icon { font-size: 14px; }
+  .cell-detail { font-size: 9px; }
+  .header-controls { flex-direction: column; align-items: stretch; }
+  .control-group { width: 100%; }
+}
 
 /* Findings table on the sidebar (actual route output, not the design's
    pivot — the engine emits row-per-finding by default; the pivot is a

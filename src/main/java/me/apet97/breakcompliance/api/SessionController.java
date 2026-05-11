@@ -20,6 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
  * active rule template preset) and {@code addonId} (so the sidebar's
  * "Settings" button can build the env-correct settings-page URL — different
  * shape on production vs. the developer portal).
+ *
+ * <p>Returns the inline thresholds so the sidebar can render an "Active
+ * template" tooltip without a second round-trip — see the
+ * {@code activeTemplate} block.
  */
 @RestController
 public class SessionController {
@@ -46,11 +50,32 @@ public class SessionController {
         // can render "Active template: <name>" without a second round-trip.
         // Missing settings row → null; the sidebar handles that gracefully.
         if (claims.workspaceId() != null) {
-            String appliedPresetKey = settingsRepo.findById(claims.workspaceId())
-                    .map(WorkspaceSettings::getAppliedPresetKey)
-                    .orElse(null);
-            body.put("appliedPresetKey", appliedPresetKey);
+            settingsRepo.findById(claims.workspaceId()).ifPresentOrElse(
+                    settings -> {
+                        body.put("appliedPresetKey", settings.getAppliedPresetKey());
+                        body.put("activeTemplate", buildActiveTemplate(settings));
+                    },
+                    () -> {
+                        body.put("appliedPresetKey", null);
+                        body.put("activeTemplate", null);
+                    });
         }
         return ResponseEntity.ok(body);
+    }
+
+    private static Map<String, Object> buildActiveTemplate(WorkspaceSettings s) {
+        Map<String, Object> at = new LinkedHashMap<>();
+        at.put("workThresholdMinutes", s.getCustomWorkThresholdMinutes());
+        at.put("breakThresholdMinutes", s.getCustomBreakThresholdMinutes());
+        at.put("minBreakSegmentMinutes", s.getCustomMinBreakSegmentMinutes());
+        at.put("maxContinuousWorkMinutes", s.getCustomMaxContinuousWorkMinutes());
+        at.put("gracePeriodMinutes", s.getCustomGracePeriodMinutes());
+        at.put("allowSplitBreaks", s.getCustomAllowSplitBreaks());
+        at.put("secondWorkThresholdMinutes", s.getCustomSecondWorkThresholdMinutes());
+        at.put("secondBreakThresholdMinutes", s.getCustomSecondBreakThresholdMinutes());
+        at.put("timezoneStrategy",
+                s.getTimezoneStrategy() == null ? null : s.getTimezoneStrategy().name());
+        at.put("fallbackDetectionEnabled", s.isFallbackDetectionEnabled());
+        return at;
     }
 }

@@ -1,6 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Break Compliance">
-  <rect width="64" height="64" rx="12" fill="#3B82F6"/>
-  <path d="M20 22h24v4H20zM20 30h18v4H20zM20 38h22v4H20z" fill="#FFFFFF"/>
-  <circle cx="46" cy="40" r="9" fill="#1A1A2E"/>
-  <path d="M46 35v5l3.5 2.2" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <!--
+    Break Compliance marketplace mark.
+
+    Composition:
+      • Rounded-square tile in Clockify blue (#3B82F6).
+      • Clock face centred on the tile (12-position dial, 3-9-6-12 ticks)
+        with a paused/break pose — minute-hand at 12 and hour-hand at 9
+        marking the four-hour work threshold.
+      • Steam wisps above the clock evoke a coffee break.
+      • Small green check overlay in the bottom-right corner signals
+        compliance confirmation.
+    Vector-only, no external assets, no embedded raster, < 2 KB.
+    Designed for the 64×64 marketplace icon slot.
+  -->
+  <rect width="64" height="64" rx="14" fill="#3B82F6"/>
+
+  <!-- Steam wisps -->
+  <path d="M24 11c0 2-2 2-2 4s2 2 2 4" stroke="#DBEAFE" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M32 9c0 2-2 2-2 4s2 2 2 4" stroke="#DBEAFE" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M40 11c0 2-2 2-2 4s2 2 2 4" stroke="#DBEAFE" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.85"/>
+
+  <!-- Clock face (white disk with subtle inner ring) -->
+  <circle cx="32" cy="36" r="20" fill="#FFFFFF"/>
+  <circle cx="32" cy="36" r="20" fill="none" stroke="#1E3A8A" stroke-width="1.5"/>
+  <circle cx="32" cy="36" r="16" fill="none" stroke="#E5E7EB" stroke-width="0.7"/>
+
+  <!-- Hour ticks at 12/3/6/9 -->
+  <rect x="31" y="18.5" width="2" height="4" rx="1" fill="#1E3A8A"/>
+  <rect x="45.5" y="35" width="4" height="2" rx="1" fill="#1E3A8A"/>
+  <rect x="31" y="49.5" width="2" height="4" rx="1" fill="#1E3A8A"/>
+  <rect x="14.5" y="35" width="4" height="2" rx="1" fill="#1E3A8A"/>
+
+  <!-- Hands: minute up (12), hour pointing to 9 (the 4-hour break trigger) -->
+  <line x1="32" y1="36" x2="32" y2="22" stroke="#1E3A8A" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="32" y1="36" x2="22" y2="36" stroke="#1E3A8A" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="32" cy="36" r="2" fill="#1E3A8A"/>
+
+  <!-- Compliance check badge — bottom-right corner -->
+  <circle cx="50" cy="52" r="9" fill="#10B981" stroke="#FFFFFF" stroke-width="2"/>
+  <path d="M46 52.5l3 3 5-5.5" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>

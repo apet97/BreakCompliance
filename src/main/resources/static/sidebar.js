@@ -33,6 +33,17 @@ const DATE_PRESETS = {
     last_month: () => monthRange(-1),
 };
 
+const PRESET_LABELS = {
+    "custom-basic": "Custom policy",
+    "california-style": "California (IWC meal/rest)",
+    "germany-arbzg-style": "Germany ArbZG §3 + §4",
+};
+
+const TIMEZONE_LABELS = {
+    "ENTRY_TIMEZONE": "Entry timezone",
+    "UTC": "UTC",
+};
+
 // ────────────────────────── Module state ──────────────────────────
 
 let addonToken = null;
@@ -47,6 +58,9 @@ const state = {
     view: "pivot",
     findings: [],
     lastRun: null,
+    lastRunAt: null,        // Date — when the last successful Check Compliance completed
+    lastRunRange: null,     // { start, end } — used by the refresh button
+    detailsOpen: false,     // active-template details popover visibility
 };
 
 // ────────────────────────── Errors ──────────────────────────
@@ -174,12 +188,14 @@ function createMessenger() {
 // ─────────────────── Theme ───────────────────
 
 function applyTheme(theme) {
+    // The inline <head> script already set data-clockify-theme on
+    // <html> synchronously to avoid a paint flash. Here we just mirror
+    // the value onto <body> for any CSS that keys off the body element.
     const target = document.body ?? document.documentElement;
     if (!target) return;
-    const resolved = theme === "DARK" ? "DARK" : "DEFAULT";
-    if (resolved === "DARK") target.classList?.add("dark");
-    else target.classList?.remove("dark");
-    target.setAttribute?.("data-clockify-theme", resolved);
+    const resolved = theme === "DARK" ? "dark" : "light";
+    target.classList.toggle("dark", resolved === "dark");
+    target.setAttribute("data-clockify-theme", resolved);
 }
 
 // ─────────────────── API client ───────────────────
@@ -250,12 +266,25 @@ function monthRange(monthOffset) {
 }
 
 function formatMinutes(minutes) {
-    if (minutes <= 0) return "0m";
+    if (minutes == null || minutes <= 0) return "0m";
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     if (h === 0) return `${m}m`;
     if (m === 0) return `${h}h`;
     return `${h}h ${m}m`;
+}
+
+function formatRelativeTime(date) {
+    if (!(date instanceof Date) || isNaN(date.getTime())) return "";
+    const diffSec = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
+    if (diffSec < 5) return "just now";
+    if (diffSec < 60) return `${diffSec}s ago`;
+    const diffMin = Math.round(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} min${diffMin === 1 ? "" : "s"} ago`;
+    const diffHour = Math.round(diffMin / 60);
+    if (diffHour < 24) return `${diffHour}h ago`;
+    const diffDay = Math.round(diffHour / 24);
+    return `${diffDay}d ago`;
 }
 
 function severityClass(severity) {
@@ -306,11 +335,11 @@ function computeDateRange() {
 function showBanner(kind, message = "") {
     const banner = el("status-banner");
     if (kind === "hidden") {
-        banner.style.display = "none";
+        banner.hidden = true;
         banner.textContent = "";
         return;
     }
-    banner.style.display = "block";
+    banner.hidden = false;
     banner.className = kind === "err"
         ? "error-banner"
         : kind === "warn"
@@ -321,7 +350,11 @@ function showBanner(kind, message = "") {
     banner.textContent = message;
 }
 
-function setLoading(on) { el("loading").style.display = on ? "flex" : "none"; }
+function setLoading(on) {
+    const node = el("loading");
+    node.hidden = !on;
+    if (on) node.style.display = "flex";
+}
 
 function setRunButtonState(busy) {
     const btn = el("run-btn");
@@ -335,10 +368,10 @@ function renderDiagnostics() {
     const node = el("diagnostics");
     clearChildren(node);
     if (!state.lastRun) {
-        node.style.display = "none";
+        node.hidden = true;
         return;
     }
-    node.style.display = "grid";
+    node.hidden = false;
     node.appendChild(create("div", undefined, [
         create("div", { className: "label", text: "Entries ingested" }),
         create("div", { className: "value", text: String(state.lastRun.entriesProcessed) }),
@@ -347,6 +380,63 @@ function renderDiagnostics() {
         create("div", { className: "label", text: "Findings created" }),
         create("div", { className: "value", text: String(state.lastRun.findingsCreated) }),
     ]));
+}
+
+function renderLastChecked() {
+    const node = el("last-checked");
+    if (!state.lastRunAt) {
+        node.hidden = true;
+        node.textContent = "";
+        return;
+    }
+    node.hidden = false;
+    node.textContent = `Last checked ${formatRelativeTime(state.lastRunAt)}`;
+}
+
+function renderActiveTemplate() {
+    const labelNode = el("active-template-label");
+    const chip = el("active-template-chip");
+    const details = el("active-template-details");
+
+    const presetKey = state.session?.appliedPresetKey ?? "custom-basic";
+    const presetLabel = PRESET_LABELS[presetKey] ?? presetKey;
+    labelNode.textContent = presetLabel;
+
+    clearChildren(details);
+    const active = state.session?.activeTemplate;
+    if (!active) {
+        details.appendChild(create("p", { className: "muted", text: "Thresholds not configured yet — open the settings page in Clockify." }));
+        return;
+    }
+
+    const rows = [
+        ["Work threshold", formatMinutes(active.workThresholdMinutes)],
+        ["Required break", formatMinutes(active.breakThresholdMinutes)],
+        ["Min break segment", formatMinutes(active.minBreakSegmentMinutes)],
+        ["Max continuous work", formatMinutes(active.maxContinuousWorkMinutes)],
+        ["Grace period", formatMinutes(active.gracePeriodMinutes)],
+        ["Split breaks", active.allowSplitBreaks ? "Allowed" : "One block required"],
+    ];
+    if (active.secondWorkThresholdMinutes && active.secondWorkThresholdMinutes > 0) {
+        rows.push(["Second-tier work threshold", formatMinutes(active.secondWorkThresholdMinutes)]);
+        rows.push(["Second-tier required break", formatMinutes(active.secondBreakThresholdMinutes)]);
+    }
+    rows.push(["Timezone strategy", TIMEZONE_LABELS[active.timezoneStrategy] ?? (active.timezoneStrategy ?? "—")]);
+    rows.push(["Fallback detection", active.fallbackDetectionEnabled ? "On" : "Off"]);
+
+    const dl = create("dl", { className: "threshold-list" });
+    for (const [k, v] of rows) {
+        dl.appendChild(create("dt", { text: k }));
+        dl.appendChild(create("dd", { text: v }));
+    }
+    details.appendChild(dl);
+    chip.setAttribute("aria-expanded", state.detailsOpen ? "true" : "false");
+    details.hidden = !state.detailsOpen;
+}
+
+function toggleActiveTemplateDetails(force) {
+    state.detailsOpen = typeof force === "boolean" ? force : !state.detailsOpen;
+    renderActiveTemplate();
 }
 
 function pickWorstSeverityFinding(findings) {
@@ -359,10 +449,18 @@ function renderResults() {
     const container = el("results-container");
     clearChildren(container);
     if (state.findings.length === 0) {
-        container.appendChild(create("p", {
-            className: "no-data",
-            text: "No findings in this range. Click Check Compliance to run.",
-        }));
+        if (state.lastRun) {
+            // Successful run, just no violations — celebrate the empty list.
+            container.appendChild(create("div", { className: "empty-state ok" }, [
+                create("p", { className: "empty-title", text: "All clear in this range." }),
+                create("p", { className: "empty-detail", text: `Checked ${state.lastRun.entriesProcessed} time ${state.lastRun.entriesProcessed === 1 ? "entry" : "entries"} — no break-compliance issues found.` }),
+            ]));
+        } else {
+            container.appendChild(create("div", { className: "empty-state" }, [
+                create("p", { className: "empty-title", text: "No check has run yet." }),
+                create("p", { className: "empty-detail", text: "Pick a date range and click Check Compliance to evaluate the workspace against the active template." }),
+            ]));
+        }
         return;
     }
     if (state.view === "pivot") renderPivot(container);
@@ -568,9 +666,12 @@ async function runCompliance() {
 
     state.findings = listResult.findings;
     state.lastRun = { entriesProcessed, findingsCreated: evalResult.findingsCreated };
+    state.lastRunAt = new Date();
+    state.lastRunRange = { start: range.start, end: range.end };
     setRunButtonState(false);
     setLoading(false);
     renderDiagnostics();
+    renderLastChecked();
     renderResults();
     if (state.findings.length === 0) {
         showBanner("ok", `Range ${range.start} → ${range.end}: no break-compliance issues.`);
@@ -583,28 +684,22 @@ async function runCompliance() {
 
 function updateFormFromState() {
     el("date-preset-select").value = state.preset;
-    el("custom-range-inputs").style.display = state.preset === "custom_range" ? "flex" : "none";
+    el("custom-range-inputs").hidden = state.preset !== "custom_range";
 }
-
-const PRESET_LABELS = {
-    "custom-basic": "Custom policy",
-    "california-style": "California (IWC meal/rest)",
-    "germany-arbzg-style": "Germany ArbZG §3 + §4",
-};
 
 async function loadInitialData() {
     try {
         state.session = await api("/api/session");
         el("session-status").textContent = `Connected · ${state.session.workspaceId}`;
-        // §20 — render the workspace's active preset as a read-only label.
-        // Admins change it on the native structured-settings page; the sidebar
-        // is just a viewer here. /api/templates is no longer consulted.
-        const presetKey = state.session.appliedPresetKey ?? "custom-basic";
-        el("active-template-label").textContent =
-            PRESET_LABELS[presetKey] ?? presetKey;
+        renderActiveTemplate();
+        renderResults(); // first-paint empty state
     } catch (err) {
         el("session-status").textContent = "Not connected";
-        showBanner("err", err instanceof HttpError ? `Session error: ${err.message}` : "Session error.");
+        if (err instanceof HttpError && (err.status === 401 || err.status === 403)) {
+            showBanner("err", "Session expired — try reloading the addon.");
+        } else {
+            showBanner("err", err instanceof HttpError ? `Session error: ${err.message}` : "Session error.");
+        }
         return;
     }
     updateFormFromState();
@@ -621,12 +716,52 @@ function wireEvents() {
     el("custom-end-date").addEventListener("change", e => { state.customEnd = e.target.value; });
     el("run-btn").addEventListener("click", () => { runCompliance(); });
 
+    // Refresh button — re-run the last range, or fall through to the active
+    // preset if no run has happened yet.
+    el("refresh-btn").addEventListener("click", () => {
+        if (state.lastRunRange) {
+            state.preset = "custom_range";
+            state.customStart = state.lastRunRange.start;
+            state.customEnd = state.lastRunRange.end;
+            updateFormFromState();
+        }
+        // Also refresh the session info so the active-template chip picks
+        // up any threshold/preset change from the structured-settings page.
+        api("/api/session")
+            .then(s => { state.session = s; renderActiveTemplate(); })
+            .catch(() => { /* non-fatal — runCompliance will surface its own errors */ });
+        runCompliance();
+    });
+
+    // Active-template chip → toggle the thresholds popover.
+    el("active-template-chip").addEventListener("click", () => toggleActiveTemplateDetails());
+    // Click outside the chip dismisses the popover.
+    document.addEventListener("click", e => {
+        if (!state.detailsOpen) return;
+        const chip = document.getElementById("active-template-chip");
+        const details = document.getElementById("active-template-details");
+        if (chip && details && !chip.contains(e.target) && !details.contains(e.target)) {
+            toggleActiveTemplateDetails(false);
+        }
+    });
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && state.detailsOpen) toggleActiveTemplateDetails(false);
+    });
+
     for (const radio of document.querySelectorAll('input[name="view-toggle"]')) {
         radio.addEventListener("change", () => {
             state.view = radio.value;
             renderResults();
         });
     }
+}
+
+// Refresh the "Last checked" relative time once a minute so the label
+// doesn't go stale while the sidebar is open.
+function startLastCheckedTicker() {
+    setInterval(() => {
+        if (state.lastRunAt) renderLastChecked();
+    }, 30 * 1000);
 }
 
 // Settings navigation removed. Clockify's documented `navigate` postMessage
@@ -667,6 +802,7 @@ function initAuthAndMessenger() {
 function init() {
     document.title = ADDON_TITLE;
     wireEvents();
+    startLastCheckedTicker();
     loadInitialData();
 }
 

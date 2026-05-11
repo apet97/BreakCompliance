@@ -19,7 +19,7 @@ Manifest key `break-compliance-jvm`. BASIC plan. Scopes: `TIME_ENTRY_READ`, `USE
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
 ```
-System Maven defaults to JDK 25 which breaks Lombok — JDK 21 is required. 165 tests green.
+System Maven defaults to JDK 25 which breaks Lombok — JDK 21 is required. 197 tests green.
 Postgres + Redis via Testcontainers.
 
 ## Settings model — single editable template, preset-as-loader (§18, §21, §22)
@@ -67,6 +67,11 @@ in `DetailedReportFetcher`. Live response shape + per-env URL pattern + paginati
 - **Never hardcode Clockify hosts.** Read `backendUrl`/`reportsUrl` from JWT claims.
 - **`X-Addon-Token` header** (not `Authorization`) for every outbound Clockify call.
 - **Settings stay native structured settings.** No custom `/settings` iframe page.
+- **SETTINGS_UPDATED is an object wrapper.** Live payload is
+  `{workspaceId, addonId, settings: [{id,value}, …]}` per canonical docs +
+  the 2026-05-11 live probe. `SettingsUpdatedPayload.extractUpdates`
+  accepts the wrapper, the legacy bare-array shape, and the
+  defensive single-object shape — unknown shapes drift-log and return 200.
 - **Lifecycle/webhook auth fail-closed.** `AddonTokenAuthFilter`, `WebhookAuthFilter`,
   per-webhook stored `authToken` validation — none of these weaken.
 - **`/api/*` is header-token-only.** Only `/sidebar` accepts `?auth_token=`, then the JS
@@ -79,18 +84,21 @@ src/main/java/me/apet97/breakcompliance/
   addon/
     auth/               JWT verify + claims normalization
     lifecycle/          INSTALLED/DELETED/SETTINGS_UPDATED/STATUS_CHANGED + preset-loader
+                        + SettingsUpdatedPayload parser (object | array | single)
     ui/                 SidebarHtmlController serves the iframe HTML shell
     webhook/            NEW_TIME_ENTRY + Redis SETNX idempotency (24h TTL)
-  api/                  Templates/Findings/Ingestion/SessionController, AddonTokenAuthFilter
+  api/                  Findings/Ingestion/RefreshSignals/SessionController,
+                        AddonTokenAuthFilter, InstallationInactiveException
   clockify/             ClockifyApi, DetailedReportFetcher, ClockifyApiException, rate limiter
-  config/               ClockifyAddonConfig (manifest builder), SecurityHeadersFilter, CorsConfig
+  config/               ClockifyAddonConfig (manifest builder), SecurityHeadersFilter, CorsConfig,
+                        CryptoConfig (production fallback-key guard)
   domain/               BreakRuleEngine, RuleTemplatePresets, FindingDraft, EntryClassifier
   persistence/          Entities + repositories + AES-GCM TokenCodec
 src/main/resources/
   application.yaml      Config + env-var overrides
   db/migration/         V1__init through V6__user_name (Flyway, additive only)
-  static/               sidebar.js + styles.css + icon.svg
-src/test/...            165 green (JDK 21)
+  static/               sidebar.js + styles.css + icon.svg (64×64 designed mark)
+src/test/...            197 green (JDK 21)
 ```
 
 ## Reference / vendored

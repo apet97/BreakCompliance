@@ -413,6 +413,123 @@ class LifecycleControllerTest {
         assertThat(settingsRepo.findById(TestJwtForger.DEFAULT_WORKSPACE_ID)).isPresent();
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // Canonical Clockify SETTINGS_UPDATED payload shape: the live API
+    // wraps the array in an object that also carries workspaceId / addonId
+    // (see docs/clockify-marketplace/build/manifest/lifecycle.md:96-134).
+    // Live Railway log on 2026-05-11 confirmed this is what the dev
+    // portal actually delivers. The bare-array tests above stay green to
+    // keep backward compatibility.
+    // ────────────────────────────────────────────────────────────────────
+
+    @Test
+    void settingsUpdated_canonicalObjectShape_appliesPresetChange() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "workspaceId": "ws-test",
+                                  "addonId": "69e81390556e8f94308aaad8",
+                                  "settings": [
+                                    {"id": "appliedPresetKey", "name": "Load preset values", "value": "germany-arbzg-style"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getAppliedPresetKey()).isEqualTo("germany-arbzg-style");
+        // ArbZG threshold overwrites land via the preset-as-loader path,
+        // proving the wrapper's `settings` array was actually consumed.
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(360);
+        assertThat(settings.getCustomSecondWorkThresholdMinutes()).isEqualTo(540);
+    }
+
+    @Test
+    void settingsUpdated_canonicalObjectShape_persistsAllEightThresholdEdits() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "workspaceId": "ws-test",
+                                  "addonId": "69e81390556e8f94308aaad8",
+                                  "settings": [
+                                    {"id": "workThresholdMinutes",        "value": 180},
+                                    {"id": "breakThresholdMinutes",       "value": 20},
+                                    {"id": "minBreakSegmentMinutes",      "value": 15},
+                                    {"id": "maxContinuousWorkMinutes",    "value": 180},
+                                    {"id": "gracePeriodMinutes",          "value": 10},
+                                    {"id": "allowSplitBreaks",            "value": false},
+                                    {"id": "secondWorkThresholdMinutes",  "value": 540},
+                                    {"id": "secondBreakThresholdMinutes", "value": 45}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(180);
+        assertThat(settings.getCustomBreakThresholdMinutes()).isEqualTo(20);
+        assertThat(settings.getCustomAllowSplitBreaks()).isFalse();
+        assertThat(settings.getCustomSecondBreakThresholdMinutes()).isEqualTo(45);
+    }
+
+    @Test
+    void settingsUpdated_singleObjectShape_isWrappedAsSingletonList() throws Exception {
+        installViaLifecycle();
+
+        // Defensive: a hypothetical single-field delivery shape — bare {id,value}
+        // object without the wrapper. Parser wraps it in a singleton list.
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":\"workThresholdMinutes\",\"value\":275}"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(275);
+    }
+
+    @Test
+    void settingsUpdated_malformedPayload_returns200AndLeavesSettingsUntouched() throws Exception {
+        installViaLifecycle();
+        WorkspaceSettings before = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+
+        // Object with no `settings` field, no `id` field — neither shape we
+        // recognise. Should not 400-loop; should ignore and 200.
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"workspaceId\":\"ws-test\",\"unexpected\":\"x\"}"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings after = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(after.getCustomWorkThresholdMinutes()).isEqualTo(before.getCustomWorkThresholdMinutes());
+        assertThat(after.getAppliedPresetKey()).isEqualTo(before.getAppliedPresetKey());
+    }
+
+    @Test
+    void settingsUpdated_nullBody_returns200() throws Exception {
+        installViaLifecycle();
+
+        // No request body at all (the JWT-only ping case).
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+    }
+
     private void installViaLifecycle() throws Exception {
         mockMvc.perform(post("/lifecycle/installed")
                         .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
