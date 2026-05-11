@@ -116,6 +116,70 @@ class BreakRuleEngineTest {
     }
 
     @Test
+    void customPolicyEnabled_overridesTemplateThresholds() {
+        // Template says 480-min threshold (8h) — work of 300 min would not violate.
+        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
+        WorkspaceSettings settings = settings(tpl.getId(), false);
+        settings.setCustomPolicyEnabled(true);
+        settings.setCustomWorkThresholdMinutes(120); // tighter custom: 2h
+        settings.setCustomBreakThresholdMinutes(30);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")); // 300 min
+
+        List<FindingDraft> findings = engine.evaluate(input(
+                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
+                entries, "2026-05-10", "2026-05-10"));
+
+        // 300 min > 120 (custom) + 5 (grace) → MISSING_REQUIRED_BREAK
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
+        FindingDraft missingBreak = findings.stream()
+                .filter(f -> f.code() == FindingCode.MISSING_REQUIRED_BREAK)
+                .findFirst().orElseThrow();
+        assertThat(missingBreak.message()).contains("threshold 120");
+    }
+
+    @Test
+    void customPolicyDisabled_fallsBackToTemplate() {
+        // Custom thresholds present but customPolicyEnabled=false → template wins.
+        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
+        WorkspaceSettings settings = settings(tpl.getId(), false);
+        settings.setCustomPolicyEnabled(false);
+        settings.setCustomWorkThresholdMinutes(120);
+        settings.setCustomBreakThresholdMinutes(30);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")); // 300 min
+
+        List<FindingDraft> findings = engine.evaluate(input(
+                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
+                entries, "2026-05-10", "2026-05-10"));
+
+        // 300 min < 480 (template) → no MISSING/INSUFFICIENT findings
+        assertThat(findings).extracting(FindingDraft::code)
+                .doesNotContain(FindingCode.MISSING_REQUIRED_BREAK, FindingCode.INSUFFICIENT_BREAK_DURATION);
+    }
+
+    @Test
+    void customPolicyEnabled_butMissingValues_fallsBackToTemplate() {
+        RuleTemplate tpl = template("tpl-1", 480, 30, 480, 5);
+        WorkspaceSettings settings = settings(tpl.getId(), false);
+        settings.setCustomPolicyEnabled(true);
+        // both thresholds null → cannot apply override, template wins
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")); // 300 min
+
+        List<FindingDraft> findings = engine.evaluate(input(
+                settings, List.of(tpl), List.of(userAssignment(USER, tpl.getId())),
+                entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .doesNotContain(FindingCode.MISSING_REQUIRED_BREAK, FindingCode.INSUFFICIENT_BREAK_DURATION);
+    }
+
+    @Test
     void outputIsDeterministic_sortedByDateUserCode() {
         RuleTemplate tpl = template("tpl-1", 30, 15, 30, 0);
         WorkspaceSettings settings = settings(tpl.getId(), false);

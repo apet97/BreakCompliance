@@ -34,6 +34,15 @@ public class WorkspaceSettings {
     @Column(name = "fallback_detection_enabled", nullable = false)
     private boolean fallbackDetectionEnabled = false;
 
+    @Column(name = "custom_policy_enabled", nullable = false)
+    private boolean customPolicyEnabled = false;
+
+    @Column(name = "custom_work_threshold_minutes")
+    private Integer customWorkThresholdMinutes;
+
+    @Column(name = "custom_break_threshold_minutes")
+    private Integer customBreakThresholdMinutes;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

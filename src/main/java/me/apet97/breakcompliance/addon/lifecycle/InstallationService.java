@@ -215,8 +215,32 @@ public class InstallationService {
                 }
                 yield false;
             }
+            case "customPolicyEnabled" -> {
+                if (value instanceof Boolean b) {
+                    settings.setCustomPolicyEnabled(b);
+                    yield true;
+                }
+                yield false;
+            }
+            case "customWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomWorkThresholdMinutes);
+            case "customBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomBreakThresholdMinutes);
             default -> false;
         };
+    }
+
+    private static boolean setNullableMinutes(Object value, java.util.function.Consumer<Integer> setter) {
+        if (value == null) {
+            setter.accept(null);
+            return true;
+        }
+        Integer parsed = null;
+        if (value instanceof Number n) parsed = n.intValue();
+        else if (value instanceof String s && !s.isBlank()) {
+            try { parsed = Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) { return false; }
+        }
+        if (parsed == null || parsed < 0) return false;
+        setter.accept(parsed);
+        return true;
     }
 
     @Transactional

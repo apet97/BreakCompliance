@@ -19,6 +19,7 @@ import me.apet97.breakcompliance.persistence.entities.Severity;
 import me.apet97.breakcompliance.persistence.entities.TargetType;
 import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import org.springframework.stereotype.Component;
 
 /**
@@ -50,6 +51,7 @@ public class BreakRuleEngine {
 
         for (DayBucket bucket : buckets) {
             RuleTemplate template = resolveTemplateForUser(ctx, bucket.userId());
+            template = applyCustomPolicyOverride(template, input.settings());
             if (template == null) {
                 out.add(new FindingDraft(
                         input.workspaceId(),
@@ -169,6 +171,46 @@ public class BreakRuleEngine {
 
         String defaultTemplateId = input.settings().getDefaultTemplateId();
         return new Context(templatesById, userAssignments, groupAssignmentsByGroup, groupsByUser, defaultTemplateId);
+    }
+
+    /**
+     * If the workspace has custom policy enabled and both thresholds set,
+     * return a transient copy of the resolved template with the custom
+     * work/break thresholds applied. Single-tier by design: the secondary
+     * thresholds and max-continuous-work are aligned to the custom work
+     * threshold so admins don't have to reason about template internals.
+     *
+     * <p>Returns the input unchanged when custom policy is off, either
+     * threshold is missing, or the input template is null.
+     */
+    private RuleTemplate applyCustomPolicyOverride(RuleTemplate base, WorkspaceSettings settings) {
+        if (base == null) return null;
+        if (!settings.isCustomPolicyEnabled()) return base;
+        Integer work = settings.getCustomWorkThresholdMinutes();
+        Integer brk = settings.getCustomBreakThresholdMinutes();
+        if (work == null || brk == null) return base;
+
+        RuleTemplate override = new RuleTemplate();
+        override.setWorkspaceId(base.getWorkspaceId());
+        override.setId(base.getId());
+        override.setKey(base.getKey());
+        override.setName(base.getName());
+        override.setDescription(base.getDescription());
+        override.setType(base.getType());
+        override.setPresetKey(base.getPresetKey());
+        override.setVersion(base.getVersion());
+        override.setEnabled(base.isEnabled());
+        override.setMinimumValidBreakSegmentMinutes(base.getMinimumValidBreakSegmentMinutes());
+        override.setWorkThresholdMinutes(work);
+        override.setRequiredBreakMinutes(brk);
+        override.setMaxContinuousWorkMinutesBeforeBreak(work);
+        override.setSecondThresholdMinutes(null);
+        override.setSecondRequiredBreakMinutes(null);
+        override.setAllowSplitBreaks(base.isAllowSplitBreaks());
+        override.setGracePeriodMinutes(base.getGracePeriodMinutes());
+        override.setCreatedAt(base.getCreatedAt());
+        override.setUpdatedAt(base.getUpdatedAt());
+        return override;
     }
 
     private RuleTemplate resolveTemplateForUser(Context ctx, String userId) {

@@ -99,7 +99,7 @@ class ManifestContractTest {
 
         JsonNode tabs = settings.get("tabs");
         assertThat(tabs.isArray()).isTrue();
-        assertThat(tabs).hasSize(1);
+        assertThat(tabs).hasSize(2);
 
         JsonNode general = tabs.get(0);
         assertThat(general.get("id").asText()).isEqualTo("general");
@@ -111,6 +111,22 @@ class ManifestContractTest {
         generalSettings.forEach(node -> settingIds.add(node.get("id").asText()));
         assertThat(settingIds).containsExactly(
                 "defaultTemplateId", "timezoneStrategy", "fallbackDetectionEnabled");
+    }
+
+    @Test
+    void manifest_declaresCustomPolicyTab() throws Exception {
+        MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
+
+        JsonNode tabs = root.get("settings").get("tabs");
+        JsonNode customPolicy = tabs.get(1);
+        assertThat(customPolicy.get("id").asText()).isEqualTo("customPolicy");
+        assertThat(customPolicy.get("name").asText()).isEqualTo("Custom Policy");
+
+        List<String> ids = new java.util.ArrayList<>();
+        customPolicy.get("settings").forEach(node -> ids.add(node.get("id").asText()));
+        assertThat(ids).containsExactly(
+                "customPolicyEnabled", "customWorkThresholdMinutes", "customBreakThresholdMinutes");
     }
 
     @Test

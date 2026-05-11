@@ -128,8 +128,41 @@ public class ClockifyAddonConfig {
                 .settings(List.of(defaultTemplate, timezoneStrategy, fallbackDetection))
                 .build();
 
+        ClockifySetting customEnabled = ClockifySetting.builder()
+                .id("customPolicyEnabled")
+                .name("Enable custom policy")
+                .allowAdmins()
+                .asCheckbox()
+                .value(Boolean.FALSE)
+                .description("When enabled, the work / break thresholds below override the rule template's defaults for this workspace.")
+                .build();
+
+        ClockifySetting customWork = ClockifySetting.builder()
+                .id("customWorkThresholdMinutes")
+                .name("Custom work threshold (minutes)")
+                .allowAdmins()
+                .asNumber()
+                .value(240)
+                .description("Minutes of work after which a break is required. Applies only when custom policy is enabled.")
+                .build();
+
+        ClockifySetting customBreak = ClockifySetting.builder()
+                .id("customBreakThresholdMinutes")
+                .name("Custom required break (minutes)")
+                .allowAdmins()
+                .asNumber()
+                .value(15)
+                .description("Minimum total qualifying break minutes required when over the work threshold. Applies only when custom policy is enabled.")
+                .build();
+
+        ClockifySettingsTab customPolicyTab = ClockifySettingsTab.builder()
+                .id("customPolicy")
+                .name("Custom Policy")
+                .settings(List.of(customEnabled, customWork, customBreak))
+                .build();
+
         return ClockifySettings.builder()
-                .tabs(List.of(generalTab))
+                .tabs(List.of(generalTab, customPolicyTab))
                 .build();
     }
 

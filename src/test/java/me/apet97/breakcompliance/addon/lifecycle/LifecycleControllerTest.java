@@ -308,6 +308,27 @@ class LifecycleControllerTest {
     }
 
     @Test
+    void settingsUpdated_persistsCustomPolicyFields() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[" +
+                                "{\"id\":\"customPolicyEnabled\",\"value\":true}," +
+                                "{\"id\":\"customWorkThresholdMinutes\",\"value\":180}," +
+                                "{\"id\":\"customBreakThresholdMinutes\",\"value\":20}" +
+                                "]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.isCustomPolicyEnabled()).isTrue();
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(180);
+        assertThat(settings.getCustomBreakThresholdMinutes()).isEqualTo(20);
+    }
+
+    @Test
     void settingsUpdated_unknownIdsAreSilentlyIgnored() throws Exception {
         installViaLifecycle();
 
