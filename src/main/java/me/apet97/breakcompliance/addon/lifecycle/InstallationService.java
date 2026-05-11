@@ -35,10 +35,16 @@ public class InstallationService {
 
     private static final Logger log = LoggerFactory.getLogger(InstallationService.class);
 
+    private static final java.util.Set<String> KNOWN_INSTALLED_KEYS = java.util.Set.of(
+            "addonId", "workspaceId", "authToken", "apiUrl", "backendUrl",
+            "asUser", "addonUserId", "webhooks", "baseUrl", "reportsUrl",
+            "locationsUrl", "screenshotsUrl", "scopes", "status", "user");
+
     private final InstallationRepository installationRepo;
     private final WebhookAuthTokenRepository webhookRepo;
     private final WorkspaceSettingsRepository settingsRepo;
     private final RuleTemplateRepository templatesRepo;
+    private final PayloadDriftLogger driftLogger;
     private final TokenCodec codec;
 
     public InstallationService(
@@ -46,16 +52,22 @@ public class InstallationService {
             WebhookAuthTokenRepository webhookRepo,
             WorkspaceSettingsRepository settingsRepo,
             RuleTemplateRepository templatesRepo,
+            PayloadDriftLogger driftLogger,
             TokenCodec codec) {
         this.installationRepo = installationRepo;
         this.webhookRepo = webhookRepo;
         this.settingsRepo = settingsRepo;
         this.templatesRepo = templatesRepo;
+        this.driftLogger = driftLogger;
         this.codec = codec;
     }
 
     @Transactional
     public void handleInstalled(NormalizedClaims claims, Map<String, Object> payload) {
+        // Drift-check the inbound payload so a Clockify schema bump emits a
+        // WARN the first time we see a new top-level key (handler still runs).
+        driftLogger.check("lifecycle.installed", payload, KNOWN_INSTALLED_KEYS);
+
         String workspaceId = claims.workspaceId();
         String addonId = claims.addonId();
         Instant now = Instant.now();
