@@ -44,12 +44,8 @@ public class SidebarHtmlController {
                     <p id="session-status" class="caption muted" style="margin:0 0 8px;font-size:11px">Connecting…</p>
                     <div class="header-controls">
                       <div class="control-group">
-                        <label for="jurisdiction-select">Jurisdiction</label>
-                        <select id="jurisdiction-select">
-                          <option value="custom-basic">Custom policy</option>
-                          <option value="california-style">California (IWC meal/rest)</option>
-                          <option value="germany-arbzg-style">Germany ArbZG §3 + §4</option>
-                        </select>
+                        <label>Active template</label>
+                        <p id="active-template-label" class="readonly-value">—</p>
                       </div>
                       <div class="control-group">
                         <label for="date-preset-select">Date Range</label>

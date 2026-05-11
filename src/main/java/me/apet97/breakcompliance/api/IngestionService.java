@@ -127,6 +127,10 @@ public class IngestionService {
         entry.setWorkspaceId(workspaceId);
         entry.setSourceEntryId(sourceEntryId);
         entry.setUserId(stringValue(raw.get("userId")));
+        // Detailed-report response includes "userName" + "userEmail" per
+        // entry (live probe 2026-05-11). Capture the name so findings can
+        // render human-readable strings instead of opaque user IDs.
+        entry.setUserName(stringValue(raw.get("userName")));
         entry.setProjectId(stringValue(raw.get("projectId")));
         entry.setTaskId(stringValue(raw.get("taskId")));
         entry.setClientId(stringValue(raw.get("clientId")));

@@ -76,6 +76,16 @@ public class FindingsService {
                 workspaceId, settings, templates, assignments, entries, memberships, from, to);
         List<FindingDraft> drafts = engine.evaluate(input);
 
+        // Build a userId → userName lookup from the time entries we just
+        // pulled (the engine doesn't carry names; we attach them here so
+        // findings render human-readable in the sidebar). Last-write-wins
+        // when an entry's name is blank vs. set; sticky to non-blank.
+        java.util.Map<String, String> userNameByUserId = new java.util.HashMap<>();
+        for (TimeEntry e : entries) {
+            if (e.getUserId() == null || e.getUserName() == null || e.getUserName().isBlank()) continue;
+            userNameByUserId.putIfAbsent(e.getUserId(), e.getUserName());
+        }
+
         findingsRepo.deleteByWorkspaceIdAndDateBetween(workspaceId, from, to);
         findingsRepo.flush();
 
@@ -86,6 +96,7 @@ public class FindingsService {
             f.setWorkspaceId(d.workspaceId());
             f.setId(UUID.randomUUID().toString());
             f.setUserId(d.userId());
+            f.setUserName(userNameByUserId.get(d.userId()));
             f.setDate(d.date());
             f.setTemplateId(d.templateId());
             f.setSeverity(d.severity());

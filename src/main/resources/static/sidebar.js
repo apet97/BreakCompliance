@@ -359,6 +359,18 @@ function renderResults() {
     else renderChecklist(container);
 }
 
+// Picks the best display name for a user from any of their findings.
+// `userName` was added in §21; pre-§21 findings still have null userName,
+// so we fall through to userId in that case.
+function displayUserName(findings, userId) {
+    for (const f of findings) {
+        if (f.userName && typeof f.userName === "string" && f.userName.trim().length > 0) {
+            return f.userName;
+        }
+    }
+    return userId;
+}
+
 function renderPivot(container) {
     const byUser = new Map();
     const allDates = new Set();
@@ -370,6 +382,13 @@ function renderPivot(container) {
         allDates.add(f.date);
     }
     const sortedDates = [...allDates].sort();
+
+    // Pre-compute display names so each row picks the best available name.
+    const namesByUser = new Map();
+    for (const [userId, byDate] of byUser) {
+        const allFindings = [...byDate.values()].flat();
+        namesByUser.set(userId, displayUserName(allFindings, userId));
+    }
 
     const scroll = create("div", { className: "pivot-scroll-container" });
     const table = create("table", { className: "pivot-table" });
@@ -391,7 +410,8 @@ function renderPivot(container) {
     const tbody = create("tbody");
     for (const [userId, byDate] of byUser) {
         const row = create("tr");
-        row.appendChild(create("td", { className: "user-col", title: userId, text: userId }));
+        const display = namesByUser.get(userId) ?? userId;
+        row.appendChild(create("td", { className: "user-col", title: userId, text: display }));
         for (const date of sortedDates) {
             const findings = byDate.get(date) ?? [];
             if (findings.length === 0) {
@@ -431,7 +451,9 @@ function renderChecklist(container) {
     const list = create("div", { className: "checklist-container" });
     for (const [userId, byDate] of byUser) {
         const card = create("div", { className: "user-card" });
-        card.appendChild(create("div", { className: "user-name", text: userId }));
+        const allFindings = [...byDate.values()].flat();
+        const display = displayUserName(allFindings, userId);
+        card.appendChild(create("div", { className: "user-name", title: userId, text: display }));
         const days = create("div", { className: "day-list" });
         for (const date of [...byDate.keys()].sort()) {
             const findings = byDate.get(date);
@@ -550,36 +572,30 @@ async function runCompliance() {
 // ─────────────────── Form sync + initial loads ───────────────────
 
 function updateFormFromState() {
-    el("jurisdiction-select").value = state.jurisdiction;
     el("date-preset-select").value = state.preset;
     el("custom-range-inputs").style.display = state.preset === "custom_range" ? "flex" : "none";
 }
+
+const PRESET_LABELS = {
+    "custom-basic": "Custom policy",
+    "california-style": "California (IWC meal/rest)",
+    "germany-arbzg-style": "Germany ArbZG §3 + §4",
+};
 
 async function loadInitialData() {
     try {
         state.session = await api("/api/session");
         el("session-status").textContent = `Connected · ${state.session.workspaceId}`;
+        // §20 — render the workspace's active preset as a read-only label.
+        // Admins change it on the native structured-settings page; the sidebar
+        // is just a viewer here. /api/templates is no longer consulted.
+        const presetKey = state.session.appliedPresetKey ?? "custom-basic";
+        el("active-template-label").textContent =
+            PRESET_LABELS[presetKey] ?? presetKey;
     } catch (err) {
         el("session-status").textContent = "Not connected";
         showBanner("err", err instanceof HttpError ? `Session error: ${err.message}` : "Session error.");
         return;
-    }
-
-    try {
-        const { templates } = await api("/api/templates");
-        const select = el("jurisdiction-select");
-        clearChildren(select);
-        for (const t of templates) {
-            const opt = document.createElement("option");
-            opt.value = t.presetKey ?? t.id;
-            opt.textContent = t.type === "BUILT_IN" ? `Template · ${t.name}` : `Custom · ${t.name}`;
-            select.appendChild(opt);
-        }
-        if (templates.length > 0) {
-            state.jurisdiction = templates[0].presetKey ?? templates[0].id;
-        }
-    } catch {
-        // Silent: dropdown keeps server-rendered defaults from the HTML shell.
     }
     updateFormFromState();
 }
@@ -609,9 +625,6 @@ function downloadExport(event, format) {
 // ─────────────────── Event wiring ───────────────────
 
 function wireEvents() {
-    el("jurisdiction-select").addEventListener("change", e => {
-        state.jurisdiction = e.target.value;
-    });
     el("date-preset-select").addEventListener("change", e => {
         state.preset = e.target.value;
         updateFormFromState();
@@ -631,24 +644,42 @@ function wireEvents() {
     el("export-csv").addEventListener("click", e => downloadExport(e, "csv"));
 }
 
-// Ask Clockify to navigate the top-level browser to the native
-// structured-settings page for this add-on. The postMessage helper targets
-// the parent origin only (never "*"). When the parent doesn't have the
-// add-on iframe loaded with a navigate listener (e.g. preview surfaces),
-// the message goes nowhere — show explicit text instructions as the
-// graceful fallback so the user is never silently stuck.
+// Open the native structured-settings page in a new tab. The previous
+// implementation relied on Clockify's postMessage `navigate` event, but
+// the developer portal (developer.clockify.me) doesn't honor it —
+// clicking the button produced no visible action. window.open with the
+// env-correct URL works on BOTH developer.clockify.me and the production
+// app.clockify.me. Iframe sandbox includes `allow-popups`, so the new
+// tab opens at the user's browser top level.
 function openSettings() {
     showBanner("hidden");
     const workspaceId = state.session?.workspaceId;
+    const addonId = state.session?.addonId;
     if (!workspaceId) {
         showBanner("err", "Not connected. Reload the sidebar to reconnect.");
         return;
     }
-    const path = `/workspaces/${workspaceId}/settings/addons/${ADDON_KEY}`;
-    const dispatched = messenger?.navigate?.(path);
-    if (!dispatched) {
+
+    // Detect which Clockify surface we're embedded in via parent origin.
+    // The developer portal renders settings at /addon/{addonId}/settings.
+    // Production renders at /workspaces/{wsId}/settings/addons/{key}.
+    const parentOrigin = messenger?.parentOrigin
+        ?? (document.referrer ? new URL(document.referrer).origin : null);
+    let url;
+    if (parentOrigin && parentOrigin.includes("developer.clockify.me") && addonId) {
+        url = `${parentOrigin}/addon/${addonId}/settings`;
+    } else if (parentOrigin) {
+        url = `${parentOrigin}/workspaces/${workspaceId}/settings/addons/${ADDON_KEY}`;
+    } else {
+        // No parent origin discoverable — fall back to text instructions.
         showBanner("warn",
             "Open Workspace Settings → Add-ons → Break Compliance → Settings to configure.");
+        return;
+    }
+    const opened = window.open(url, "_blank", "noopener");
+    if (!opened) {
+        // Popup blocker. Surface the URL so the admin can click it manually.
+        showBanner("info", `Pop-up blocked. Open this URL manually: ${url}`);
     }
 }
 

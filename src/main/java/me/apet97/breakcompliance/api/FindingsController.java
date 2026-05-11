@@ -64,6 +64,7 @@ public class FindingsController {
         m.put("id", f.getId());
         m.put("workspaceId", f.getWorkspaceId());
         m.put("userId", f.getUserId());
+        m.put("userName", f.getUserName());
         m.put("date", f.getDate().toString());
         m.put("templateId", f.getTemplateId());
         m.put("severity", f.getSeverity().name());
