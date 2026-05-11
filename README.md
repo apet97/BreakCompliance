@@ -23,18 +23,18 @@ Clockify marketplace add-on that reviews whether workspace users took required b
 ├── pom.xml
 ├── src/main/java/me/apet97/breakcompliance/
 │   ├── addon/{auth,lifecycle,manifest,ui,webhook}/  SDK touchpoints + iframe shells
-│   ├── api/                                          /api/* controllers (settings, templates,
-│   │                                                 assignments, ingestion, findings, session)
+│   ├── api/                                          /api/* controllers (session, findings,
+│   │                                                 ingest, refresh-signals) + AddonTokenAuthFilter
 │   ├── clockify/                                     REST client, rate limiter, report fetcher
-│   ├── config/                                       Spring configuration + security headers
+│   ├── config/                                       Spring config + security headers + crypto guard
 │   ├── domain/                                       Rule engine + preset registry
 │   ├── persistence/{entities,repositories,crypto}/   JPA + AES-GCM-256 token codec
 │   └── util/                                         Webhook path normalizer
 ├── src/main/resources/
 │   ├── application.yaml                              Env-driven Spring config
-│   ├── db/migration/V1__init.sql                     Flyway schema
+│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V6, additive only)
 │   ├── logback-spring.xml                            Token-redacting log pattern
-│   └── static/                                       sidebar.js, settings-page.js, styles.css, icon.svg
+│   └── static/                                       sidebar.js, styles.css, icon.svg (64×64 designed mark)
 ├── docs/                                             Marketplace submission docs
 └── .github/
     ├── workflows/ci.yml                              Maven verify on PR + main

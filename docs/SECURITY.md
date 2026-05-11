@@ -1,6 +1,6 @@
 # Security — Break Compliance for Clockify
 
-_Last updated: 2026-05-11._
+_Last updated: 2026-05-12._
 
 ## Threat model
 
@@ -34,7 +34,7 @@ Specific threats handled:
 
 ## Per-request hardening
 
-- **CSP:** `default-src 'self'; frame-ancestors https://app.clockify.me [+ EXTRA_FRAME_ANCESTORS]` so the iframe is embeddable only by Clockify's app shell (with dev-portal allowance toggled by an env var during testing).
+- **CSP:** `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://resources.developer.clockify.me; img-src 'self' data: https://resources.developer.clockify.me; font-src 'self' https://resources.developer.clockify.me; connect-src 'self' https://*.clockify.me; frame-ancestors https://app.clockify.me https://*.clockify.me [+ EXTRA_FRAME_ANCESTORS]`. The frame-ancestors wildcard covers `developer.clockify.me` (dev-portal preview) and regional subdomains so the iframe is embeddable only by Clockify-controlled hosts; operators can add allow-list entries via `EXTRA_FRAME_ANCESTORS` (comma-delimited) when staging behind a custom domain.
 - **X-Content-Type-Options:** `nosniff`.
 - **Referrer-Policy:** `no-referrer`.
 - **Permissions-Policy:** `camera=() microphone=() geolocation=()`.

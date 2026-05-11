@@ -1,6 +1,6 @@
 # Operator Investigation Workflow
 
-_Last updated: 2026-05-11._
+_Last updated: 2026-05-12._
 
 This document describes the operator-side workflow for investigating a production incident affecting Break Compliance — for example, a workspace admin reporting unexpected findings or a webhook delivery loop.
 

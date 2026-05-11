@@ -1,6 +1,6 @@
 # Legal Notices — Break Compliance for Clockify
 
-_Last updated: 2026-05-11._
+_Last updated: 2026-05-12._
 
 ## Advisory only — not legal advice
 

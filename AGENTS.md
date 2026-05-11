@@ -6,9 +6,9 @@ making changes. The hard rules below are non-negotiable.
 ## Mission
 
 This add-on reviews whether Clockify users took the breaks their workspace policy
-requires. It does **not** create/edit time entries, send anything to users, or
-manage payroll. It is a read-only compliance reporter — fail-closed on auth,
-fail-loud on every misparse.
+requires. It does **not** create/edit time entries, send anything to users, or manage
+payroll. It is a read-only compliance reporter — fail-closed on auth, fail-loud on every
+misparse.
 
 ## Before changing code
 
@@ -22,16 +22,16 @@ fail-loud on every misparse.
 
 ## How to run + verify
 
-```
+```sh
 # 1. Compile + full suite (JDK 21 required — system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect: 165+ green. Postgres + Redis spin up via Testcontainers automatically.
+# Expect: 197+ green. Postgres + Redis spin up via Testcontainers automatically.
 
 # 2. Targeted run.
 mvn -B -ntp test -Dtest='LifecycleControllerTest,BreakRuleEngineTest'
 
-# 3. Deploy.
+# 3. Deploy (push to main does NOT auto-deploy).
 railway up --service BreakCompliance --ci
 
 # 4. Tail logs during a smoke-test.
@@ -42,7 +42,7 @@ railway logs --service BreakCompliance
 
 API key + workspace id are in `/tmp/clockify-livetest.env`. Never copy into the repo.
 
-```
+```sh
 set -a; source /tmp/clockify-livetest.env; set +a
 
 # whoami
@@ -69,34 +69,37 @@ fixtures + findings for all major Clockify endpoints. Refer to its `findings/` a
 | Read `backendUrl` / `reportsUrl` from JWT claims — never hardcode. | Dev portal uses `/report/v1/...`; production reports use `reports.api.clockify.me/v1/...`. JWT carries the env-correct URL. |
 | Use `X-Addon-Token` header for outbound Clockify calls (never `Authorization`). | Clockify rejects `Authorization`. |
 | Settings remain native structured settings. No `/settings` iframe. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
+| `SETTINGS_UPDATED` is the canonical object wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by live probe 2026-05-11. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array and defensive single-`{id,value}` shapes; anything else drift-logs and returns 200 to avoid retry storms. |
 | Response key for the detailed report is `timeentries` (ALL LOWERCASE). | Spec at `docs/clockify-marketplace/...` mislabels it as `timeEntries`. Live API returns lowercase. See commit `f7db0e6`. |
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` — **no `Z` suffix**. | The server interprets in the user's timezone. Z suffix breaks the parse. |
 | `/api/*` is `X-Addon-Token`-header-only. `/sidebar` accepts `?auth_token=` query (initial iframe load), then JS scrubs it. | Lifecycle webhook auth fail-closed via `AddonTokenAuthFilter` + `WebhookAuthFilter`. |
-| Webhook idempotency stays 24h+ TTL Redis. | Clockify retries up to ~24h. Drop only if you replace with something equally durable. |
+| `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → controllers map to `503 installation_inactive` (sidebar shows a friendly banner). |
+| Webhook idempotency stays Redis SETNX with ≥ 24h TTL. | Clockify retries up to ~24h. Drop only if you replace with something equally durable. |
 | Flyway migrations are additive only. No destructive renames. | The DB is shared across deploys; column drops break rollbacks. Use `V<n>__add_*.sql`, never `V<n>__drop_*.sql`. |
+| Production `INSTALLATION_TOKEN_KEY` must be 64 hex chars **and not** the legacy `…aa` constant or all-zero. | `CryptoConfig.validateActiveKey` fail-fasts at startup. |
 
 ## Settings model (current)
 
 Single-template-per-workspace, preset-as-loader. Eleven structured-settings fields land
-on `WorkspaceSettings.customXxx` columns (the `custom_` prefix is historical, not a
-"custom mode" flag — `customPolicyEnabled` no longer gates evaluation; always-on).
+on `WorkspaceSettings.customXxx` columns (the `custom_` prefix is historical — the
+`customPolicyEnabled` flag no longer gates evaluation, always-on).
 
 Preset change semantics: incoming `appliedPresetKey` ≠ stored → server overwrites all 8
 threshold columns from `RuleTemplatePresets.{key}.toEntity(…)` BEFORE applying per-field
 edits. Admin can change preset + tweak one field in a single SETTINGS_UPDATED payload;
 the tweak wins.
 
-The engine uses `synthesizeWorkspaceTemplate(input)` to wrap WorkspaceSettings into a
+The engine uses `synthesizeWorkspaceTemplate(input)` to wrap `WorkspaceSettings` into a
 transient `RuleTemplate` and evaluates every user-day bucket against it. Per-user
 template resolution (`RuleTemplate` + `TemplateAssignment` tables) is dead code in the
 evaluation path; the tables remain only for back-compat / future per-user expansion.
 
 ## Don'ts
 
-- **Don't add a Settings button to the sidebar.** Clockify's `navigate` postMessage
-  only supports `{"type":"tracker"}` (see `docs/clockify-marketplace/build/window-events.md`).
-  Arbitrary path navigation is not supported. The static caption under the controls is
-  the documented path.
+- **Don't add a Settings button to the sidebar.** Clockify's `navigate` postMessage only
+  supports `{"type":"tracker"}` (see `docs/clockify-marketplace/build/window-events.md`).
+  Arbitrary path navigation is not supported. The active-template chip + the static
+  caption under the controls are the documented affordances.
 - **Don't open new tabs via `window.open` for settings.** Dev portal uses a catalog
   addon-id we don't have access to from JWT claims (`claims.addonId` is the per-workspace
   installation id, a different identifier). Result: "addon unavailable" page + 401s.
@@ -104,6 +107,8 @@ evaluation path; the tables remain only for back-compat / future per-user expans
 - **Don't drop the `Last-Page` response header parsing** if you add other paginated calls
   (it's the documented way to detect end-of-data; we currently approximate with
   `entries.size() < PAGE_SIZE` for backward compat — see `docs/api-calls.md`).
+- **Don't outbound from `INACTIVE` installations.** `IngestionService` is the single
+  guard; new outbound paths must consult `Installation.status` before reading the token.
 
 ## When you change behavior
 
@@ -116,20 +121,27 @@ evaluation path; the tables remain only for back-compat / future per-user expans
 
 ## Numbered commit refs (for archaeology)
 
-- §1–§9 — initial takeover (contract fixes, de-minify sidebar.js, seed templates, settings persistence, custom policy, 401 graceful handling, settings nav, CDN styling, verify+deploy)
-- §10 — ArbZG typo fix + reorder presets
-- §11 — webhook idempotency confirmed (already shipped)
-- §12 — iat replay protection
-- §13 — payload-drift logger
-- §14 — Retry-After + 429 cap
-- §15 — verify
-- §16 — `/v1/` path + ISO dates + response key
-- §17 — 9 granular custom policy fields
-- §18 — single-tab redesign, preset-as-loader, engine-from-WorkspaceSettings
-- §19/§20 — deferred (diagnostic logging, in-sidebar settings panel)
-- §21 — userName captured + dropdown removed + (later reverted) Settings button
-- §22 — Settings button removed entirely, static caption added
-- `f7db0e6` (between §17 and §18) — revert §16's camelCase mistake; live API uses
-  `timeentries` (lowercase). Confirmed by live probe.
-- §23 — security hardening, SDK conformity audit, and test suite verification
-- §24 — launch-readiness sweep: live SETTINGS_UPDATED payload fix (the dev portal sends the canonical `{settings: [...]}` object wrapper, our handler now accepts wrapper / bare array / singleton via `SettingsUpdatedPayload`); sidebar UI/UX optimisation (active-template chip with thresholds popover, "Last checked" relative timestamp, refresh button, empty-state polish, theme-flicker fix, dark-mode WCAG-AA contrast, narrow-viewport responsive, a11y aria/focus/sr-only); marketplace asset polish (designed 64×64 icon, support email filled in `docs/PRIVACY.md`, `MARKETPLACE_READINESS.md` reflects live-test evidence); 197 tests green.
+- **§1–§9** — initial takeover: contract fixes, de-minify sidebar.js, seed templates,
+  settings persistence, custom policy, 401 graceful handling, settings nav, CDN
+  styling, verify + deploy.
+- **§10** — ArbZG typo fix + preset reorder.
+- **§11** — webhook idempotency confirmed.
+- **§12** — iat replay protection on user/sidebar JWTs.
+- **§13** — payload-drift logger.
+- **§14** — 429 Retry-After parse + retry cap.
+- **§15** — verify.
+- **§16** — `/v1/` path + ISO dates + response key.
+  *(`f7db0e6` between §17 and §18 reverts §16's camelCase mistake; live API returns
+  `timeentries` lowercase. Confirmed by live probe.)*
+- **§17** — 9 granular custom policy fields.
+- **§18** — single-tab redesign, preset-as-loader, engine-from-`WorkspaceSettings`.
+- **§19/§20** — deferred (diagnostic logging, in-sidebar settings panel).
+- **§21** — userName captured + dropdown removed + (later reverted) Settings button.
+- **§22** — Settings button removed entirely, static caption added.
+- **§23** — security hardening, SDK conformity audit, test-suite verification.
+- **§24** — launch-readiness sweep: SETTINGS_UPDATED canonical object wrapper accepted
+  (`SettingsUpdatedPayload`), sidebar UI/UX (active-template chip + thresholds popover,
+  "Last checked" relative timestamp, refresh button, empty-state polish, theme-flicker
+  fix, dark-mode WCAG-AA contrast, narrow-viewport responsive, full a11y), marketplace
+  assets (designed 64×64 icon, real support email in `docs/PRIVACY.md`, live-test
+  evidence in `MARKETPLACE_READINESS.md`); 197 tests green.

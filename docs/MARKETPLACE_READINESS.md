@@ -10,7 +10,7 @@ A pre-flight checklist for submitting Break Compliance to the [Clockify Marketpl
 - **Manifest key:** `break-compliance-jvm` (distinct from the older TypeScript-on-CF-Worker version under key `break-compliance`)
 - **Schema version:** `1.3`
 - **Minimal subscription plan:** `BASIC`
-- **Surface:** Admin-only sidebar inside Clockify. Custom settings page (admin-only by Clockify convention).
+- **Surface:** Admin-only sidebar iframe inside Clockify; configuration via Clockify's **native structured-settings page** (one tab "Break Compliance" with eleven admin-only fields — no custom `/settings` iframe).
 - **Description:** "Review whether Clockify users took required break time. Checks explicit BREAK time entries against configurable rule templates (German ArbZG, California, Custom)."
 - **Icon:** `/icon.svg` — 64×64 designed mark (Clockify-blue tile with a clock face paused at the 4-hour break threshold and a green compliance check overlay). Vector-only, no external resources, < 2 KB.
 
@@ -19,7 +19,7 @@ A pre-flight checklist for submitting Break Compliance to the [Clockify Marketpl
 | Scope | Why |
 |---|---|
 | `TIME_ENTRY_READ` | Read regular + BREAK entries via the Detailed Report. |
-| `USER_READ` | List workspace users for the Settings page user picker. |
+| `USER_READ` | Resolve user names for pivot-table rendering (`userName` on each finding). |
 | `REPORTS_READ` | Detailed Report endpoint requires it. |
 | `WORKSPACE_READ` | Resolve workspace metadata. |
 
@@ -58,6 +58,9 @@ No `_WRITE` scopes. The add-on never modifies time entries, never starts/stops t
 | Auth token never written to logs | ✓ Logback `%replace` converters + `Cache-Control: no-store` on `/api/*` |
 | Per-workspace isolation tests | ✓ `CrossWorkspaceIsolationTest` |
 | Privacy policy + retention policy + legal notices included | ✓ `docs/PRIVACY.md`, `docs/DATA_RETENTION.md`, `docs/LEGAL_NOTICES.md` |
+| `INACTIVE` installations blocked from outbound Clockify calls | ✓ `InstallationInactiveException` → `503 installation_inactive` (sidebar banner) |
+| Designed 64×64 marketplace icon | ✓ `src/main/resources/static/icon.svg` (vector, ~2.4 KB) |
+| Sidebar UI/UX polish: active-template chip + thresholds popover, "Last checked" indicator, refresh button, dark-mode WCAG-AA, narrow-viewport responsive, theme-flicker fix | ✓ §24 |
 
 ## Listing copy (proposed)
 
