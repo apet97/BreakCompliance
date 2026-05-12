@@ -111,11 +111,11 @@ class RuleTemplatePresetsTest {
     @Test
     void manifestLabels_areHumanReadable() {
         assertThat(RuleTemplatePresets.CUSTOM_BASIC.manifestLabel())
-                .isEqualTo("Custom (editable defaults)");
+                .isEqualTo("Custom (Editable Defaults)");
         assertThat(RuleTemplatePresets.CALIFORNIA_STYLE.manifestLabel())
-                .isEqualTo("California (IWC meal/rest)");
+                .isEqualTo("California (IWC Meal & Rest)");
         assertThat(RuleTemplatePresets.GERMANY_ARBZG_STYLE.manifestLabel())
-                .isEqualTo("Germany (ArbZG §3 + §4)");
+                .isEqualTo("Germany (ArbZG §3 & §4)");
     }
 
     @Test

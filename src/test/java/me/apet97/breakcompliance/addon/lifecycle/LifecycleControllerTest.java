@@ -299,7 +299,7 @@ class LifecycleControllerTest {
         mockMvc.perform(post("/lifecycle/settings-updated")
                         .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("[{\"id\":\"appliedPresetKey\",\"value\":\"Germany (ArbZG §3 + §4)\"}]"))
+                        .content("[{\"id\":\"appliedPresetKey\",\"value\":\"Germany (ArbZG §3 & §4)\"}]"))
                 .andExpect(status().isOk());
 
         WorkspaceSettings settings = settingsRepo

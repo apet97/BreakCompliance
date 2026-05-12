@@ -156,11 +156,12 @@ class ManifestContractTest {
         // labels become the storage key. InstallationService maps back to
         // the internal slug via RuleTemplatePresets.fromManifestLabel.
         assertThat(allowedValues).containsExactly(
-                "Custom (editable defaults)",
-                "California (IWC meal/rest)",
-                "Germany (ArbZG §3 + §4)");
+                "Custom (Editable Defaults)",
+                "California (IWC Meal & Rest)",
+                "Germany (ArbZG §3 & §4)");
 
-        assertThat(appliedPreset.get("value").asText()).isEqualTo("Custom (editable defaults)");
+        assertThat(appliedPreset.get("value").asText()).isEqualTo("Custom (Editable Defaults)");
+        assertThat(appliedPreset.get("required").asBoolean()).isTrue();
 
         JsonNode timezoneStrategy = null;
         for (JsonNode node : tabSettings) {

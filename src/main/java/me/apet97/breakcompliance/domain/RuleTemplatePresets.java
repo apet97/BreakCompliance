@@ -18,7 +18,7 @@ public final class RuleTemplatePresets {
 
     public static final Preset CUSTOM_BASIC = new Preset(
             "custom-basic",
-            "Custom (editable defaults)",
+            "Custom (Editable Defaults)",
             "Custom policy (editable)",
             "Neutral starter. All thresholds are placeholders; admins edit them to match company policy. Pair with the Custom Policy settings tab to override the template thresholds without editing rows.",
             5,
@@ -51,7 +51,7 @@ public final class RuleTemplatePresets {
      */
     public static final Preset GERMANY_ARBZG_STYLE = new Preset(
             "germany-arbzg-style",
-            "Germany (ArbZG §3 + §4)",
+            "Germany (ArbZG §3 & §4)",
             "Germany ArbZG (Arbeitszeitgesetz) §3 + §4",
             "German Working Time Act starter. ArbZG §4: >6h work → 30 min break; >9h → 45 min total; each segment ≥15 min. ArbZG §3: 10h daily hard cap, 6-month avg ≤8h/day. Editable. Not legal advice — admins must verify with their own counsel.",
             15,
@@ -79,7 +79,7 @@ public final class RuleTemplatePresets {
      */
     public static final Preset CALIFORNIA_STYLE = new Preset(
             "california-style",
-            "California (IWC meal/rest)",
+            "California (IWC Meal & Rest)",
             "California meal/rest (IWC Wage Orders)",
             "California Industrial Welfare Commission starter. Meal: 30 min uninterrupted before 5th hour; second meal before 10th. One-hour premium per missed period. Rest breaks (10 min / 4 h) not enforced here. Editable. Not legal advice — admins must verify with their own counsel.",
             10,
