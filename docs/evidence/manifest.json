@@ -1,0 +1,160 @@
+{
+  "schemaVersion": "1.3",
+  "key": "break-compliance-jvm",
+  "name": "Break Compliance",
+  "baseUrl": "https://breakcompliance-production.up.railway.app",
+  "minimalSubscriptionPlan": "BASIC",
+  "scopes": [
+    "TIME_ENTRY_READ",
+    "USER_READ",
+    "REPORTS_READ"
+  ],
+  "description": "Review whether Clockify users took required break time. Checks explicit BREAK time entries against configurable rule templates (German ArbZG, California, Custom).",
+  "iconPath": "/icon.svg",
+  "lifecycle": [
+    {
+      "path": "/lifecycle/installed",
+      "type": "INSTALLED"
+    },
+    {
+      "path": "/lifecycle/deleted",
+      "type": "DELETED"
+    },
+    {
+      "path": "/lifecycle/settings-updated",
+      "type": "SETTINGS_UPDATED"
+    },
+    {
+      "path": "/lifecycle/status-changed",
+      "type": "STATUS_CHANGED"
+    }
+  ],
+  "webhooks": [
+    {
+      "event": "NEW_TIME_ENTRY",
+      "path": "/webhook/new-time-entry"
+    },
+    {
+      "event": "TIME_ENTRY_UPDATED",
+      "path": "/webhook/time-entry-updated"
+    },
+    {
+      "event": "TIME_ENTRY_DELETED",
+      "path": "/webhook/time-entry-deleted"
+    }
+  ],
+  "components": [
+    {
+      "type": "sidebar",
+      "label": "Break Compliance",
+      "accessLevel": "ADMINS",
+      "path": "/sidebar"
+    }
+  ],
+  "settings": {
+    "tabs": [
+      {
+        "id": "breakCompliance",
+        "name": "Break Compliance",
+        "groups": [],
+        "settings": [
+          {
+            "id": "workThresholdMinutes",
+            "name": "Work threshold (minutes)",
+            "description": "Once a user has logged this many minutes of work in a day, a qualifying break must appear. Example: 240 = 4 hours.",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 240,
+            "allowedValues": []
+          },
+          {
+            "id": "breakThresholdMinutes",
+            "name": "Required break (minutes)",
+            "description": "Total qualifying break minutes the user must accumulate in a day after crossing the work threshold. Example: 30 (California meal break).",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 15,
+            "allowedValues": []
+          },
+          {
+            "id": "minBreakSegmentMinutes",
+            "name": "Min break segment (minutes)",
+            "description": "Break entries shorter than this don't count toward the daily required total. Example: ArbZG §4 requires segments ≥15 min to qualify.",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 5,
+            "allowedValues": []
+          },
+          {
+            "id": "maxContinuousWorkMinutes",
+            "name": "Max continuous work (minutes)",
+            "description": "Longest stretch of uninterrupted work allowed before a qualifying break must occur. Findings emit MAX_CONTINUOUS_WORK_EXCEEDED when a user exceeds this without a break.",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 240,
+            "allowedValues": []
+          },
+          {
+            "id": "gracePeriodMinutes",
+            "name": "Grace period (minutes)",
+            "description": "Tolerance added to every threshold so trivial overruns don't fire violations. Example: with work threshold 240 and grace 5, a 244-minute shift is still compliant.",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 5,
+            "allowedValues": []
+          },
+          {
+            "id": "allowSplitBreaks",
+            "name": "Allow split breaks",
+            "description": "ON: the required break total can be summed from multiple qualifying segments. OFF: a single uninterrupted break of the full required length is needed — turn OFF for California's IWC meal-period rule.",
+            "accessLevel": "ADMINS",
+            "type": "CHECKBOX",
+            "value": true,
+            "allowedValues": []
+          },
+          {
+            "id": "secondWorkThresholdMinutes",
+            "name": "Second-tier work threshold (minutes)",
+            "description": "Set 0 to disable the second tier. Otherwise: when a user crosses this longer shift length, the SECOND-tier required break replaces the first-tier requirement. Example: ArbZG §4 — 540 (9 h) triggers a 45-min total.",
+            "placeholder": "0 = disabled",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 0,
+            "allowedValues": []
+          },
+          {
+            "id": "secondBreakThresholdMinutes",
+            "name": "Second-tier required break (minutes)",
+            "description": "Set 0 to disable. Otherwise: total qualifying break minutes required once the second-tier work threshold is exceeded. Example: 45 (ArbZG §4 after 9 hours).",
+            "placeholder": "0 = disabled",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 0,
+            "allowedValues": []
+          },
+          {
+            "id": "timezoneStrategy",
+            "name": "Time-zone strategy",
+            "description": "How to compute the day a time entry belongs to when evaluating break requirements. Entry-local keeps each shift on the day the user worked it (recommended for distributed teams).",
+            "accessLevel": "ADMINS",
+            "type": "DROPDOWN_SINGLE",
+            "value": "Use entry's local time zone",
+            "allowedValues": [
+              "Use entry's local time zone"
+            ],
+            "required": true
+          },
+          {
+            "id": "fallbackDetectionEnabled",
+            "name": "Detect missing break entries",
+            "description": "ON: detect breaks taken as gaps between work entries. A gap of 5–120 minutes between two consecutive work entries on the same day counts as a qualifying break. Turn ON when your workspace records breaks by stopping the timer rather than logging dedicated BREAK entries.",
+            "accessLevel": "ADMINS",
+            "type": "CHECKBOX",
+            "value": false,
+            "allowedValues": []
+          }
+        ]
+      }
+    ]
+  }
+}

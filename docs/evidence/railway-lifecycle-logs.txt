@@ -1,0 +1,8 @@
+2026-05-12 22:38:31.650 INFO  [http-nio-8080-exec-3] m.a.b.a.l.InstallationService - lifecycle.deleted workspace=69bda6b317a0c5babe34b4ff addon=6a032318554f8a011be0afa3
+2026-05-12 22:38:31.532 INFO  [http-nio-8080-exec-3] m.a.b.a.l.WorkspaceDataDeletionService - Deleting all app data for workspace=69bda6b317a0c5babe34b4ff
+2026-05-12 22:43:18.012 INFO  [http-nio-8080-exec-5] m.a.b.a.l.InstallationService - lifecycle.installed workspace=69bda6b317a0c5babe34b4ff addon=6a03ad05554f8a011be0c40b
+2026-05-12 22:48:51.192 INFO  [ingest-1] m.a.b.api.IngestionService - ingestion.completed workspace=69bda6b317a0c5babe34b4ff entries=33
+2026-05-12 22:49:50.542 INFO  [ingest-2] m.a.b.api.IngestionService - ingestion.completed workspace=69bda6b317a0c5babe34b4ff entries=34
+2026-05-12 22:52:43.605 INFO  [ingest-1] m.a.b.api.IngestionService - ingestion.completed workspace=69bda6b317a0c5babe34b4ff entries=35
+2026-05-12 22:53:43.324 INFO  [http-nio-8080-exec-9] m.a.b.a.l.WorkspaceDataDeletionService - Deleting all app data for workspace=69bda6b317a0c5babe34b4ff
+2026-05-12 22:53:43.396 INFO  [http-nio-8080-exec-9] m.a.b.a.l.InstallationService - lifecycle.deleted workspace=69bda6b317a0c5babe34b4ff addon=6a03ad05554f8a011be0c40b

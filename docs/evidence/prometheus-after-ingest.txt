@@ -1,0 +1,24 @@
+application_ready_time_seconds{application="break-compliance",main_application_class="me.apet97.breakcompliance.BreakComplianceApplication"} 8.344
+application_started_time_seconds{application="break-compliance",main_application_class="me.apet97.breakcompliance.BreakComplianceApplication"} 8.264
+# HELP breakcompliance_ingest_entries_processed_total  
+# TYPE breakcompliance_ingest_entries_processed_total counter
+breakcompliance_ingest_entries_processed_total{application="break-compliance"} 33.0
+# HELP breakcompliance_ingest_run_duration_seconds Total time spent in IngestionService.executeRun
+# TYPE breakcompliance_ingest_run_duration_seconds summary
+breakcompliance_ingest_run_duration_seconds_count{application="break-compliance"} 1
+breakcompliance_ingest_run_duration_seconds_sum{application="break-compliance"} 1.996343137
+# HELP breakcompliance_ingest_run_duration_seconds_max Total time spent in IngestionService.executeRun
+# TYPE breakcompliance_ingest_run_duration_seconds_max gauge
+breakcompliance_ingest_run_duration_seconds_max{application="break-compliance"} 1.996343137
+tasks_scheduled_execution_active_seconds_count{application="break-compliance",code_function="pollAndDispatch",code_namespace="me.apet97.breakcompliance.addon.webhook.RefreshSignalConsumer",exception="none",outcome="UNKNOWN"} 0
+tasks_scheduled_execution_active_seconds_sum{application="break-compliance",code_function="pollAndDispatch",code_namespace="me.apet97.breakcompliance.addon.webhook.RefreshSignalConsumer",exception="none",outcome="UNKNOWN"} 0.0
+tasks_scheduled_execution_active_seconds_count{application="break-compliance",code_function="reapStuckRuns",code_namespace="me.apet97.breakcompliance.api.IngestionRunReaper",exception="none",outcome="UNKNOWN"} 0
+tasks_scheduled_execution_active_seconds_sum{application="break-compliance",code_function="reapStuckRuns",code_namespace="me.apet97.breakcompliance.api.IngestionRunReaper",exception="none",outcome="UNKNOWN"} 0.0
+tasks_scheduled_execution_active_seconds_max{application="break-compliance",code_function="pollAndDispatch",code_namespace="me.apet97.breakcompliance.addon.webhook.RefreshSignalConsumer",exception="none",outcome="UNKNOWN"} 0.0
+tasks_scheduled_execution_active_seconds_max{application="break-compliance",code_function="reapStuckRuns",code_namespace="me.apet97.breakcompliance.api.IngestionRunReaper",exception="none",outcome="UNKNOWN"} 0.0
+tasks_scheduled_execution_seconds_count{application="break-compliance",code_function="pollAndDispatch",code_namespace="me.apet97.breakcompliance.addon.webhook.RefreshSignalConsumer",error="none",exception="none",outcome="SUCCESS"} 58
+tasks_scheduled_execution_seconds_sum{application="break-compliance",code_function="pollAndDispatch",code_namespace="me.apet97.breakcompliance.addon.webhook.RefreshSignalConsumer",error="none",exception="none",outcome="SUCCESS"} 1.740074319
+tasks_scheduled_execution_seconds_count{application="break-compliance",code_function="reapStuckRuns",code_namespace="me.apet97.breakcompliance.api.IngestionRunReaper",error="none",exception="none",outcome="SUCCESS"} 15
+tasks_scheduled_execution_seconds_sum{application="break-compliance",code_function="reapStuckRuns",code_namespace="me.apet97.breakcompliance.api.IngestionRunReaper",error="none",exception="none",outcome="SUCCESS"} 0.411540483
+tasks_scheduled_execution_seconds_max{application="break-compliance",code_function="pollAndDispatch",code_namespace="me.apet97.breakcompliance.addon.webhook.RefreshSignalConsumer",error="none",exception="none",outcome="SUCCESS"} 0.029465075
+tasks_scheduled_execution_seconds_max{application="break-compliance",code_function="reapStuckRuns",code_namespace="me.apet97.breakcompliance.api.IngestionRunReaper",error="none",exception="none",outcome="SUCCESS"} 0.02465666
