@@ -1,12 +1,11 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
-ARG GH_PACKAGES_USER
-ARG GH_PACKAGES_PAT
 WORKDIR /src
 
+# Clockify SDK is vendored under repo/ — no GitHub Packages PAT needed.
+# Bring the vendored maven repo + pom in first so Maven can resolve
+# dependencies before src/ changes invalidate the cache.
 COPY pom.xml ./
-RUN mkdir -p /root/.m2 \
-    && printf '<settings><servers><server><id>github</id><username>%s</username><password>%s</password></server></servers></settings>' \
-        "$GH_PACKAGES_USER" "$GH_PACKAGES_PAT" > /root/.m2/settings.xml
+COPY repo ./repo
 
 COPY src ./src
 RUN mvn -B -ntp -DskipTests package

@@ -13,7 +13,7 @@ Manifest key `break-compliance-jvm`. BASIC plan. **Read-only** scopes:
 | Railway | project `break-compliance` · service `BreakCompliance` · env `production` |
 | Deploy | `railway up --service BreakCompliance --ci` (push does **not** auto-deploy) |
 | Logs | `railway logs --service BreakCompliance` |
-| Java SDK | `com.cake.clockify:addon-sdk:1.5.3` from GitHub Packages |
+| Java SDK | `com.cake.clockify:addon-sdk:1.5.3` vendored in `repo/` (no GitHub Packages PAT needed) |
 
 ## Build + test
 
@@ -188,14 +188,22 @@ src/main/resources/
   logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
   static/               sidebar.js + styles.css + icon.svg (64×64 designed mark)
 
-src/test/...            255 green (JDK 21 + Postgres + Redis Testcontainers)
+src/test/...            266 green (JDK 21 + Postgres + Redis Testcontainers)
+
+repo/com/cake/clockify/  Vendored Clockify SDK jar+pom (addon-sdk 1.5.3 +
+                         annotation-processor 1.0.10). Eliminates the
+                         GitHub Packages PAT — `pom.xml`'s
+                         `vendored-clockify-sdk` repository resolves via
+                         `file://${project.basedir}/repo`. To bump: drop
+                         the new jar+pom under the same layout and update
+                         `clockify.addon-sdk.version` in `pom.xml`.
 ```
 
 ## Reference (read before changing behaviour)
 
 - `docs/api-calls.md` — outbound + inbound API shapes with live-probe evidence
 - `docs/clockify-marketplace/` — canonical marketplace docs mirror
-- `docs/addon-java-sdk/` — Java SDK 1.5.3 source
+- `docs/addon-java-sdk/` — Java SDK 1.5.3 source (consumed via vendored `repo/`)
 - `AGENTS.md` — operational rules for AI agents
 
 ## Dev workspace + seeded test data (2026-05-12)

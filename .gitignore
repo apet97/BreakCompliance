@@ -8,6 +8,10 @@ target/
 .mvn/
 hs_err_pid*
 
+# Allow vendored Clockify SDK artifacts (see repo/) — eliminates the
+# GitHub Packages build-time PAT dependency.
+!repo/**/*.jar
+
 # IDE
 .idea/
 *.iml

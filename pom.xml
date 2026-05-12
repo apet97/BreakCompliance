@@ -30,11 +30,20 @@
             <url>https://repo1.maven.org/maven2</url>
         </repository>
         <repository>
-            <id>github</id>
-            <name>Clockify Addon Java SDK (GitHub Packages)</name>
-            <url>https://maven.pkg.github.com/clockify/addon-java-sdk</url>
-            <snapshots>
+            <!-- Vendored CAKE.com Clockify SDK artifacts. Replaces the
+                 maven.pkg.github.com/clockify/addon-java-sdk dependency
+                 so the build needs no GitHub Packages PAT. To bump:
+                 drop the new jar+pom under repo/com/cake/clockify/...
+                 and update clockify.addon-sdk.version above. -->
+            <id>vendored-clockify-sdk</id>
+            <name>Vendored Clockify Addon Java SDK</name>
+            <url>file://${project.basedir}/repo</url>
+            <releases>
                 <enabled>true</enabled>
+                <checksumPolicy>ignore</checksumPolicy>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
             </snapshots>
         </repository>
     </repositories>
