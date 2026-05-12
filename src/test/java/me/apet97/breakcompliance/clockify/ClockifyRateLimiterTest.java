@@ -47,8 +47,22 @@ class ClockifyRateLimiterTest {
 
     @Test
     void overBudget_sleepsUntilNextSecondBucket() {
-        // 4th acquire on a budget of 3 must sleep. The sleep is bounded by
-        // 1s + ~5ms slack — give the test a 2s ceiling to avoid flakes.
+        // Align to a fresh bucket so all three "under budget" acquires land
+        // in the same second — otherwise the 3rd can roll into a new bucket
+        // and the 4th's sleep is only the leftover of that bucket (we've
+        // seen sub-50ms sleeps on slow CI runners). Sleep into the next
+        // millisecond-rounded second start, then begin.
+        long nowMs = System.currentTimeMillis();
+        long nextSecondStartMs = ((nowMs / 1000L) + 1L) * 1000L;
+        try {
+            Thread.sleep(nextSecondStartMs - nowMs + 5L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // 4th acquire on a budget of 3 must sleep. With the bucket-aligned
+        // start the sleep is close to a full second; ~2s ceiling absorbs
+        // any CI scheduler jitter.
         for (int i = 0; i < 3; i++) {
             limiter.acquire("ws-ratelim-burst");
         }
@@ -57,8 +71,10 @@ class ClockifyRateLimiterTest {
         long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
         assertThat(elapsedMs).isLessThan(2000L);
         // It must have actually slept some non-trivial amount — anything
-        // below 50ms means the over-budget branch was skipped.
-        assertThat(elapsedMs).isGreaterThan(50L);
+        // below 250ms means the over-budget branch was skipped or the
+        // bucket boundary landed in the middle of the 3-acquire prelude
+        // (which the bucket-alignment above prevents).
+        assertThat(elapsedMs).isGreaterThan(250L);
     }
 
     @Test

@@ -32,10 +32,15 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 │   └── util/                                         Webhook path normalizer
 ├── src/main/resources/
 │   ├── application.yaml                              Env-driven Spring config
-│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V9, additive only)
+│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V10, additive only)
 │   ├── logback-spring.xml                            Token-redacting log pattern
 │   └── static/                                       sidebar.js, styles.css, icon.svg (64×64 designed mark)
 ├── docs/                                             Marketplace submission docs
+│   ├── PRIVACY.md / SECURITY.md / DATA_RETENTION.md / LEGAL_NOTICES.md / SUPPORT.md
+│   ├── LISTING.md                                    Source-of-truth listing copy
+│   ├── LIVE_VALIDATION.md                            Production install/uninstall evidence
+│   └── evidence/                                     Raw curl headers, manifest, metrics, psql, screenshot
+├── CHANGELOG.md                                      Semver 0.1.0 onward
 ├── repo/com/cake/clockify/                           Vendored Clockify SDK (jar+pom)
 │                                                     — see `pom.xml`'s `vendored-clockify-sdk` repository
 └── .github/workflows/ci.yml                          Maven verify on PR + main
@@ -59,11 +64,20 @@ GitHub Actions runs `mvn verify` on every push to `main` and every PR. No repo s
 | Variable | Required | Purpose |
 |---|---|---|
 | `ADDON_BASE_URL` | yes | Manifest's `baseUrl`. Must match the URL Clockify hits the addon at. |
-| `DATABASE_URL` | yes | JDBC connection string for Postgres. Railway sets this automatically. |
-| `DATABASE_USERNAME` / `DATABASE_PASSWORD` | yes | Postgres credentials. |
-| `REDIS_HOST` / `REDIS_PORT` | yes | Redis connection details. Railway sets these automatically. |
+| `PGHOST` / `PGPORT` / `PGDATABASE` / `PGUSER` / `PGPASSWORD` | yes | Postgres connection. Railway sets these as service-reference vars; the JDBC URL is built from them inside `application.yaml`. |
+| `PG_SSLMODE` | optional | Defaults to `require`. Emergency knob — only flip to `disable`/`prefer` if Railway's managed Postgres can't negotiate SSL. |
+| `REDISHOST` / `REDISPORT` / `REDISUSER` / `REDISPASSWORD` | yes | Redis connection. Railway sets these as service-reference vars; username is empty for local no-auth Redis. |
 | `INSTALLATION_TOKEN_KEY` | yes | 64 hex characters → 256-bit AES key for the token codec. Generate via `openssl rand -hex 32`. |
-| `INSTALLATION_TOKEN_KEY_ID` | optional | Active key id (defaults to `default`); supports rotation. |
-| `CLOCKIFY_PUBLIC_KEY_URL` | optional | Override for the Clockify RSA public-key endpoint. |
-| `ENABLE_HSTS` | optional | Set `true` once a custom domain serves HTTPS end-to-end. |
+| `INSTALLATION_TOKEN_KEY_ID` | optional | Active key id (defaults to `default`); supports rotation by mapping multiple ids → keys. |
+| `CLOCKIFY_PUBLIC_KEY_PEM` | optional | Override for the Clockify RSA public key (PEM string). Default embedded in `ClockifyAddonConfig`. |
+| `ENABLE_HSTS` | optional | Set `true` once a custom domain serves HTTPS end-to-end. `SecurityHeadersFilter` additionally requires `request.isSecure()` so an accidental HTTP slip can't pin a browser. |
 | `EXTRA_FRAME_ANCESTORS` | optional | CSV of extra `frame-ancestors` for the CSP (e.g. `https://developer.clockify.me` during dev-portal testing). |
+| `LOG_LEVEL_APP` | optional | Per-incident log level for `me.apet97.breakcompliance` (default `INFO`). Flip via `railway variables --set` without redeploy. |
+| `SIDEBAR_TOKEN_MAX_IAT_AGE_SECONDS` / `IAT_CLOCK_SKEW_SECONDS` | optional | Sidebar JWT iat-replay window + tolerance. |
+
+## Observability
+
+`spring-boot-starter-actuator` + `micrometer-registry-prometheus` expose:
+
+- `/actuator/health` — Railway healthcheck probe.
+- `/actuator/prometheus` — `breakcompliance_webhook_received{event}`, `_webhook_duplicate{event}`, `_refresh_signals_processed{outcome}`, `_ingest_run_duration` (Timer), `_ingest_entries_processed`, `_ingest_run_failed{reason}` plus the standard JVM + Tomcat + Hikari + Spring scheduled-task series. Narrow access via reverse-proxy / IP allowlist before exposing externally.

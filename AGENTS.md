@@ -25,7 +25,8 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 255+ green. Postgres + Redis spin up via Testcontainers.
+# Expect 279+ green. Postgres + Redis spin up via Testcontainers.
+# Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 # Targeted run.
 mvn -B -ntp test -Dtest='LifecycleControllerTest,BreakRuleEngineTest'
@@ -201,3 +202,46 @@ synthetic > 0.
   before overwrite. **255 tests green** (+`PresetControllerTest`,
   `IngestRunControllerTest`, `SettingsWarningTest`, rewritten `IngestionControllerTest`
   with a `SyncTaskExecutor` override for in-test async).
+- **§27** — Marketplace readiness (P0 + P1 + active consumer + live validation;
+  plan at `~/.claude/plans/verdict-do-not-zesty-gray.md`). Commits
+  `206e099..1257ffd` on PR #1. Highlights:
+  - **P0**: `DetailedReportFetcher` accepts `timeentries` AND `timeEntries` as a
+    defensive fallback; `WORKSPACE_READ` scope dropped (unused); stale-`DELETED`
+    guard in `InstallationService.handleDeleted` compares JWT `iat` to the
+    stored `installedAt` (30s grace).
+  - **Active webhook consumer**: `RefreshSignalConsumer` (`@Scheduled
+    fixedDelay=30s`, debounce=20s) drains PENDING signals, groups by
+    workspace, computes covering window from `dateHint`, dedupes against
+    in-flight `IngestionRun`, dispatches via
+    `IngestionService.beginAsyncForRefresh(…, Consumer<runId>)`. V10
+    migration extends `refresh_signals.status` CHECK with CLAIMED /
+    CONSUMED / FAILED / COALESCED + adds `ingestion_run_id` back-pointer.
+  - **P1 hardening**: `IngestionRunReaper` (`@Scheduled`) marks runs stuck
+    in RUNNING past 10 min as FAILED + releases their CLAIMED signals;
+    `IngestionService.prepareRun` throws `IngestionRunInProgressException`
+    (→ 409 with `existingRunId`) when a RUNNING run for the same
+    workspace+range exists; Prometheus metrics via
+    `micrometer-registry-prometheus` (`/actuator/prometheus` emits
+    `breakcompliance_webhook_received{event}` /
+    `_refresh_signals_processed{outcome}` /
+    `_ingest_run_duration` / `_ingest_entries_processed` /
+    `_ingest_run_failed{reason}`); HSTS only set when
+    `request.isSecure()` (Railway-aware via `X-Forwarded-Proto`).
+  - **CI**: Dependabot weekly + CodeQL Java analysis.
+  - **Build**: Testcontainers bumped to 1.20.4 + surefire system property
+    `api.version=1.44` + `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` so the
+    suite runs identically under Docker Desktop and Colima.
+  - **Live validation**: production install/uninstall captured in
+    `docs/LIVE_VALIDATION.md` — three webhook-driven ingest cycles
+    (entries=33→34→35), `/actuator/prometheus` emitting real values,
+    12/12 workspace tables at zero rows post-uninstall.
+  - **Marketplace packet**: new `docs/LISTING.md`, `docs/SUPPORT.md`,
+    `CHANGELOG.md`; refreshed `docs/PRIVACY.md`, `docs/SECURITY.md`,
+    `docs/DATA_RETENTION.md`.
+  - **Test count**: 279 green (+`RefreshSignalConsumerTest`,
+    `IngestionRunReaperTest`, +1 stale-DELETED case in
+    `LifecycleControllerTest`, +1 dedupe case in `IngestionControllerTest`,
+    +5 iat extraction cases in `ClaimsNormalizerTest`, parser fallback
+    cases in `DetailedReportFetcherTest`, dateHint case in
+    `RefreshSignalServiceTest`; `ClockifyRateLimiterTest.overBudget…`
+    de-flaked with a bucket-boundary alignment).
