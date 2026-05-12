@@ -477,7 +477,9 @@ class LifecycleControllerTest {
         WorkspaceSettings settings = settingsRepo
                 .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
         assertThat(settings.getAppliedPresetKey()).isEqualTo("germany-arbzg-style");
-        // ArbZG threshold overwrites land via the preset-as-loader path,
+        // ArbZG threshold overwrites land via the defensive SETTINGS_UPDATED parser
+        // (preset chooser now lives in the sidebar at POST /api/presets/apply;
+        // this test pins the legacy inbound shape so cached deliveries still work),
         // proving the wrapper's `settings` array was actually consumed.
         assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(360);
         assertThat(settings.getCustomSecondWorkThresholdMinutes()).isEqualTo(540);

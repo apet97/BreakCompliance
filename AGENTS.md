@@ -25,7 +25,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 236+ green. Postgres + Redis spin up via Testcontainers.
+# Expect 255+ green. Postgres + Redis spin up via Testcontainers.
 
 # Targeted run.
 mvn -B -ntp test -Dtest='LifecycleControllerTest,BreakRuleEngineTest'
@@ -82,13 +82,20 @@ any API call shape.
 
 ## Settings model (current)
 
-Single-template-per-workspace, preset-as-loader. Eleven structured-settings fields land
-on `WorkspaceSettings.customXxx` columns (the `custom_` prefix is historical — the
+Split surface: native structured-settings owns ten admin-only fields for per-threshold
+fine-tuning; sidebar owns the preset chooser. The dropdown was removed from the manifest
+because Clockify's native UI renders each field independently and never re-fetches
+siblings on change — so backend-driven cross-field writes (the previous "preset-as-loader"
+pattern) weren't visible without a page reload. All eleven values still land on
+`WorkspaceSettings.customXxx` columns (the `custom_` prefix is historical — the
 `customPolicyEnabled` flag no longer gates evaluation; always-on).
 
-Preset change semantics: incoming `appliedPresetKey` ≠ stored → server overwrites all 8
-threshold columns from `RuleTemplatePresets.{key}.toEntity(…)` BEFORE applying per-field
-edits. Admin can change preset + tweak one field in a single payload; the tweak wins.
+Preset selection: sidebar → `POST /api/presets/apply {presetKey}` →
+`InstallationService.applyPreset(workspaceId, presetKey)` overwrites all 8 threshold
+columns from `RuleTemplatePresets.{key}.toEntity(…)`, sets `appliedPresetKey`, re-runs
+`SettingsWarning.validate(...)`, and saves in one transaction. The lifecycle handler's
+defensive `appliedPresetKey` parser stays so any cached SETTINGS_UPDATED delivery still
+round-trips (Clockify won't push it post-manifest-removal, but the receiver is tolerant).
 
 The engine uses `synthesizeWorkspaceTemplate(input)` to wrap `WorkspaceSettings` into a
 transient `RuleTemplate`. Per-user template resolution (`RuleTemplate` +
@@ -97,11 +104,20 @@ back-compat only.
 
 ## Don'ts
 
-- **No sidebar Settings button.** Clockify's `navigate` postMessage only supports
-  `{"type":"tracker"}` (see `docs/clockify-marketplace/build/window-events.md`). The
-  active-template chip + the static caption are the documented affordances.
-- **No `window.open` for settings.** Dev portal uses a catalog addon-id we don't have
-  from JWT claims (`claims.addonId` is the per-workspace installation id).
+- **No deep-link "open settings page" from the iframe.** Clockify's `navigate`
+  postMessage only supports `{"type":"tracker"}` (see
+  `docs/clockify-marketplace/build/window-events.md`). The active-template chip,
+  the **Switch…** button (sidebar-side preset chooser), and the collapsible "where do I
+  fine-tune" hint are the documented affordances.
+- **No `window.open` for the native settings page.** Dev portal uses a catalog addon-id
+  we don't have from JWT claims (`claims.addonId` is the per-workspace installation id).
+- **Preset selection lives in the sidebar.** Don't re-add `appliedPresetKey` to the
+  manifest — the field was removed because Clockify can't surface a backend-driven
+  cross-field write without a page reload. The defensive lifecycle parser stays for
+  legacy deliveries, but new code paths must go through `POST /api/presets/apply`.
+- **No new iframe controls for threshold fine-tuning.** Individual fields stay native
+  so admins land on Clockify's familiar settings chrome. The sidebar carve-out is the
+  preset chooser only.
 - **No `RuleTemplate` lookups in new code paths.** Engine ignores them.
 - **Don't drop `Last-Page` header parsing** if you add paginated calls. We currently
   also approximate with `entries.size() < PAGE_SIZE` (documented in
@@ -160,3 +176,17 @@ back-compat only.
   popover overflow fix, focus-on-Esc, `prefers-reduced-motion`, screen-reader labels,
   4 new service tests (`WorkspaceDataDeletion`, `RateLimiter`, `IdempotencyStore`,
   `RefreshSignal`) + `EntryClassifierTest`. 226 tests green.
+- **§26** — UX pass after second review round: human-readable preset + timezone
+  manifest labels (sidesteps the `allowedValues: List<String>` SDK limit), Title-Cased
+  preset names, `.required(true)` on dropdowns to drop Clockify's auto-injected "None",
+  `.placeholder("0 = disabled")` on the second-tier numeric fields. UTF-8 charset
+  forced on `/manifest` (rescues `§` from mojibake). Cross-field validation
+  (`SettingsWarning`) persisted on `workspace_settings.validation_warnings` (V9, additive)
+  and surfaced in a sidebar banner via `/api/session`. Async ingest: bounded
+  `ingestExecutor` (AsyncConfig), `POST /api/ingest/detailed-report` returns 202 with
+  the run id; sidebar polls `GET /api/ingest/runs/{id}` with exp-backoff + Cancel link.
+  Preset chooser relocated to the sidebar — new `GET /api/presets` + admin-gated
+  `POST /api/presets/apply`, inline preview cards, Matches/Customized pill, confirm
+  before overwrite. **255 tests green** (+`PresetControllerTest`,
+  `IngestRunControllerTest`, `SettingsWarningTest`, rewritten `IngestionControllerTest`
+  with a `SyncTaskExecutor` override for in-test async).

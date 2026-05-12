@@ -23,7 +23,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**236 tests green** (2026-05-12). Postgres + Redis come up via Testcontainers.
+**255 tests green** (2026-05-12). Postgres + Redis come up via Testcontainers.
 
 ## Runtime config (Railway env vars)
 
@@ -149,25 +149,32 @@ src/main/java/me/apet97/breakcompliance/
     manifest/     ManifestController (Gson serialises the SDK manifest)
     ui/           SidebarHtmlController serves the iframe HTML shell
     webhook/      NEW/UPDATED/DELETED time-entry + Redis SETNX (24h TTL) + RefreshSignalService
-  api/            Session, Findings, Ingestion, RefreshSignals controllers + AddonTokenAuthFilter
-                  + InstallationInactiveException
+  api/            Session, Findings, Ingestion, IngestRun, Presets, RefreshSignals
+                  controllers + AddonTokenAuthFilter + InstallationInactiveException.
+                  IngestionService runs in 3 phases (prepare/fetch/finalize), dispatched
+                  async via ingestExecutor; sidebar polls /api/ingest/runs/{id} for status.
+                  PresetController serves GET /api/presets + POST /api/presets/apply for
+                  the sidebar-driven preset chooser (native settings only holds the 10
+                  per-field thresholds).
   clockify/       ClockifyApi (shared RestClient, SSRF guard, 429/5xx retries)
                   + DetailedReportFetcher + ClockifyRateLimiter
-  config/         ClockifyAddonConfig (manifest builder), SecurityHeadersFilter, CorsConfig,
-                  CryptoConfig (production key fail-fast)
-  domain/         BreakRuleEngine, EntryClassifier (BREAK/WORK/IGNORED), RuleTemplatePresets
+  config/         ClockifyAddonConfig (manifest builder), AsyncConfig (ingestExecutor
+                  bounded pool), SecurityHeadersFilter, CorsConfig, CryptoConfig
+                  (production key fail-fast)
+  domain/         BreakRuleEngine, EntryClassifier (BREAK/WORK/IGNORED), RuleTemplatePresets,
+                  SettingsWarning (cross-field validation surfaced via SessionController)
   persistence/    Entities + repositories + AES-GCM TokenCodec
 
 src/main/resources/
   application.yaml      Env-driven Spring config (JDBC ssl/keepalive, Hikari tuning,
                         open-in-view=false, LOG_LEVEL_APP gating)
   application-dev.yaml  Local dev profile: pins DEBUG, plain-TCP localhost Postgres
-  db/migration/         V1__init through V8__ingestion_runs_status_allow_running
+  db/migration/         V1__init through V9__workspace_settings_validation_warnings
                         (Flyway, additive only)
   logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
   static/               sidebar.js + styles.css + icon.svg (64×64 designed mark)
 
-src/test/...            236 green (JDK 21 + Postgres + Redis Testcontainers)
+src/test/...            255 green (JDK 21 + Postgres + Redis Testcontainers)
 ```
 
 ## Reference (read before changing behaviour)

@@ -161,11 +161,16 @@ shape — the §24 fix accepts it).
   "workspaceId": "69bda6b317a0c5babe34b4ff",
   "addonId":     "6a024b931421fb8f26af8100",
   "settings": [
-    { "id": "appliedPresetKey",     "name": "Load preset values",     "value": "germany-arbzg-style" },
-    { "id": "workThresholdMinutes", "name": "Work threshold (minutes)", "value": 360 }
+    { "id": "workThresholdMinutes",   "name": "Work threshold (minutes)",   "value": 360 },
+    { "id": "secondWorkThresholdMinutes", "name": "Second-tier work threshold (minutes)", "value": 540 }
   ]
 }
 ```
+
+> **Note** — `appliedPresetKey` is no longer in the manifest. The lifecycle
+> handler still accepts it defensively (so any cached delivery still resolves
+> the preset's threshold values), but preset selection in current builds goes
+> through `POST /api/presets/apply` from the sidebar; see §4 below.
 
 `SettingsUpdatedPayload.extractUpdates` accepts three shapes for resilience:
 
@@ -177,10 +182,15 @@ shape — the §24 fix accepts it).
 | Anything else | Drift | `PayloadDriftLogger` WARN once, 200 returned. |
 
 `InstallationService.handleSettingsUpdated`:
-1. Scans for `appliedPresetKey` change → overwrites all 8 threshold columns from
-   `RuleTemplatePresets.{value}.toEntity(...)`.
-2. Applies per-field edits on top (manual edits win over the preset value
-   when both arrive in the same delivery).
+1. Applies per-field edits to the ten native threshold/checkbox fields.
+2. Defensive: if `appliedPresetKey` appears (legacy / cached), resolves the
+   value via `RuleTemplatePresets.fromManifestLabel` (or the slug fallback)
+   and overwrites all 8 threshold columns. New code paths use
+   `POST /api/presets/apply` instead — Clockify won't push the field now that
+   it's gone from the manifest.
+3. Runs `SettingsWarning.validate(...)` over the merged settings and stores
+   the JSON-encoded result on `workspace_settings.validation_warnings`. The
+   sidebar surfaces these via `/api/session` as a dismissible banner.
 
 ---
 
@@ -200,6 +210,96 @@ Duplicate deliveries return 204 immediately without re-processing.
 Receiver: `src/main/java/me/apet97/breakcompliance/addon/webhook/WebhookController.java`.
 Currently records a "refresh signal" so the sidebar can know to re-ingest; doesn't
 trigger live engine evaluation.
+
+---
+
+## 3a. Sidebar-facing API (`/api/*` — verified by `AddonTokenAuthFilter`)
+
+These endpoints exist because we want sidebar UX that the native settings tab
+can't deliver — preset selection that previews values before applying, async
+ingest with real progress, and cross-field validation surfaced as a banner.
+
+### `GET /api/presets`
+
+Returns the catalogue the sidebar's "Switch…" panel renders as cards. Auth
+required; no role gate.
+
+```json
+{
+  "presets": [
+    {
+      "key": "custom-basic",
+      "label": "Custom (Editable Defaults)",
+      "description": "Neutral starter. All thresholds are placeholders; admins edit them …",
+      "thresholds": {
+        "workThresholdMinutes": 240,
+        "breakThresholdMinutes": 15,
+        "minBreakSegmentMinutes": 5,
+        "maxContinuousWorkMinutes": 240,
+        "gracePeriodMinutes": 5,
+        "allowSplitBreaks": true,
+        "secondWorkThresholdMinutes": null,
+        "secondBreakThresholdMinutes": null
+      }
+    },
+    { "key": "california-style", "label": "California (IWC Meal & Rest)", "thresholds": { /* … */ } },
+    { "key": "germany-arbzg-style", "label": "Germany (ArbZG §3 & §4)", "thresholds": { /* … */ } }
+  ]
+}
+```
+
+### `POST /api/presets/apply`
+
+Admin-only (`workspaceRole=ADMIN`). Body: `{"presetKey": "california-style"}`.
+Funnels through `InstallationService.applyPreset`, which overwrites the eight
+threshold columns, records `appliedPresetKey`, re-runs `SettingsWarning.validate`,
+and saves in one transaction. Returns the updated active template:
+
+```json
+{
+  "appliedPresetKey": "california-style",
+  "workThresholdMinutes": 300,
+  "breakThresholdMinutes": 30,
+  "minBreakSegmentMinutes": 10,
+  "maxContinuousWorkMinutes": 300,
+  "gracePeriodMinutes": 5,
+  "allowSplitBreaks": false,
+  "secondWorkThresholdMinutes": 600,
+  "secondBreakThresholdMinutes": 30
+}
+```
+
+Errors:
+| HTTP | Code | When |
+|---|---|---|
+| 400 | `missing_preset_key` | Body is empty or omits the field. |
+| 400 | `unknown_preset_key` | `presetKey` is not one of `RuleTemplatePresets.ALL`. |
+| 409 | `no_workspace_settings` | The workspace has no settings row yet — caller re-opens the addon to trigger an install first. |
+| 403 | — | Non-admin caller (`RequestValidator.requireAdmin`). |
+
+### `GET /api/ingest/runs/{runId}`
+
+Polled by the sidebar after a `POST /api/ingest/detailed-report` returns 202.
+Cadence: ~800 ms growing to a 4 s ceiling. Scoped to the JWT's workspace —
+a run from a different workspace returns 404 regardless of guessability.
+
+```json
+{
+  "id": "f1c4…",
+  "workspaceId": "69bda6b3…",
+  "status": "COMPLETED",
+  "entriesProcessed": 1234,
+  "dateRangeStart": "2026-05-04",
+  "dateRangeEnd": "2026-05-17",
+  "errorCode": "",
+  "createdAt": "2026-05-12T09:48:32.110Z",
+  "completedAt": "2026-05-12T09:49:14.220Z"
+}
+```
+
+`status` cycles `RUNNING → COMPLETED | FAILED`. On `FAILED` the sidebar maps
+`errorCode` to user-readable copy (`ClockifyApi:401` → "Reports API unavailable
+in this workspace", others → "Ingestion failed (\<code\>)").
 
 ---
 

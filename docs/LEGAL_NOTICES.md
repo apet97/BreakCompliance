@@ -4,7 +4,7 @@ _Last updated: 2026-05-12._
 
 ## Advisory only — not legal advice
 
-Break Compliance produces **advisory findings** about whether ingested time entries meet a configurable break policy. The presets named `Germany ArbZG-style starter` and `California-style starter` are starter templates **inspired by the structure** of those statutes. They are not claims of legal compliance with any specific law, regulation, or contract.
+Break Compliance produces **advisory findings** about whether ingested time entries meet a configurable break policy. The presets named `Germany (ArbZG §3 & §4)` and `California (IWC Meal & Rest)` are starter templates **inspired by the structure** of those statutes. They are not claims of legal compliance with any specific law, regulation, or contract.
 
 - The add-on **never** modifies time entries, **never** starts or stops timers, **never** enforces a rule against a worker, and **never** produces a record intended as legal evidence.
 - Workspace admins are responsible for tuning template thresholds to match their company policy, jurisdiction, and worker contracts. Verify with qualified counsel before relying on Break Compliance findings for any regulated decision.

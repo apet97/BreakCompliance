@@ -32,7 +32,7 @@ Clockify marketplace add-on that reviews whether workspace users took required b
 │   └── util/                                         Webhook path normalizer
 ├── src/main/resources/
 │   ├── application.yaml                              Env-driven Spring config
-│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V6, additive only)
+│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V9, additive only)
 │   ├── logback-spring.xml                            Token-redacting log pattern
 │   └── static/                                       sidebar.js, styles.css, icon.svg (64×64 designed mark)
 ├── docs/                                             Marketplace submission docs
