@@ -88,4 +88,33 @@ class SessionControllerTest {
         mockMvc.perform(get("/api/session"))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void session_productionBackend_returnsAppClockifyMeSettingsUrl() throws Exception {
+        // DEFAULT_BACKEND_URL is "https://api.clockify.me/api" — production-shaped.
+        // settingsUrl resolves to the in-app Workspace Settings page using the
+        // manifest key as the addon slug.
+        String token = TestJwtForger.forgeInstalledToken();
+        mockMvc.perform(get("/api/session").header("X-Addon-Token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settingsUrl")
+                        .value("https://app.clockify.me/workspaces/"
+                                + TestJwtForger.DEFAULT_WORKSPACE_ID
+                                + "/settings/addons/" + TestJwtForger.MANIFEST_KEY));
+    }
+
+    @Test
+    void session_devPortalBackend_returnsDeveloperClockifyMeSettingsUrl() throws Exception {
+        // When the JWT's backendUrl points at the dev portal, the sidebar's
+        // Settings button needs to open the per-installation page on
+        // developer.clockify.me using the JWT's addonId claim (which IS
+        // the per-installation id on the dev portal).
+        String token = TestJwtForger.forge(java.util.Map.of(
+                "backendUrl", "https://developer.clockify.me/api/v1"));
+        mockMvc.perform(get("/api/session").header("X-Addon-Token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settingsUrl")
+                        .value("https://developer.clockify.me/addon/"
+                                + TestJwtForger.DEFAULT_ADDON_ID + "/settings"));
+    }
 }

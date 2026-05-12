@@ -81,10 +81,20 @@ public class SidebarHtmlController {
                       <div id="active-template-details" class="active-template-details" role="dialog" aria-label="Active template thresholds" hidden></div>
                     </div>
                     <div id="preset-chooser" class="preset-chooser" role="region" aria-label="Choose a preset" hidden></div>
-                    <details class="settings-hint">
-                      <summary class="settings-hint-summary"><span class="settings-hint-glyph" aria-hidden="true">ⓘ</span> Where do I fine-tune the thresholds?</summary>
-                      <p class="settings-hint-body">Switching presets here applies the jurisdiction's defaults immediately. To fine-tune individual fields, open <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong> in Clockify; any edits there land on top of the preset.</p>
-                    </details>
+                    <div class="settings-link-row">
+                      <a
+                        id="open-settings-link"
+                        class="btn-link settings-link"
+                        href="#"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        hidden
+                      ><span aria-hidden="true">⚙</span> Fine-tune individual thresholds in Clockify ↗</a>
+                      <details id="settings-hint-fallback" class="settings-hint" hidden>
+                        <summary class="settings-hint-summary"><span class="settings-hint-glyph" aria-hidden="true">ⓘ</span> Where do I fine-tune the thresholds?</summary>
+                        <p class="settings-hint-body">Switching presets here applies the jurisdiction's defaults immediately. To fine-tune individual fields, open <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong> in Clockify; any edits there land on top of the preset.</p>
+                      </details>
+                    </div>
                     <div class="header-controls">
                       <div class="control-group">
                         <label for="date-preset-select">Date Range</label>

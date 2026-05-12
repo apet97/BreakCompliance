@@ -585,6 +585,7 @@ async function applyPreset(presetKey, options = {}) {
         renderActiveTemplate();
         renderCustomizedPill();
         renderValidationWarnings();
+        renderSettingsLink();
         showBanner("ok", `Applied "${target.label}". Reload the Clockify settings page if you want to fine-tune individual fields.`);
         togglePresetChooser(false);
     } catch (err) {
@@ -1013,6 +1014,22 @@ function updateFormFromState() {
     el("custom-range-inputs").hidden = state.preset !== "custom_range";
 }
 
+function renderSettingsLink() {
+    const link = el("open-settings-link");
+    const fallback = el("settings-hint-fallback");
+    const url = state.session?.settingsUrl;
+    if (typeof url === "string" && /^https:\/\//.test(url)) {
+        link.href = url;
+        link.hidden = false;
+        fallback.hidden = true;
+    } else {
+        // No URL in /api/session (claims missing backendUrl, etc.) — keep
+        // the collapsible breadcrumb so the user still has guidance.
+        link.hidden = true;
+        fallback.hidden = false;
+    }
+}
+
 async function loadInitialData() {
     const statusNode = el("session-status");
     try {
@@ -1029,6 +1046,7 @@ async function loadInitialData() {
         renderActiveTemplate();
         renderCustomizedPill();
         renderValidationWarnings();
+        renderSettingsLink();
         renderResults(); // first-paint empty state
     } catch (err) {
         statusNode.hidden = false;
@@ -1067,7 +1085,7 @@ function wireEvents() {
         // Also refresh the session info so the active-template chip picks
         // up any threshold/preset change from the structured-settings page.
         api("/api/session")
-            .then(s => { state.session = s; renderActiveTemplate(); renderCustomizedPill(); renderValidationWarnings(); })
+            .then(s => { state.session = s; renderActiveTemplate(); renderCustomizedPill(); renderValidationWarnings(); renderSettingsLink(); })
             .catch(() => { /* non-fatal — runCompliance will surface its own errors */ });
         runCompliance();
     });

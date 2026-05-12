@@ -140,6 +140,19 @@ a:hover { text-decoration: underline; }
 }
 .settings-hint-body strong { color: var(--text-primary); font-weight: 600; }
 
+/* Row holding either the live "Fine-tune in Clockify" link or the
+ * collapsible fallback when the JWT didn't carry enough claims to build
+ * a usable URL. */
+.settings-link-row {
+  margin: 6px 0 12px;
+}
+.settings-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
 /* Cross-field validation banner — appears when admin-saved thresholds are
  * inconsistent and the engine is silently falling back to preset defaults. */
 .settings-warning-banner {
