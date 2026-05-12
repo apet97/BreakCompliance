@@ -81,6 +81,10 @@ public class SidebarHtmlController {
                       <div id="active-template-details" class="active-template-details" role="dialog" aria-label="Active template thresholds" hidden></div>
                     </div>
                     <div id="preset-chooser" class="preset-chooser" role="region" aria-label="Choose a preset" hidden></div>
+                    <p id="admin-required-note" class="admin-required-note" role="note" hidden>
+                      <span class="admin-required-glyph" aria-hidden="true">🔒</span>
+                      Workspace admin required to refresh data and change settings. You can still browse existing findings.
+                    </p>
                     <div class="settings-link-row">
                       <a
                         id="open-settings-link"

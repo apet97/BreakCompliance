@@ -140,6 +140,28 @@ a:hover { text-decoration: underline; }
 }
 .settings-hint-body strong { color: var(--text-primary); font-weight: 600; }
 
+/* Non-admin notice rendered when state.session.workspaceRole is not
+ * ADMIN/OWNER. The disabled buttons + this banner together explain why
+ * write actions aren't available without making the sidebar feel broken. */
+.admin-required-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 10px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+.admin-required-glyph {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 /* Row holding either the live "Fine-tune in Clockify" link or the
  * collapsible fallback when the JWT didn't carry enough claims to build
  * a usable URL. */
@@ -441,6 +463,13 @@ select:focus, input:focus {
   transition: background 0.15s, color 0.15s;
 }
 .btn-icon:hover { background: var(--bg-secondary); color: var(--text-primary); }
+.btn-icon:disabled,
+.btn-icon[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
 
 .btn-close {
   width: 28px;
@@ -469,6 +498,12 @@ select:focus, input:focus {
   text-decoration: none;
 }
 .btn-link:hover { background: var(--bg-secondary); text-decoration: none; }
+.btn-link:disabled,
+.btn-link[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 .btn-remove-rule {
   width: 28px;
