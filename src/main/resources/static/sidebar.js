@@ -715,6 +715,28 @@ function enumerateDates(startIso, endIso) {
     return out;
 }
 
+// Locale-aware day-of-week + short-date formatters. Built once per render
+// pass off state.session.userTimeZone (or the browser default when the
+// JWT didn't carry one) so the pivot table reads naturally for admins in
+// any region — e.g. "Mon 12/05" in en-US vs "Lun 12/05" in fr-FR vs
+// "12月5日 月" in ja-JP. Intl handles the fallback to system locale when
+// the timezone is missing or invalid.
+function dateFormatters() {
+    const tz = state.session?.userTimeZone || undefined;
+    const safe = (opts) => {
+        try {
+            return new Intl.DateTimeFormat(undefined, { ...opts, timeZone: tz });
+        } catch {
+            // Bad tz string from a malformed claim — fall back to system tz.
+            return new Intl.DateTimeFormat(undefined, opts);
+        }
+    };
+    return {
+        weekday: safe({ weekday: "short" }),
+        monthDay: safe({ month: "numeric", day: "numeric" }),
+    };
+}
+
 function statusIconMeta(severity) {
     const cls = severityClass(severity);
     if (cls === "pass") return { icon: "✓", srLabel: "Pass" };
@@ -756,10 +778,13 @@ function renderPivot(container) {
     const thead = create("thead");
     const headerRow = create("tr");
     headerRow.appendChild(create("th", { className: "user-col", text: "User" }));
+    const { weekday, monthDay } = dateFormatters();
     for (const date of sortedDates) {
-        const d = new Date(`${date}T00:00:00Z`);
-        const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] ?? "";
-        const dayDate = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+        // Anchor the calendar date at noon UTC so DST transitions in the
+        // user's timezone can't shift the rendered date by a day.
+        const d = new Date(`${date}T12:00:00Z`);
+        const dayName = weekday.format(d);
+        const dayDate = monthDay.format(d);
         const th = create("th", { className: "day-col", title: date });
         th.appendChild(create("div", { className: "day-name", text: dayName }));
         th.appendChild(create("div", { className: "day-date", text: dayDate }));

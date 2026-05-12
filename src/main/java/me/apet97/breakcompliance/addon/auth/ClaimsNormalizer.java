@@ -37,6 +37,11 @@ public final class ClaimsNormalizer {
                 pickString(claims, "reportsUrl"),
                 pickString(claims, "user"),
                 pickString(claims, "workspaceRole"),
+                // Clockify production tokens carry `userTimeZone`; some
+                // dev-portal payloads ship `userTimezone` (lowercase z) or
+                // `tz`. Accept all three; emit null when none present so
+                // callers can fall back to a browser-locale default.
+                pickString(claims, "userTimeZone", "userTimezone", "tz"),
                 pickInstant(claims, "iat"));
     }
 
@@ -72,6 +77,7 @@ public final class ClaimsNormalizer {
                 claims.reportsUrl(),
                 userId,
                 claims.workspaceRole(),
+                claims.userTimeZone(),
                 claims.iat());
     }
 

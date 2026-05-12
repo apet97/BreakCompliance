@@ -54,6 +54,22 @@ class SessionControllerTest {
     }
 
     @Test
+    void session_emitsUserTimeZoneWhenClaimPresent() throws Exception {
+        String token = TestJwtForger.forge(java.util.Map.of("userTimeZone", "America/Los_Angeles"));
+        mockMvc.perform(get("/api/session").header("X-Addon-Token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userTimeZone").value("America/Los_Angeles"));
+    }
+
+    @Test
+    void session_emitsNullUserTimeZoneWhenClaimAbsent() throws Exception {
+        String token = TestJwtForger.forgeInstalledToken();
+        mockMvc.perform(get("/api/session").header("X-Addon-Token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userTimeZone").value(nullValue()));
+    }
+
+    @Test
     void session_noSettingsRow_appliedPresetKeyIsNull() throws Exception {
         String token = TestJwtForger.forgeInstalledToken();
         mockMvc.perform(get("/api/session").header("X-Addon-Token", token))

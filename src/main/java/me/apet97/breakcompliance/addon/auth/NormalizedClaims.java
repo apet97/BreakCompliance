@@ -25,6 +25,7 @@ public record NormalizedClaims(
         String reportsUrl,
         String userId,
         String workspaceRole,
+        String userTimeZone,
         Instant iat) {
 
     public boolean isAdmin() {
