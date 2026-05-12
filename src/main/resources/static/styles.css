@@ -781,6 +781,48 @@ select:focus, input:focus {
 .day-summary { font-size: 11px; color: var(--text-secondary); margin-left: auto; font-variant-numeric: tabular-nums; }
 .rule-list { list-style: none; margin: 0 0 0 22px; padding: 0; }
 .rule-item { display: flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 2px 0; }
+
+/* Reviewed finding rows fade slightly so the eye is drawn to the open
+ * items first. The badge + cycle button stay full-contrast so admins can
+ * still see the audit state at a glance. */
+.rule-item--reviewed .rule-name,
+.rule-item--reviewed .rule-detail {
+  opacity: 0.65;
+}
+
+.review-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.review-badge--ack {
+  background: var(--pass-bg);
+  color: var(--pass-color);
+}
+.review-badge--override {
+  background: var(--warn-bg);
+  color: var(--warn-color);
+}
+
+.rule-review-btn {
+  margin-left: auto;
+  padding: 1px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.rule-review-btn:disabled,
+.rule-review-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .rule-icon { font-size: 11px; flex-shrink: 0; }
 .rule-name { font-weight: 500; flex-shrink: 0; }
 .rule-detail { color: var(--text-secondary); }
