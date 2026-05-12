@@ -73,7 +73,7 @@ for fine-tuning individual thresholds:
 | `secondWorkThresholdMinutes` | NUMBER | 0 (disabled — placeholder "0 = disabled") |
 | `secondBreakThresholdMinutes` | NUMBER | 0 (disabled — placeholder "0 = disabled") |
 | `timezoneStrategy` | DROPDOWN required | `Use entry's local time zone` |
-| `fallbackDetectionEnabled` | CHECKBOX | false |
+| `fallbackDetectionEnabled` | CHECKBOX | false (ON: 5–120 min gap between two consecutive WORK entries on the same day counts as a qualifying break — see Engine note below) |
 
 **Sidebar preset chooser** owns `appliedPresetKey` (entity column unchanged).
 Reason: Clockify's native settings UI renders each field independently and
@@ -94,6 +94,20 @@ from the manifest, but cached installs might.
 template resolution; the `breakcompliance_rule_templates` +
 `breakcompliance_template_assignments` tables are engine-irrelevant (kept
 additively).
+
+**Gap-as-break heuristic** (`fallbackDetectionEnabled=true`,
+`BreakRuleEngine.evaluateSegments`): when two consecutive `WORK`-classified
+entries on the same day have a wall-clock gap of
+`[minBreakSegmentMinutes, MAX_GAP_AS_BREAK_MINUTES=120]` minutes, the gap is
+credited as a synthesised qualifying break — counts toward `breakMinutes`,
+resets the continuous-work run, feeds `longestQualifyingBreakMinutes` (so the
+California split-break rule still works), and is reported as
+`evidence.syntheticBreakMinutes` on findings. The sidebar surfaces this as
+`Break: 30m · 30m detected` only when synthetic > 0. `IGNORED` (TIME_OFF /
+HOLIDAY) and explicit `BREAK` entries reset the prev-work chain so no
+synthesis spans them. Designed for workspaces that record breaks by stopping
+the timer rather than logging dedicated BREAK entries — has no effect when
+every entry already carries a canonical `type`.
 
 **Sidebar** shows the active preset as a **clickable chip** with a thresholds
 popover, a **Matches preset / Customized — Reset?** pill next to it, and a

@@ -102,6 +102,17 @@ transient `RuleTemplate`. Per-user template resolution (`RuleTemplate` +
 `TemplateAssignment` tables) is dead code in evaluation; the tables remain for
 back-compat only.
 
+When `fallbackDetectionEnabled=true` the engine adds a **gap-as-break** pass inside
+`BreakRuleEngine.evaluateSegments`: a wall-clock gap of `[minBreakSegmentMinutes, 120]`
+minutes between two consecutive WORK entries on the same day is credited as a
+synthesised qualifying break (counts toward `breakMinutes`, resets the
+continuous-work run, feeds `longestQualifyingBreakMinutes`, reported on findings as
+`evidence.syntheticBreakMinutes`). `IGNORED` (TIME_OFF/HOLIDAY) and explicit `BREAK`
+entries break the prev-work chain so no synthesis spans them. The 120-min ceiling is a
+hardcoded private constant (`MAX_GAP_AS_BREAK_MINUTES`) — gaps above that are treated
+as a new shift, not a break. Sidebar renders `Break: 30m · 30m detected` only when
+synthetic > 0.
+
 ## Don'ts
 
 - **No deep-link "open settings page" from the iframe.** Clockify's `navigate`
