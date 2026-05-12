@@ -75,6 +75,43 @@ class IngestRunControllerTest {
     }
 
     @Test
+    void getLatest_returnsMostRecentCompletedRun() throws Exception {
+        Instant base = Instant.parse("2026-05-10T12:00:00Z");
+        seedRun(TestJwtForger.DEFAULT_WORKSPACE_ID, IngestionStatus.COMPLETED, 100L, null, base);
+        IngestionRun newer = seedRun(TestJwtForger.DEFAULT_WORKSPACE_ID, IngestionStatus.COMPLETED, 500L, null, base.plusSeconds(3600));
+        // RUNNING + FAILED rows must not shadow the COMPLETED winner — the
+        // sidebar would otherwise see a stale "Refreshed" timestamp.
+        seedRun(TestJwtForger.DEFAULT_WORKSPACE_ID, IngestionStatus.RUNNING, 9L, null, base.plusSeconds(7200));
+        seedRun(TestJwtForger.DEFAULT_WORKSPACE_ID, IngestionStatus.FAILED, 0L, "ClockifyApi:401", base.plusSeconds(10800));
+
+        mockMvc.perform(get("/api/ingest/runs/latest")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(newer.getId()))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.entriesProcessed").value(500));
+    }
+
+    @Test
+    void getLatest_returnsNoContentWhenNoCompletedRun() throws Exception {
+        // Only a FAILED run exists — endpoint must not return that one.
+        seedRun(TestJwtForger.DEFAULT_WORKSPACE_ID, IngestionStatus.FAILED, 0L, "ClockifyApi:401");
+
+        mockMvc.perform(get("/api/ingest/runs/latest")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void getLatest_ignoresOtherWorkspaces() throws Exception {
+        seedRun("ws-other", IngestionStatus.COMPLETED, 999L, null);
+
+        mockMvc.perform(get("/api/ingest/runs/latest")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void getRun_returnsNotFoundForOtherWorkspaceRun() throws Exception {
         IngestionRun run = seedRun(
                 "ws-other",
@@ -88,6 +125,10 @@ class IngestRunControllerTest {
     }
 
     private IngestionRun seedRun(String workspaceId, IngestionStatus status, long entries, String errorCode) {
+        return seedRun(workspaceId, status, entries, errorCode, Instant.now());
+    }
+
+    private IngestionRun seedRun(String workspaceId, IngestionStatus status, long entries, String errorCode, Instant completedAt) {
         IngestionRun run = new IngestionRun();
         run.setWorkspaceId(workspaceId);
         run.setId(UUID.randomUUID().toString());
@@ -96,9 +137,8 @@ class IngestRunControllerTest {
         run.setStatus(status);
         run.setEntriesProcessed(entries);
         run.setErrorCode(errorCode);
-        Instant now = Instant.now();
-        run.setCreatedAt(now);
-        run.setCompletedAt(now);
+        run.setCreatedAt(completedAt);
+        run.setCompletedAt(completedAt);
         return runRepo.saveAndFlush(run);
     }
 }

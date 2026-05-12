@@ -68,6 +68,7 @@ const state = {
     presetCatalog: null,    // [{key,label,description,thresholds:{...}}] from GET /api/presets
     chooserOpen: false,     // preset-chooser panel visibility
     chooserBusy: null,      // presetKey currently being applied, or null
+    pendingRefreshAt: null, // Date — newest PENDING/CLAIMED signal after lastRunAt, or null
 };
 
 // ────────────────────────── Errors ──────────────────────────
@@ -405,6 +406,59 @@ function renderLastChecked() {
     }
     node.hidden = false;
     node.textContent = `Last checked ${formatRelativeTime(state.lastRunAt)}`;
+}
+
+function renderPendingRefreshPill() {
+    const pill = document.getElementById("pending-refresh-pill");
+    if (!pill) return;
+    if (!state.pendingRefreshAt) {
+        pill.hidden = true;
+        pill.textContent = "";
+        return;
+    }
+    pill.hidden = false;
+    pill.textContent = `Pending refresh · webhook ${formatRelativeTime(state.pendingRefreshAt)}`;
+    pill.title = "Data has changed in Clockify since the last refresh. Click Refresh to pull the latest entries.";
+}
+
+// Parse the GET /api/ingest/runs/latest body into the same shape we cache
+// locally after a successful Check Compliance run, so the existing
+// renderLastChecked + Refresh-button code paths work unchanged. Returns
+// null when the endpoint returned 204 (no completed run yet).
+function applyLatestRunSnapshot(latest) {
+    if (!latest || !latest.completedAt) return;
+    const completedAt = new Date(latest.completedAt);
+    if (isNaN(completedAt.getTime())) return;
+    state.lastRunAt = completedAt;
+    state.lastRunRange = {
+        start: latest.dateRangeStart,
+        end: latest.dateRangeEnd,
+    };
+    // Track diagnostics so the existing renderDiagnostics tile fills in on
+    // initial paint (entriesProcessed; findingsCreated stays null until the
+    // user runs a fresh evaluate — the server doesn't expose it on the run).
+    state.lastRun = {
+        entriesProcessed: Number(latest.entriesProcessed) || 0,
+        findingsCreated: null,
+    };
+}
+
+// PENDING/CLAIMED signals received after the latest completed run mean
+// "Clockify told us things changed; nobody's caught up yet." Surface the
+// newest such signal so admins know a refresh would actually fetch new
+// data. Signals older than lastRunAt are already reflected and ignored.
+function computePendingRefreshFromSignals(signals) {
+    if (!Array.isArray(signals) || signals.length === 0) return null;
+    const lastRunMs = state.lastRunAt instanceof Date ? state.lastRunAt.getTime() : 0;
+    let newest = 0;
+    for (const sig of signals) {
+        if (sig.status !== "PENDING" && sig.status !== "CLAIMED") continue;
+        const t = Date.parse(sig.receivedAt);
+        if (!Number.isFinite(t)) continue;
+        if (t <= lastRunMs) continue;
+        if (t > newest) newest = t;
+    }
+    return newest > 0 ? new Date(newest) : null;
 }
 
 function renderValidationWarnings() {
@@ -1002,10 +1056,14 @@ async function runCompliance() {
     state.lastRun = { entriesProcessed, findingsCreated: evalResult.findingsCreated };
     state.lastRunAt = new Date();
     state.lastRunRange = { start: range.start, end: range.end };
+    // Fresh data just landed — any prior PENDING/CLAIMED webhook signals
+    // are either consumed by this run or older than it, so the pill drops.
+    state.pendingRefreshAt = null;
     setRunButtonState(false);
     setLoading(false);
     renderDiagnostics();
     renderLastChecked();
+    renderPendingRefreshPill();
     renderResults();
     if (state.findings.length === 0) {
         showBanner("ok", `Range ${range.start} → ${range.end}: no break-compliance issues.`);
@@ -1043,17 +1101,28 @@ async function loadInitialData() {
         // Parallel: session info + preset catalog. Both are needed before
         // the active-template chip can render its label and the
         // Matches/Customized pill can decide which state to show.
-        const [session] = await Promise.all([
+        // 204 from /api/ingest/runs/latest returns null body via api(); a
+        // 4xx/5xx on either staleness query is non-fatal — degrade to "no
+        // staleness indicator" rather than block the whole sidebar boot on
+        // a transient backend failure.
+        const [session, , latestRun, signals] = await Promise.all([
             api("/api/session"),
             loadPresetCatalog().catch(() => null),
+            api("/api/ingest/runs/latest").catch(() => null),
+            api("/api/refresh-signals").catch(() => null),
         ]);
         state.session = session;
+        applyLatestRunSnapshot(latestRun);
+        state.pendingRefreshAt = computePendingRefreshFromSignals(signals);
         statusNode.hidden = true;
         statusNode.textContent = "";
         renderActiveTemplate();
         renderCustomizedPill();
         renderValidationWarnings();
         renderSettingsLink();
+        renderLastChecked();
+        renderPendingRefreshPill();
+        renderDiagnostics();
         renderResults(); // first-paint empty state
     } catch (err) {
         statusNode.hidden = false;
@@ -1139,6 +1208,7 @@ function startLastCheckedTicker() {
     if (lastCheckedTicker != null) return; // idempotent
     lastCheckedTicker = setInterval(() => {
         if (state.lastRunAt) renderLastChecked();
+        if (state.pendingRefreshAt) renderPendingRefreshPill();
     }, 30 * 1000);
 }
 function stopLastCheckedTicker() {
@@ -1154,6 +1224,7 @@ function wireVisibilityChange() {
         } else {
             // Coming back from hidden — fresh-render once, then resume.
             if (state.lastRunAt) renderLastChecked();
+            if (state.pendingRefreshAt) renderPendingRefreshPill();
             startLastCheckedTicker();
         }
     });
