@@ -129,11 +129,16 @@ public class SidebarHtmlController {
                   <div id="status-banner" class="error-banner" role="status" aria-live="polite" hidden></div>
                   <div id="diagnostics" class="diagnostics" hidden></div>
                   <p id="last-checked" class="caption muted last-checked" hidden></p>
-                  <fieldset class="view-toggle" aria-label="View mode">
-                    <legend class="sr-only">View</legend>
-                    <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span>Pivot Table</span></label>
-                    <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span>Checklist</span></label>
-                  </fieldset>
+                  <div class="results-toolbar">
+                    <fieldset class="view-toggle" aria-label="View mode">
+                      <legend class="sr-only">View</legend>
+                      <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span>Pivot Table</span></label>
+                      <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span>Checklist</span></label>
+                    </fieldset>
+                    <button id="export-csv-btn" class="btn-link export-csv-btn" type="button" hidden title="Download the current findings list as a CSV file">
+                      <span aria-hidden="true">⬇</span> Export CSV
+                    </button>
+                  </div>
                   <div id="loading" class="loading" role="status" aria-live="polite" hidden>
                     <div class="loading-spinner" aria-hidden="true"></div>
                     <span>Checking compliance…</span>
