@@ -11,6 +11,17 @@ public interface IngestionRunRepository extends JpaRepository<IngestionRun, Inge
     List<IngestionRun> findByWorkspaceIdOrderByCreatedAtDesc(String workspaceId);
 
     /**
+     * Most recent run for the workspace in a given status, ordered by
+     * {@code completedAt} desc (the moment the ingest finished, not when
+     * it was queued). Used by the sidebar staleness indicator to ask "when
+     * did fresh data last land?" without paging through the full history.
+     * Returns empty when the workspace has never had a run reach the
+     * status — e.g. fresh install before any ingest has completed.
+     */
+    Optional<IngestionRun> findFirstByWorkspaceIdAndStatusOrderByCompletedAtDesc(
+            String workspaceId, IngestionStatus status);
+
+    /**
      * Look up an in-flight ingest covering the given workspace + date
      * range. The consumer uses this to coalesce a fresh batch of
      * refresh signals onto an already-running ingest instead of spawning

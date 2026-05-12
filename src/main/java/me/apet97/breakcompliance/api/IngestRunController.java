@@ -6,6 +6,7 @@ import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
+import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +28,32 @@ public class IngestRunController {
 
     public IngestRunController(IngestionRunRepository runRepo) {
         this.runRepo = runRepo;
+    }
+
+    /**
+     * Most recent COMPLETED run for the workspace, ordered by
+     * {@code completedAt} desc. Drives the sidebar's "Refreshed Xm ago"
+     * staleness indicator so a fresh sidebar open knows when data last
+     * landed without forcing the user to click anything. Returns 204 No
+     * Content when no completed run exists yet (fresh install, or every
+     * prior run is RUNNING / FAILED).
+     *
+     * <p>The path is declared before {@code /api/ingest/runs/{runId}} so
+     * Spring's routing matches the literal {@code latest} first instead
+     * of trying to look up a row with id "latest". Both are GETs on the
+     * same prefix so the order matters.
+     */
+    @GetMapping("/api/ingest/runs/latest")
+    public ResponseEntity<Map<String, Object>> getLatestCompletedRun(HttpServletRequest request) {
+        NormalizedClaims claims = RequestAttributes.claims(request);
+        if (claims == null || claims.workspaceId() == null) {
+            return ResponseEntity.status(401).build();
+        }
+        return runRepo
+                .findFirstByWorkspaceIdAndStatusOrderByCompletedAtDesc(
+                        claims.workspaceId(), IngestionStatus.COMPLETED)
+                .<ResponseEntity<Map<String, Object>>>map(run -> ResponseEntity.ok(toBody(run)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @GetMapping("/api/ingest/runs/{runId}")

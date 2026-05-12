@@ -132,7 +132,10 @@ public class SidebarHtmlController {
                   <div id="settings-warning-banner" class="settings-warning-banner" role="status" aria-live="polite" hidden></div>
                   <div id="status-banner" class="error-banner" role="status" aria-live="polite" hidden></div>
                   <div id="diagnostics" class="diagnostics" hidden></div>
-                  <p id="last-checked" class="caption muted last-checked" hidden></p>
+                  <div class="staleness-row">
+                    <p id="last-checked" class="caption muted last-checked" hidden></p>
+                    <span id="pending-refresh-pill" class="pending-refresh-pill" role="status" hidden></span>
+                  </div>
                   <fieldset class="view-toggle" aria-label="View mode">
                     <legend class="sr-only">View</legend>
                     <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span>Pivot Table</span></label>
