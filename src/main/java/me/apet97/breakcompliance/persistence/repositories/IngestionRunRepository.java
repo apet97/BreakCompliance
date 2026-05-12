@@ -23,4 +23,14 @@ public interface IngestionRunRepository extends JpaRepository<IngestionRun, Inge
             IngestionStatus status,
             String dateRangeStart,
             String dateRangeEnd);
+
+    /**
+     * Find runs stuck in the given status with {@code createdAt} older
+     * than the cutoff. Used by the reaper to recover from JVM restarts
+     * or executor crashes mid-ingest that leave orphan {@code RUNNING}
+     * rows; the consumer's dedupe check would otherwise refuse all
+     * subsequent dispatches for the same date range forever.
+     */
+    List<IngestionRun> findByStatusAndCreatedAtBefore(
+            IngestionStatus status, java.time.Instant cutoff);
 }

@@ -1,5 +1,6 @@
 package me.apet97.breakcompliance.addon.webhook;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -9,8 +10,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import me.apet97.breakcompliance.api.FindingsService;
+import me.apet97.breakcompliance.api.IngestionRunInProgressException;
 import me.apet97.breakcompliance.api.IngestionService;
 import me.apet97.breakcompliance.api.InstallationInactiveException;
+import me.apet97.breakcompliance.config.MetricsConfig;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
 import me.apet97.breakcompliance.persistence.entities.Installation;
@@ -75,6 +78,7 @@ public class RefreshSignalConsumer {
     private final IngestionService ingestion;
     private final FindingsService findings;
     private final TransactionTemplate tx;
+    private final MeterRegistry meters;
 
     private final Duration debounce;
     private final int fallbackWindowDays;
@@ -87,6 +91,7 @@ public class RefreshSignalConsumer {
             IngestionService ingestion,
             FindingsService findings,
             PlatformTransactionManager txManager,
+            MeterRegistry meters,
             @Value("${breakcompliance.refresh.debounce-ms:20000}") long debounceMs,
             @Value("${breakcompliance.refresh.fallback-window-days:7}") int fallbackWindowDays,
             @Value("${breakcompliance.refresh.max-window-days:30}") int maxWindowDays) {
@@ -96,6 +101,7 @@ public class RefreshSignalConsumer {
         this.ingestion = ingestion;
         this.findings = findings;
         this.tx = new TransactionTemplate(txManager);
+        this.meters = meters;
         this.debounce = Duration.ofMillis(debounceMs);
         this.fallbackWindowDays = fallbackWindowDays;
         this.maxWindowDays = maxWindowDays;
@@ -143,6 +149,8 @@ public class RefreshSignalConsumer {
             String runId = inFlight.get().getId();
             tx.executeWithoutResult(status -> signals.updateStatusAndRunId(
                     workspaceId, signalIds, RefreshSignalStatus.COALESCED, runId));
+            meters.counter(MetricsConfig.REFRESH_SIGNALS_PROCESSED, "outcome", "coalesced")
+                    .increment(signalIds.size());
             log.info(
                     "refresh.consumer.coalesced workspace={} runId={} signals={} window={}..{}",
                     workspaceId,
@@ -161,6 +169,8 @@ public class RefreshSignalConsumer {
         if (install == null || install.getReportsUrl() == null || install.getReportsUrl().isBlank()) {
             tx.executeWithoutResult(status -> signals.updateStatus(
                     workspaceId, signalIds, RefreshSignalStatus.FAILED));
+            meters.counter(MetricsConfig.REFRESH_SIGNALS_PROCESSED, "outcome", "no_installation")
+                    .increment(signalIds.size());
             log.warn(
                     "refresh.consumer.no-reports-url workspace={} signals={}",
                     workspaceId,
@@ -189,9 +199,24 @@ public class RefreshSignalConsumer {
         } catch (InstallationInactiveException e) {
             tx.executeWithoutResult(status -> signals.updateStatus(
                     workspaceId, signalIds, RefreshSignalStatus.FAILED));
+            meters.counter(MetricsConfig.REFRESH_SIGNALS_PROCESSED, "outcome", "inactive")
+                    .increment(signalIds.size());
             log.info(
                     "refresh.consumer.installation-inactive workspace={} signals={}",
                     workspaceId,
+                    signalIds.size());
+            return;
+        } catch (IngestionRunInProgressException e) {
+            // Race with concurrent consumer/admin click: the dedupe in
+            // prepareRun fired. Treat as a coalesce onto that run.
+            tx.executeWithoutResult(status -> signals.updateStatusAndRunId(
+                    workspaceId, signalIds, RefreshSignalStatus.COALESCED, e.existingRunId()));
+            meters.counter(MetricsConfig.REFRESH_SIGNALS_PROCESSED, "outcome", "coalesced")
+                    .increment(signalIds.size());
+            log.info(
+                    "refresh.consumer.coalesced-on-race workspace={} runId={} signals={}",
+                    workspaceId,
+                    e.existingRunId(),
                     signalIds.size());
             return;
         }
@@ -208,6 +233,8 @@ public class RefreshSignalConsumer {
                 RefreshSignalStatus.PENDING,
                 RefreshSignalStatus.CLAIMED,
                 run.getId()));
+        meters.counter(MetricsConfig.REFRESH_SIGNALS_PROCESSED, "outcome", "dispatched")
+                .increment(signalIds.size());
         log.info(
                 "refresh.consumer.dispatched workspace={} runId={} signals={} claimed={} window={}..{}",
                 workspaceId,

@@ -1,5 +1,7 @@
 package me.apet97.breakcompliance.api;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -10,6 +12,7 @@ import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
 import me.apet97.breakcompliance.config.AsyncConfig;
+import me.apet97.breakcompliance.config.MetricsConfig;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
@@ -62,6 +65,8 @@ public class IngestionService {
     private final TokenCodec codec;
     private final TransactionTemplate tx;
     private final Executor ingestExecutor;
+    private final MeterRegistry meters;
+    private final Timer runDuration;
 
     public IngestionService(
             InstallationRepository installationRepo,
@@ -70,7 +75,8 @@ public class IngestionService {
             DetailedReportFetcher fetcher,
             TokenCodec codec,
             PlatformTransactionManager txManager,
-            @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor) {
+            @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor,
+            MeterRegistry meters) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
@@ -78,6 +84,10 @@ public class IngestionService {
         this.codec = codec;
         this.tx = new TransactionTemplate(txManager);
         this.ingestExecutor = ingestExecutor;
+        this.meters = meters;
+        this.runDuration = Timer.builder(MetricsConfig.INGEST_RUN_DURATION)
+                .description("Total time spent in IngestionService.executeRun")
+                .register(meters);
     }
 
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to) {
@@ -199,22 +209,36 @@ public class IngestionService {
             String reportsUrl,
             LocalDate from,
             LocalDate to) {
+        Timer.Sample sample = Timer.start(meters);
         List<Map<String, Object>> entries;
         try {
             entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to);
         } catch (ClockifyApiException e) {
             tx.execute(status -> markRunFailed(workspaceId, runId, "ClockifyApi:" + e.statusCode()));
+            meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", "ClockifyApi:" + e.statusCode())
+                    .increment();
+            sample.stop(runDuration);
             log.warn("ingestion.async.failed.clockify workspace={} status={}", workspaceId, e.statusCode());
             return;
         } catch (RuntimeException e) {
             tx.execute(status -> markRunFailed(workspaceId, runId, e.getClass().getSimpleName()));
+            meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", e.getClass().getSimpleName())
+                    .increment();
+            sample.stop(runDuration);
             log.warn("ingestion.async.failed workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
             return;
         }
         try {
-            tx.execute(status -> finalizeRun(workspaceId, runId, entries));
+            IngestionRun finalized = tx.execute(status -> finalizeRun(workspaceId, runId, entries));
+            sample.stop(runDuration);
+            if (finalized != null) {
+                meters.counter(MetricsConfig.INGEST_ENTRIES_PROCESSED).increment(finalized.getEntriesProcessed());
+            }
         } catch (RuntimeException e) {
             tx.execute(status -> markRunFailed(workspaceId, runId, "Finalize:" + e.getClass().getSimpleName()));
+            meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", "Finalize:" + e.getClass().getSimpleName())
+                    .increment();
+            sample.stop(runDuration);
             log.warn("ingestion.async.failed.finalize workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
         }
     }
@@ -231,6 +255,19 @@ public class IngestionService {
             // the token or creating a run record.
             throw new InstallationInactiveException(workspaceId);
         }
+        // Dedupe: refuse to start a second ingest for the same
+        // (workspace, date range) while one is in-flight. Admins can
+        // double-click "Refresh", and a webhook + manual trigger can
+        // overlap. The reaper handles the case where a RUNNING row is
+        // actually orphaned. Note: there's still a narrow race between
+        // this check and the row insert below — a duplicate could slip
+        // through, but at most one of them; not a correctness issue
+        // for break-compliance evaluation since the engine is idempotent.
+        runRepo.findFirstByWorkspaceIdAndStatusAndDateRangeStartAndDateRangeEnd(
+                        workspaceId, IngestionStatus.RUNNING, from.toString(), to.toString())
+                .ifPresent(existing -> {
+                    throw new IngestionRunInProgressException(existing.getId());
+                });
         String token =
                 codec.decrypt(install.getAuthToken().getKeyId(), install.getAuthToken().getCipher());
 

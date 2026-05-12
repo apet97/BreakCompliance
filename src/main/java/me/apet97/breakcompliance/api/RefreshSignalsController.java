@@ -76,6 +76,15 @@ public class RefreshSignalsController {
             return ResponseEntity.status(503).body(Map.of(
                     "error", "installation_inactive",
                     "message", "This workspace's add-on is currently inactive. Re-enable it from Workspace Settings → Add-ons → Break Compliance to run compliance checks."));
+        } catch (IngestionRunInProgressException e) {
+            // The consumer or another admin click already kicked off an
+            // ingest for this window. Don't spawn a duplicate; point the
+            // sidebar at the live run.
+            return ResponseEntity.status(409).body(Map.of(
+                    "error", "ingest_in_progress",
+                    "existingRunId", e.existingRunId(),
+                    "pollUrl", "/api/ingest/runs/" + e.existingRunId(),
+                    "message", "An ingest is already running for this workspace and date range; reuse the existing run."));
         }
         Map<String, Object> runBody = new LinkedHashMap<>();
         runBody.put("id", run.getId());

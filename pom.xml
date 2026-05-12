@@ -99,6 +99,17 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
+        <!--
+            Micrometer's Prometheus registry. spring-boot-starter-actuator
+            pulls in the Micrometer core; this dep adds the Prometheus
+            scrape endpoint at /actuator/prometheus once
+            management.endpoints.web.exposure.include lists it.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

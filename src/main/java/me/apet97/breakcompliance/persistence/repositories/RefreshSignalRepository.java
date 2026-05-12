@@ -69,4 +69,19 @@ public interface RefreshSignalRepository extends JpaRepository<RefreshSignal, Re
             @Param("fromStatus") RefreshSignalStatus fromStatus,
             @Param("toStatus") RefreshSignalStatus toStatus,
             @Param("runId") String runId);
+
+    /**
+     * Release all CLAIMED signals pointing at a stuck run back to
+     * PENDING (clearing the run-id back-pointer) so the consumer's
+     * next poll can re-dispatch them onto a fresh run. Called by the
+     * stuck-run reaper as part of recovering from a JVM/executor
+     * crash mid-ingest.
+     */
+    @Modifying
+    @Query("update RefreshSignal s set s.status = me.apet97.breakcompliance.persistence.entities.RefreshSignalStatus.PENDING, "
+            + "s.ingestionRunId = null "
+            + "where s.workspaceId = :workspaceId and s.ingestionRunId = :runId "
+            + "and s.status = me.apet97.breakcompliance.persistence.entities.RefreshSignalStatus.CLAIMED")
+    int releaseClaimedSignalsForRun(
+            @Param("workspaceId") String workspaceId, @Param("runId") String runId);
 }

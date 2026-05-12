@@ -2,6 +2,7 @@ package me.apet97.breakcompliance.addon.webhook;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -9,6 +10,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
+import me.apet97.breakcompliance.config.MetricsConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -27,14 +29,17 @@ public class WebhookController {
     private final WebhookIdempotencyStore idempotency;
     private final RefreshSignalService signals;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meters;
 
     public WebhookController(
             WebhookIdempotencyStore idempotency,
             RefreshSignalService signals,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            MeterRegistry meters) {
         this.idempotency = idempotency;
         this.signals = signals;
         this.objectMapper = objectMapper;
+        this.meters = meters;
     }
 
     @PostMapping(value = {"/new-time-entry", "/time-entry-updated", "/time-entry-deleted"}, consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -48,8 +53,10 @@ public class WebhookController {
         String idempotencyKey = WebhookEventId.compute(claims.workspaceId(), eventType, rawBody);
         if (!idempotency.markSeen(idempotencyKey)) {
             log.debug("webhook.duplicate workspace={} event={}", claims.workspaceId(), eventType);
+            meters.counter(MetricsConfig.WEBHOOK_DUPLICATE, "event", eventType).increment();
             return ResponseEntity.noContent().build();
         }
+        meters.counter(MetricsConfig.WEBHOOK_RECEIVED, "event", eventType).increment();
         String dateHint = extractDateHint(rawBody);
         signals.recordWebhookSignal(claims.workspaceId(), eventType, dateHint);
         return ResponseEntity.noContent().build();

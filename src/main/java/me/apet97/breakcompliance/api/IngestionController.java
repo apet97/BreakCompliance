@@ -53,6 +53,14 @@ public class IngestionController {
             return ResponseEntity.status(503).body(Map.of(
                     "error", "installation_inactive",
                     "message", "This workspace's add-on is currently inactive. Re-enable it from Workspace Settings → Add-ons → Break Compliance to run compliance checks."));
+        } catch (IngestionRunInProgressException e) {
+            // Admin double-click or overlapping webhook trigger. Point them
+            // at the already-running run instead of queueing a duplicate.
+            return ResponseEntity.status(409).body(Map.of(
+                    "error", "ingest_in_progress",
+                    "existingRunId", e.existingRunId(),
+                    "pollUrl", "/api/ingest/runs/" + e.existingRunId(),
+                    "message", "An ingest is already running for this workspace and date range; reuse the existing run."));
         }
         // 202 Accepted: the prepare step (sync, transactional) committed
         // the run row. The actual fetch + finalize is now executing on
