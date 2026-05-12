@@ -42,7 +42,7 @@ Specific threats handled:
 
 ## Secret hygiene
 
-- All secrets (AES key, GitHub Packages PAT, Clockify public-key URL override) flow through environment variables. Nothing is committed to the repo.
+- All secrets (AES key, Clockify public-key URL override) flow through environment variables. Nothing is committed to the repo. The Clockify Java SDK is vendored under `repo/com/cake/clockify/`, so the build needs no GitHub Packages PAT.
 - Logback `%replace` converters mask JWT triplets (`eyJ...`) and `authToken|X-Addon-Token|X-Addon-Lifecycle-Token|Clockify-Signature` header/field values before any line reaches stdout.
 - The deploy pipeline runs from a clean working tree; the Maven build never executes downloaded scripts.
 

@@ -7,14 +7,14 @@ Clockify marketplace add-on that reviews whether workspace users took required b
 - Java 21 (Temurin recommended)
 - Maven 3.9+
 - Docker (for Testcontainers-driven integration tests)
-- A GitHub Personal Access Token with `read:packages` scope. The Clockify Java SDK is published to GitHub Packages, which requires authenticated reads even for public packages.
+
+The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consumed via a `file://` Maven repository declared in `pom.xml`, so no GitHub Packages credential is required.
 
 ## Local setup
 
-1. Copy `.github/settings.xml.template` to `~/.m2/settings.xml` and fill in your GitHub username and PAT.
-2. From this directory: `mvn verify`
-3. Run locally: `mvn spring-boot:run`
-4. Smoke test: `curl http://localhost:8080/healthz` → `{"status":"ok"}` and `curl http://localhost:8080/manifest` → manifest JSON.
+1. From this directory: `mvn verify`
+2. Run locally: `mvn spring-boot:run`
+3. Smoke test: `curl http://localhost:8080/healthz` → `{"status":"ok"}` and `curl http://localhost:8080/manifest` → manifest JSON.
 
 ## Project layout
 
@@ -36,9 +36,9 @@ Clockify marketplace add-on that reviews whether workspace users took required b
 │   ├── logback-spring.xml                            Token-redacting log pattern
 │   └── static/                                       sidebar.js, styles.css, icon.svg (64×64 designed mark)
 ├── docs/                                             Marketplace submission docs
-└── .github/
-    ├── workflows/ci.yml                              Maven verify on PR + main
-    └── settings.xml.template                         GitHub Packages auth template
+├── repo/com/cake/clockify/                           Vendored Clockify SDK (jar+pom)
+│                                                     — see `pom.xml`'s `vendored-clockify-sdk` repository
+└── .github/workflows/ci.yml                          Maven verify on PR + main
 ```
 
 ## Architecture
@@ -52,7 +52,7 @@ Clockify marketplace add-on that reviews whether workspace users took required b
 
 ## CI
 
-GitHub Actions runs `mvn verify` on every push to `main` and every PR. The workflow writes `~/.m2/settings.xml` at job start using the `GH_PACKAGES_USER` + `GH_PACKAGES_PAT` repo secrets so the addon-sdk artifact can be pulled from GitHub Packages.
+GitHub Actions runs `mvn verify` on every push to `main` and every PR. No repo secrets are needed for the build — the Clockify SDK comes from the vendored `repo/` directory, Maven Central handles everything else.
 
 ## Production environment variables
 
