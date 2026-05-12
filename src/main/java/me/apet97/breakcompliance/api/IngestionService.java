@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
@@ -19,49 +20,89 @@ import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * Orchestrates a Detailed-Report ingestion in three phases so the long
+ * Clockify HTTP call never holds a DB connection:
+ *
+ * <ol>
+ *   <li><b>prepare</b> (txn) — read installation, verify ACTIVE, decrypt
+ *       token, backfill {@code reportsUrl} if missing, insert an
+ *       {@code IngestionRun} row in {@code RUNNING} state.
+ *   <li><b>fetch</b> (no txn) — the long HTTP call to Clockify's reports
+ *       endpoint. Can take 30s+ with retries.
+ *   <li><b>finalize</b> (txn) — upsert {@link TimeEntry} rows in batches
+ *       and mark the run {@code COMPLETED} or {@code FAILED}.
+ * </ol>
+ *
+ * <p>Why three phases: under multi-tenant load, holding a Hikari
+ * connection through the HTTP call starves other workspaces. The pool
+ * is sized for short transactions, not for HTTP-bound work.
+ *
+ * <p>Each phase runs under {@link TransactionTemplate} with default
+ * {@code REQUIRED} propagation, so test code that wraps the call in an
+ * {@code @Transactional} test method still observes atomic, rollback-
+ * safe behaviour.
+ */
 @Service
 public class IngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
+    private static final int FINALIZE_FLUSH_BATCH = 200;
 
     private final InstallationRepository installationRepo;
     private final TimeEntryRepository timeEntryRepo;
     private final IngestionRunRepository runRepo;
     private final DetailedReportFetcher fetcher;
     private final TokenCodec codec;
+    private final TransactionTemplate tx;
 
     public IngestionService(
             InstallationRepository installationRepo,
             TimeEntryRepository timeEntryRepo,
             IngestionRunRepository runRepo,
             DetailedReportFetcher fetcher,
-            TokenCodec codec) {
+            TokenCodec codec,
+            PlatformTransactionManager txManager) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
         this.fetcher = fetcher;
         this.codec = codec;
+        this.tx = new TransactionTemplate(txManager);
     }
 
-    @Transactional
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to) {
         return ingest(workspaceId, from, to, null);
     }
 
-    /**
-     * Run an ingestion using a per-request {@code reportsUrl} (typically read
-     * from the caller's user-token JWT claims). The dev-portal lifecycle JWT
-     * does not include {@code reportsUrl}, so the persisted installation row
-     * may be missing it; the user-token JWT always carries it per the
-     * environments-and-regions spec. When the override is present and the
-     * install row was missing the value, the row is backfilled so later
-     * background jobs (without a user request) can still call the reports
-     * API for this workspace.
-     */
-    @Transactional
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
+        PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
+        Objects.requireNonNull(prepared, "prepareRun returned null");
+
+        List<Map<String, Object>> entries;
+        try {
+            entries = fetcher.fetch(workspaceId, prepared.reportsUrl(), prepared.token(), from, to);
+        } catch (ClockifyApiException e) {
+            tx.execute(status -> markRunFailed(workspaceId, prepared.runId(), "ClockifyApi:" + e.statusCode()));
+            log.warn("ingestion.failed.clockify workspace={} status={}", workspaceId, e.statusCode());
+            // Propagate so the controller can map status-specific responses
+            // (notably 401 → user-friendly 503 reports_unavailable).
+            throw e;
+        } catch (RuntimeException e) {
+            IngestionRun failed = tx.execute(status -> markRunFailed(
+                    workspaceId, prepared.runId(), e.getClass().getSimpleName()));
+            log.warn("ingestion.failed workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
+            return failed;
+        }
+
+        return tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+    }
+
+    private PreparedRun prepareRun(
+            String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
         Installation install = installationRepo
                 .findByWorkspaceId(workspaceId)
                 .orElseThrow(() -> new IllegalStateException(
@@ -91,35 +132,46 @@ public class IngestionService {
         }
 
         IngestionRun run = newRun(workspaceId, from, to);
+        run.setStatus(IngestionStatus.RUNNING);
         runRepo.saveAndFlush(run);
+        return new PreparedRun(run.getId(), token, reportsUrl);
+    }
 
-        try {
-            List<Map<String, Object>> entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to);
-            int processed = 0;
-            Instant ingestedAt = Instant.now();
-            for (Map<String, Object> raw : entries) {
-                upsertEntry(workspaceId, raw, ingestedAt);
-                processed++;
+    private IngestionRun finalizeRun(
+            String workspaceId, String runId, List<Map<String, Object>> entries) {
+        IngestionRun run = runRepo
+                .findById(new IngestionRun.Pk(workspaceId, runId))
+                .orElseThrow(() -> new IllegalStateException(
+                        "ingestion run vanished between prepare and finalize: " + runId));
+        int processed = 0;
+        int batchCounter = 0;
+        Instant ingestedAt = Instant.now();
+        for (Map<String, Object> raw : entries) {
+            upsertEntry(workspaceId, raw, ingestedAt);
+            processed++;
+            if (++batchCounter >= FINALIZE_FLUSH_BATCH) {
+                // Periodic flush keeps the persistence context's first-level
+                // cache bounded — a 100k-entry ingest would otherwise hold
+                // every TimeEntry in memory until commit.
+                timeEntryRepo.flush();
+                batchCounter = 0;
             }
-            run.setStatus(IngestionStatus.COMPLETED);
-            run.setEntriesProcessed(processed);
-            run.setCompletedAt(Instant.now());
-            log.info("ingestion.completed workspace={} entries={}", workspaceId, processed);
-        } catch (ClockifyApiException e) {
-            run.setStatus(IngestionStatus.FAILED);
-            run.setErrorCode("ClockifyApi:" + e.statusCode());
-            run.setCompletedAt(Instant.now());
-            runRepo.saveAndFlush(run);
-            log.warn("ingestion.failed.clockify workspace={} status={}", workspaceId, e.statusCode());
-            // Propagate so the controller can map status-specific responses
-            // (notably 401 → user-friendly 503 reports_unavailable).
-            throw e;
-        } catch (Exception e) {
-            run.setStatus(IngestionStatus.FAILED);
-            run.setErrorCode(e.getClass().getSimpleName());
-            run.setCompletedAt(Instant.now());
-            log.warn("ingestion.failed workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
         }
+        run.setStatus(IngestionStatus.COMPLETED);
+        run.setEntriesProcessed(processed);
+        run.setCompletedAt(Instant.now());
+        log.info("ingestion.completed workspace={} entries={}", workspaceId, processed);
+        return runRepo.saveAndFlush(run);
+    }
+
+    private IngestionRun markRunFailed(String workspaceId, String runId, String errorCode) {
+        IngestionRun run = runRepo
+                .findById(new IngestionRun.Pk(workspaceId, runId))
+                .orElseThrow(() -> new IllegalStateException(
+                        "ingestion run vanished before failure marker: " + runId));
+        run.setStatus(IngestionStatus.FAILED);
+        run.setErrorCode(errorCode);
+        run.setCompletedAt(Instant.now());
         return runRepo.saveAndFlush(run);
     }
 
@@ -158,10 +210,14 @@ public class IngestionService {
         run.setId(UUID.randomUUID().toString());
         run.setDateRangeStart(from.toString());
         run.setDateRangeEnd(to.toString());
-        run.setStatus(IngestionStatus.COMPLETED);
+        run.setStatus(IngestionStatus.RUNNING);
         run.setEntriesProcessed(0);
         Instant now = Instant.now();
         run.setCreatedAt(now);
+        // completed_at is NOT NULL in the schema; we set the same value as
+        // createdAt on the in-flight row and overwrite it in finalize /
+        // markRunFailed. Inspecting status==RUNNING is the reliable signal
+        // for "not yet finalized".
         run.setCompletedAt(now);
         return run;
     }
@@ -233,4 +289,6 @@ public class IngestionService {
         }
         return names;
     }
+
+    private record PreparedRun(String runId, String token, String reportsUrl) {}
 }
