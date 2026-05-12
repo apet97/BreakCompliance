@@ -88,7 +88,10 @@ public class DetailedReportFetcher {
             //   3. MAX_PAGES is the hard safety net so a runaway loop can
             //      never burn a worker thread indefinitely.
             String lastPageStr = response.getHeaders().getFirst("Last-Page");
-            if (lastPageStr != null && lastPageStr.equals("true")) {
+            // HTTP header values are case-insensitive (RFC 7230 §3.2.4) — some
+            // regional builds return "True" / "TRUE"; treat them all as the
+            // canonical terminator.
+            if (lastPageStr != null && lastPageStr.equalsIgnoreCase("true")) {
                 break;
             }
             if (entries.size() < PAGE_SIZE) {

@@ -38,14 +38,24 @@ public class ClockifyRateLimiter {
     }
 
     public void acquire(String workspaceId) {
-        long now = System.currentTimeMillis();
-        long second = now / 1000L;
-        String key = "rl:" + workspaceId + ":" + second;
-        Long count = redis.opsForValue().increment(key);
-        if (count != null && count == 1L) {
-            redis.expire(key, Duration.ofSeconds(2));
-        }
-        if (count != null && count > budgetPerSecond) {
+        // Two attempts max: the original try, then if we're over budget,
+        // sleep until the next second and try once more. After that we
+        // return best-effort — Clockify will surface a 429 if we really
+        // are over quota, and {@link ClockifyApi} handles that via
+        // Retry-After. Loop form (replacing the previous recursive call)
+        // makes the bounded retry obvious and removes any stack-depth
+        // concern under pathological clock skew.
+        for (int attempt = 0; attempt < 2; attempt++) {
+            long now = System.currentTimeMillis();
+            long second = now / 1000L;
+            String key = "rl:" + workspaceId + ":" + second;
+            Long count = redis.opsForValue().increment(key);
+            if (count != null && count == 1L) {
+                redis.expire(key, Duration.ofSeconds(2));
+            }
+            if (count == null || count <= budgetPerSecond) {
+                return;
+            }
             long sleepMs = Math.min(MAX_SLEEP_MS, 1000L - (now % 1000L) + 5L);
             log.debug("clockify-rate-limit.wait workspace={} count={} sleep_ms={}", workspaceId, count, sleepMs);
             try {
@@ -54,10 +64,10 @@ public class ClockifyRateLimiter {
                 Thread.currentThread().interrupt();
                 throw new ClockifyApiException("rate-limit wait interrupted", 0, e);
             }
-            // Reset attempt at the new bucket so we don't recurse indefinitely
-            long secondAfter = System.currentTimeMillis() / 1000L;
-            if (secondAfter != second) {
-                acquire(workspaceId);
+            if (System.currentTimeMillis() / 1000L == second) {
+                // Sleep didn't advance the bucket (clock skew); break out
+                // rather than spin within the same over-budget window.
+                return;
             }
         }
     }
