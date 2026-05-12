@@ -29,7 +29,11 @@ import org.springframework.stereotype.Component;
  * labels the field as {@code timeEntries} (camelCase), but a live probe on
  * 2026-05-11 against {@code reports.api.clockify.me} with a valid X-Api-Key
  * returned {@code "timeentries"} (along with {@code "totals"}). The spec is
- * wrong; the live API is right.
+ * wrong; the live API is right. We still accept {@code timeEntries} as a
+ * defensive fallback — if Clockify ever migrates the live API to match the
+ * spec, the failure mode without this fallback would be silent (the parser
+ * would see {@code timeentries} as missing → return zero entries → "looks
+ * like an empty workspace" with no error surfaced).
  */
 @Component
 public class DetailedReportFetcher {
@@ -67,7 +71,7 @@ public class DetailedReportFetcher {
             } catch (Exception e) {
                 throw new ClockifyApiException("failed to parse detailed report", 0, e);
             }
-            JsonNode entries = root.path("timeentries");
+            JsonNode entries = entriesNode(root);
             if (!entries.isArray() || entries.isEmpty()) {
                 break;
             }
@@ -100,5 +104,26 @@ public class DetailedReportFetcher {
             page++;
         }
         return all;
+    }
+
+    /**
+     * Read the entries array out of a detailed-report response, accepting
+     * both the live API's {@code timeentries} key and the OpenAPI spec's
+     * {@code timeEntries} key. Prefers the live shape — a populated
+     * lowercase array always wins, even if a camelCase array is also
+     * present. Returns whichever node was actually keyed in the JSON when
+     * neither array contains rows, so the empty-page short-circuit at the
+     * call site still trips.
+     */
+    private static JsonNode entriesNode(JsonNode root) {
+        JsonNode lower = root.path("timeentries");
+        if (lower.isArray() && !lower.isEmpty()) {
+            return lower;
+        }
+        JsonNode camel = root.path("timeEntries");
+        if (camel.isArray() && !camel.isEmpty()) {
+            return camel;
+        }
+        return lower.isMissingNode() ? camel : lower;
     }
 }

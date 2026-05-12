@@ -21,6 +21,15 @@
     <properties>
         <java.version>21</java.version>
         <clockify.addon-sdk.version>1.5.3</clockify.addon-sdk.version>
+        <!--
+          Spring Boot 3.3.5 pins Testcontainers 1.19.8 whose bundled
+          docker-java 3.3.6 negotiates Docker API 1.32. Daemons shipped
+          with Docker 25+ (Colima images include Docker 29.x) reject this
+          as too old. 1.20.x ships docker-java 3.4.x which negotiates a
+          newer API. Override the BOM version to keep the test suite
+          portable across Docker Desktop and Colima.
+        -->
+        <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
 
     <repositories>
@@ -90,6 +99,17 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
+        <!--
+            Micrometer's Prometheus registry. spring-boot-starter-actuator
+            pulls in the Micrometer core; this dep adds the Prometheus
+            scrape endpoint at /actuator/prometheus once
+            management.endpoints.web.exposure.include lists it.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -150,7 +170,32 @@
                 <configuration>
                     <environmentVariables>
                         <INSTALLATION_TOKEN_KEY>00000000000000000000000000000000000000000000000000000000000000aa</INSTALLATION_TOKEN_KEY>
+                        <!--
+                          When Testcontainers spins up containers it bind-mounts
+                          the host Docker socket inside them so Ryuk can clean
+                          up. On Colima the host-side socket lives under
+                          {@code ~/.colima/default/docker.sock}, but that path
+                          doesn't exist *inside* Colima's VM. Forcing the
+                          mount path to the VM-internal canonical socket fixes
+                          the {@code mkdir … operation not supported} failure
+                          when starting Ryuk on Colima. Safe on Docker
+                          Desktop too — {@code /var/run/docker.sock} is the
+                          conventional Linux socket location in any backend.
+                        -->
+                        <TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>/var/run/docker.sock</TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>
                     </environmentVariables>
+                    <systemPropertyVariables>
+                        <!--
+                          Force the docker-java client (bundled in
+                          Testcontainers) to negotiate API 1.44 instead of
+                          its default 1.32. Docker engines shipped with
+                          Docker 25+ (Colima's bundled engine is 29.x)
+                          reject 1.32 as too old. Set as a system property
+                          so it's picked up regardless of how the
+                          Testcontainers config file is configured.
+                        -->
+                        <api.version>1.44</api.version>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

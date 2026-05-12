@@ -224,6 +224,39 @@ class LifecycleControllerTest {
     }
 
     @Test
+    void deleted_staleEventArrivingAfterFreshInstall_isRejected() throws Exception {
+        // Fresh install at "now".
+        mockMvc.perform(post("/lifecycle/installed")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(INSTALLED_PAYLOAD))
+                .andExpect(status().isOk());
+        Installation installed = installationRepo
+                .findById(new Installation.Pk(TestJwtForger.DEFAULT_WORKSPACE_ID, TestJwtForger.DEFAULT_ADDON_ID))
+                .orElseThrow();
+        assertThat(installed.getInstalledAt()).isNotNull();
+
+        // Forge a DELETED token whose iat is BEFORE the install's
+        // installedAt. This simulates Clockify retrying a 23-hour-old
+        // DELETED that belongs to a previous incarnation of the install.
+        // exp is still in the future so the auth filter accepts the token.
+        Instant staleIat = installed.getInstalledAt().minus(Duration.ofHours(2));
+        String staleToken = TestJwtForger.forge(
+                Map.of(), staleIat, Instant.now().plus(Duration.ofHours(1)));
+
+        mockMvc.perform(post("/lifecycle/deleted")
+                        .header("X-Addon-Lifecycle-Token", staleToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"addonId\":\"69e81390556e8f94308aaad8\",\"workspaceId\":\"ws-test\"}"))
+                .andExpect(status().isOk());
+
+        // Installation must still be present: the stale DELETED was
+        // discarded by the guard.
+        assertThat(installationRepo.count()).isEqualTo(1);
+        assertThat(webhookRepo.count()).isEqualTo(1);
+    }
+
+    @Test
     void statusChanged_updatesInstallationStatus() throws Exception {
         mockMvc.perform(post("/lifecycle/installed")
                         .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())

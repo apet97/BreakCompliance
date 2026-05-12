@@ -1,6 +1,6 @@
 # Data Retention — Break Compliance for Clockify
 
-_Last updated: 2026-05-12._
+_Last updated: 2026-05-13._
 
 ## Per-table policy
 
@@ -15,20 +15,22 @@ _Last updated: 2026-05-12._
 | `breakcompliance_time_entries` | Replaced per ingestion | Upsert by `(workspace_id, source_entry_id)` on the next overlapping ingestion run; wiped on `DELETED`. |
 | `breakcompliance_findings` | Replaced per evaluation range | Atomic delete-then-insert inside one transaction, scoped by `(workspace_id, date BETWEEN ...)`; wiped on `DELETED`. |
 | `breakcompliance_finding_reviews` | While the finding exists | Service-level cascade with the underlying finding; bulk-cleared on `DELETED`. |
-| `breakcompliance_refresh_signals` | Until uninstall | Status flips to `ACKNOWLEDGED` after the runner processes the signal; wiped on `DELETED`. |
+| `breakcompliance_refresh_signals` | Until uninstall | Signals flow `PENDING → CLAIMED → CONSUMED` (or `COALESCED`/`FAILED`) as the active consumer drains them; wiped on `DELETED`. |
 | `breakcompliance_group_memberships` | Replaced per ingest | Snapshot rewrite by `(workspace_id, group_id, user_id)`; wiped on `DELETED`. |
-| `breakcompliance_audit_logs` | Indefinite (operational history) | Manual operator wipe — kept across `DELETED` so the audit trail survives reinstall. |
+| `breakcompliance_audit_logs` | Until uninstall | Cleared by `WorkspaceDataDeletionService` on `DELETED` alongside the rest of the workspace's app data. Verified live on 2026-05-13: 0 rows for the uninstalled test workspace across all 12 workspace-scoped tables (see `docs/LIVE_VALIDATION.md` §6). |
 
 ## Lifecycle-driven cleanup
 
-- **DELETED** (uninstall): `LifecycleController` calls `WorkspaceDataDeletionService.deleteWorkspaceData(workspaceId)`, which issues per-table JPQL `DELETE`s for every workspace-scoped table (settings, templates, assignments, ingestion runs, time entries, findings, reviews, refresh signals, group memberships, audit logs are intentionally kept). The `Installation` row is then deleted by composite PK; the FK cascade clears `webhook_auth_tokens`. Tokens become invalid the instant Clockify fires DELETED — even before the wipe completes — because Clockify revokes them server-side.
+- **DELETED** (uninstall): `LifecycleController` calls `WorkspaceDataDeletionService.deleteWorkspaceData(workspaceId)`, which issues per-table JPQL `DELETE`s for every workspace-scoped table (settings, templates, assignments, ingestion runs, time entries, findings, reviews, refresh signals, group memberships, audit logs). The `Installation` row is then deleted by composite PK; the FK cascade clears `webhook_auth_tokens`. Tokens become invalid the instant Clockify fires DELETED — even before the wipe completes — because Clockify revokes them server-side. A **stale-DELETED guard** (P0 commit `029b0da`) compares the lifecycle event's JWT `iat` to the row's `installedAt`; a 24-hour retry of an old DELETED that arrives after a fresh reinstall is rejected so the new installation's data isn't wiped.
 - **STATUS_CHANGED → INACTIVE**: the installation row is kept with `status='INACTIVE'`; `IngestionService` fail-fasts via `InstallationInactiveException` (mapped to a friendly `503 installation_inactive`) so no Clockify API call goes out and no run is recorded. No data is deleted.
 
-## Operator-driven wipe procedure
+## Operator-driven wipe procedure (rare — for emergencies only)
 
-Connect with Railway's `psql` console (or `pg_dump` for an export first) and run:
+In practice, every right-to-erasure case is satisfied by uninstalling the add-on: `WorkspaceDataDeletionService` clears all 12 workspace-scoped tables in one transaction and `Installation` deletion cascades to `webhook_auth_tokens`. **Use the SQL below only when Clockify cannot fire DELETED** (e.g., the workspace was permanently deleted on Clockify's side and the lifecycle event never arrived):
 
 ```sql
+BEGIN;
+DELETE FROM breakcompliance_audit_logs         WHERE workspace_id = '<ws>';
 DELETE FROM breakcompliance_findings           WHERE workspace_id = '<ws>';
 DELETE FROM breakcompliance_finding_reviews    WHERE workspace_id = '<ws>';
 DELETE FROM breakcompliance_time_entries       WHERE workspace_id = '<ws>';
@@ -39,9 +41,10 @@ DELETE FROM breakcompliance_template_assignments WHERE workspace_id = '<ws>';
 DELETE FROM breakcompliance_rule_templates     WHERE workspace_id = '<ws>';
 DELETE FROM breakcompliance_workspace_settings WHERE workspace_id = '<ws>';
 DELETE FROM breakcompliance_installations      WHERE workspace_id = '<ws>';
+COMMIT;
 ```
 
-The transaction can be wrapped to make the wipe atomic. The DELETE on `installations` cascades to `webhook_auth_tokens`, so that table is implicitly cleared.
+The DELETE on `installations` cascades to `webhook_auth_tokens`, so that table is implicitly cleared.
 
 ## Backups
 
@@ -49,6 +52,6 @@ Railway's Postgres add-on supports daily snapshots; operator should configure a 
 
 ## GDPR notes
 
-- **Right-to-erasure** — covered by the per-workspace wipe procedure plus the DELETED lifecycle. An admin requesting erasure should uninstall the add-on (clears tokens) and ask the operator to run the wipe SQL above (clears app data).
+- **Right-to-erasure** — fully covered by uninstalling the add-on. The DELETED lifecycle handler clears every workspace-scoped row in one transaction, then deletes the installation (which cascades to webhook tokens). No operator action is required for the normal case.
 - **Data minimisation** — we never store IP addresses, never store webhook payloads, never log the installation token. The Detailed Report rows we cache contain only what's needed for rule evaluation.
 - **Storage location** — Railway's region selection determines where Postgres + Redis run; pick a region appropriate to the workspace's regulatory requirements.

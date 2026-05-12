@@ -1,0 +1,16 @@
+         tbl          | count 
+----------------------+-------
+ installations        |     0
+ webhook_tokens       |     0
+ time_entries         |     0
+ findings             |     0
+ ingestion_runs       |     0
+ refresh_signals      |     0
+ workspace_settings   |     0
+ rule_templates       |     0
+ template_assignments |     0
+ finding_reviews      |     0
+ group_memberships    |     0
+ audit_logs           |     0
+(12 rows)
+

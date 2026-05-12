@@ -1,8 +1,16 @@
 package me.apet97.breakcompliance.addon.webhook;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
+import me.apet97.breakcompliance.config.MetricsConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -20,10 +28,18 @@ public class WebhookController {
 
     private final WebhookIdempotencyStore idempotency;
     private final RefreshSignalService signals;
+    private final ObjectMapper objectMapper;
+    private final MeterRegistry meters;
 
-    public WebhookController(WebhookIdempotencyStore idempotency, RefreshSignalService signals) {
+    public WebhookController(
+            WebhookIdempotencyStore idempotency,
+            RefreshSignalService signals,
+            ObjectMapper objectMapper,
+            MeterRegistry meters) {
         this.idempotency = idempotency;
         this.signals = signals;
+        this.objectMapper = objectMapper;
+        this.meters = meters;
     }
 
     @PostMapping(value = {"/new-time-entry", "/time-entry-updated", "/time-entry-deleted"}, consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -37,9 +53,53 @@ public class WebhookController {
         String idempotencyKey = WebhookEventId.compute(claims.workspaceId(), eventType, rawBody);
         if (!idempotency.markSeen(idempotencyKey)) {
             log.debug("webhook.duplicate workspace={} event={}", claims.workspaceId(), eventType);
+            meters.counter(MetricsConfig.WEBHOOK_DUPLICATE, "event", eventType).increment();
             return ResponseEntity.noContent().build();
         }
-        signals.recordWebhookSignal(claims.workspaceId(), eventType);
+        meters.counter(MetricsConfig.WEBHOOK_RECEIVED, "event", eventType).increment();
+        String dateHint = extractDateHint(rawBody);
+        signals.recordWebhookSignal(claims.workspaceId(), eventType, dateHint);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Best-effort extraction of the affected calendar date from a Clockify
+     * time-entry webhook payload. Reads {@code timeInterval.start}, parses
+     * it as an ISO-8601 offset datetime, and returns the corresponding
+     * UTC calendar date in {@code yyyy-MM-dd} form. Any malformed,
+     * missing, or unparseable payload yields {@code null} — the signal is
+     * still recorded; the refresh-signal consumer falls back to its
+     * default re-ingest window when the hint is absent.
+     */
+    private String extractDateHint(byte[] rawBody) {
+        if (rawBody == null || rawBody.length == 0) {
+            return null;
+        }
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(rawBody);
+        } catch (Exception ignored) {
+            return null;
+        }
+        if (root == null || !root.isObject()) {
+            return null;
+        }
+        JsonNode start = root.path("timeInterval").path("start");
+        if (start.isMissingNode() || !start.isTextual()) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(start.asText())
+                    .withOffsetSameInstant(ZoneOffset.UTC)
+                    .toLocalDate()
+                    .toString();
+        } catch (DateTimeParseException ignored) {
+            // Some sandboxes ship `start` as a plain date — accept that too.
+            try {
+                return LocalDate.parse(start.asText()).toString();
+            } catch (DateTimeParseException stillBad) {
+                return null;
+            }
+        }
     }
 }

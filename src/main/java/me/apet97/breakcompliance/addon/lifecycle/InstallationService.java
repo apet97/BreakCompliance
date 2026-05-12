@@ -38,6 +38,12 @@ public class InstallationService {
 
     private static final Logger log = LoggerFactory.getLogger(InstallationService.class);
 
+    /**
+     * Tolerance applied when deciding whether a DELETED event is older than
+     * the current install. See {@link #handleDeleted(NormalizedClaims)}.
+     */
+    private static final java.time.Duration STALE_DELETE_GRACE = java.time.Duration.ofSeconds(30);
+
     private static final java.util.Set<String> KNOWN_INSTALLED_KEYS = java.util.Set.of(
             "addonId", "workspaceId", "authToken", "apiUrl", "backendUrl",
             "asUser", "addonUserId", "webhooks", "baseUrl", "reportsUrl",
@@ -227,11 +233,42 @@ public class InstallationService {
     @Transactional
     public void handleDeleted(NormalizedClaims claims) {
         Installation.Pk pk = new Installation.Pk(claims.workspaceId(), claims.addonId());
-        if (installationRepo.existsById(pk)) {
-            deletionService.deleteWorkspaceData(claims.workspaceId());
-            installationRepo.deleteById(pk);
-            log.info("lifecycle.deleted workspace={} addon={}", claims.workspaceId(), claims.addonId());
+        Installation existing = installationRepo.findById(pk).orElse(null);
+        if (existing == null) {
+            // No row to delete. Could be a retry of a previous successful
+            // delete, or a stale delete arriving after the workspace was
+            // never re-installed. Either way it's a no-op.
+            return;
         }
+        // Stale-DELETED guard: Clockify retries lifecycle deliveries for up
+        // to ~24h. A workspace can uninstall → reinstall inside that window
+        // and we'd then receive the prior uninstall's retry against the
+        // fresh install. Reject any event whose JWT iat is meaningfully
+        // older than the row's installedAt — that event belongs to the
+        // prior incarnation.
+        //
+        // The {@code STALE_DELETE_GRACE} buffer covers two realities:
+        // JWT iat is NumericDate (seconds precision, RFC 7519 §2) while
+        // installedAt is recorded with millisecond precision, and clocks
+        // between Clockify and us drift slightly. 30s is wide enough to
+        // tolerate both yet tight enough that a real stale retry (typically
+        // many minutes to hours old) still trips. Missing iat falls through
+        // (legacy fixtures, future code paths that never carried it).
+        Instant iat = claims.iat();
+        if (iat != null
+                && existing.getInstalledAt() != null
+                && iat.plus(STALE_DELETE_GRACE).isBefore(existing.getInstalledAt())) {
+            log.warn(
+                    "lifecycle.deleted.stale-rejected workspace={} addon={} iat={} installedAt={}",
+                    claims.workspaceId(),
+                    claims.addonId(),
+                    iat,
+                    existing.getInstalledAt());
+            return;
+        }
+        deletionService.deleteWorkspaceData(claims.workspaceId());
+        installationRepo.deleteById(pk);
+        log.info("lifecycle.deleted workspace={} addon={}", claims.workspaceId(), claims.addonId());
     }
 
     /**

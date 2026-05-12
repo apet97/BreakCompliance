@@ -29,9 +29,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <li><strong>Permissions-Policy</strong> denies camera, microphone,
  *       geolocation; we don't need any of them.
  *   <li><strong>HSTS</strong> {@code max-age=63072000; includeSubDomains}
- *       toggled on by {@code breakcompliance.security.enable-hsts}.
- *       Railway terminates TLS; the addon process itself sees HTTP, so the
- *       toggle defaults off and is set true at deploy time.
+ *       toggled on by {@code breakcompliance.security.enable-hsts}, AND
+ *       only emitted when the request scheme is HTTPS — Railway terminates
+ *       TLS and forwards the original scheme via {@code X-Forwarded-Proto},
+ *       which Spring's {@code server.forward-headers-strategy=framework}
+ *       reflects through {@link HttpServletRequest#isSecure()}. Without
+ *       this guard, accidentally serving HSTS on a plain-HTTP request
+ *       would pin the browser to HTTPS for years against a host that
+ *       might not yet have its cert provisioned.
  *   <li><strong>Cache-Control</strong> {@code no-store} on all API responses
  *       (paths under {@code /api/*}) so workspace data is never cached by
  *       intermediaries.
@@ -54,7 +59,11 @@ public class SecurityHeadersFilter extends OncePerRequestFilter {
         response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader("Referrer-Policy", "no-referrer");
         response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-        if (props.enableHsts()) {
+        if (props.enableHsts() && request.isSecure()) {
+            // Two-year max-age + subdomains matches Railway's apex
+            // certificate (covers `*.up.railway.app`). Pre-load not
+            // requested — submission requires the host be in the HSTS
+            // preload list and a manual review, which is out of scope.
             response.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
         }
         if (request.getRequestURI().startsWith("/api/")) {

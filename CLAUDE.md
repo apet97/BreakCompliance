@@ -2,7 +2,8 @@
 
 Java 21 / Spring Boot 3.3 marketplace add-on. Reviews whether users took required breaks.
 Manifest key `break-compliance-jvm`. BASIC plan. **Read-only** scopes:
-`TIME_ENTRY_READ`, `USER_READ`, `REPORTS_READ`, `WORKSPACE_READ` (no `_WRITE`, ever).
+`TIME_ENTRY_READ`, `USER_READ`, `REPORTS_READ` (no `_WRITE`, ever — `WORKSPACE_READ`
+was dropped in P0 commit `029b0da` as unused).
 
 ## Live deploy
 
@@ -23,7 +24,12 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**255 tests green** (2026-05-12). Postgres + Redis come up via Testcontainers.
+**279 tests green** (2026-05-13). Postgres + Redis come up via Testcontainers.
+Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
+`TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
+identically under Docker Desktop and Colima — `DOCKER_HOST` is the only env var
+operators set externally (Docker Desktop default works without it; Colima users
+export `DOCKER_HOST=unix:///Users/.../.colima/default/docker.sock`).
 
 ## Runtime config (Railway env vars)
 
@@ -127,7 +133,10 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 | `X-Addon-Token` header (not `Authorization`) for outbound. | Clockify rejects `Authorization`. |
 | Threshold fields = native structured-settings; preset selection = sidebar. | Clockify renders each native field independently and never re-fetches siblings after a change, so a backend-driven cross-field write isn't visible until reload. Sidebar lets us preview, confirm, and apply atomically. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` (§24). | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single-object shapes; unknown shapes drift-log + 200. |
-| Detailed-report response key is `timeentries` (ALL LOWERCASE). | Spec mislabels it. Live API confirmed. |
+| Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Without the fallback, the failure mode is silent (zero rows → no findings → no error). |
+| `lifecycle.deleted` is guarded by `iat < installedAt - 30s` rejection (P0 commit `029b0da`). | Clockify retries up to ~24h; a stale DELETED arriving after a reinstall would otherwise wipe the fresh install. |
+| `IngestionService.prepareRun` throws `IngestionRunInProgressException` (→ controller 409) if a RUNNING run for the same `(workspaceId, dateRange)` exists. | Admin double-click "Refresh" or webhook+admin overlap can't queue duplicate ingests. |
+| Refresh-signal consumer state machine: `PENDING → CLAIMED → CONSUMED` (or `COALESCED` / `FAILED`). | The webhook handler records `PENDING` and returns 204; the `@Scheduled` consumer drains the queue after `debounce-ms` (default 20s), dedupes against in-flight runs, dispatches via `beginAsyncForRefresh`. New status values added in V10 migration. |
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` (no `Z`). | Server interprets in user timezone. |
 | `type=TIME_OFF` / `type=HOLIDAY` entries are `IGNORED` by the engine (§25). | Otherwise they'd count as work → false-positive findings on PTO/holiday days. |
 | `/api/*` is header-token-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook/api filters all fail-closed. |
@@ -163,18 +172,28 @@ src/main/java/me/apet97/breakcompliance/
     manifest/     ManifestController (Gson serialises the SDK manifest)
     ui/           SidebarHtmlController serves the iframe HTML shell
     webhook/      NEW/UPDATED/DELETED time-entry + Redis SETNX (24h TTL) + RefreshSignalService
+                  (records PENDING signals with dateHint from timeInterval.start) +
+                  RefreshSignalConsumer (@Scheduled drain → debounce → dedupe → dispatch).
   api/            Session, Findings, Ingestion, IngestRun, Presets, RefreshSignals
-                  controllers + AddonTokenAuthFilter + InstallationInactiveException.
+                  controllers + AddonTokenAuthFilter + InstallationInactiveException +
+                  IngestionRunInProgressException + IngestionRunReaper (@Scheduled
+                  stuck-run recovery).
                   IngestionService runs in 3 phases (prepare/fetch/finalize), dispatched
                   async via ingestExecutor; sidebar polls /api/ingest/runs/{id} for status.
+                  beginAsyncForRefresh(workspaceId, from, to, reportsUrl, Consumer<runId>)
+                  is the consumer-callable variant — callback receives the runId so the
+                  consumer can mark CLAIMED signals CONSUMED.
                   PresetController serves GET /api/presets + POST /api/presets/apply for
                   the sidebar-driven preset chooser (native settings only holds the 10
                   per-field thresholds).
   clockify/       ClockifyApi (shared RestClient, SSRF guard, 429/5xx retries)
-                  + DetailedReportFetcher + ClockifyRateLimiter
+                  + DetailedReportFetcher (accepts both `timeentries` and `timeEntries`
+                  response keys) + ClockifyRateLimiter
   config/         ClockifyAddonConfig (manifest builder), AsyncConfig (ingestExecutor
-                  bounded pool), SecurityHeadersFilter, CorsConfig, CryptoConfig
-                  (production key fail-fast)
+                  bounded pool), SchedulingConfig (@EnableScheduling gate),
+                  SecurityHeadersFilter (HSTS conditional on request.isSecure()),
+                  CorsConfig, CryptoConfig (production key fail-fast), MetricsConfig
+                  (Prometheus meter names — registry auto-wired via spring-boot-starter-actuator).
   domain/         BreakRuleEngine, EntryClassifier (BREAK/WORK/IGNORED), RuleTemplatePresets,
                   SettingsWarning (cross-field validation surfaced via SessionController)
   persistence/    Entities + repositories + AES-GCM TokenCodec
@@ -183,12 +202,19 @@ src/main/resources/
   application.yaml      Env-driven Spring config (JDBC ssl/keepalive, Hikari tuning,
                         open-in-view=false, LOG_LEVEL_APP gating)
   application-dev.yaml  Local dev profile: pins DEBUG, plain-TCP localhost Postgres
-  db/migration/         V1__init through V9__workspace_settings_validation_warnings
-                        (Flyway, additive only)
+  db/migration/         V1__init through V10__refresh_signal_consumer
+                        (Flyway, additive only). V10 extends the
+                        refresh_signals status CHECK constraint with
+                        CLAIMED/CONSUMED/FAILED/COALESCED, adds the
+                        ingestion_run_id back-pointer column, and a
+                        partial index on PENDING for the consumer's poll.
   logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
   static/               sidebar.js + styles.css + icon.svg (64×64 designed mark)
 
-src/test/...            266 green (JDK 21 + Postgres + Redis Testcontainers)
+src/test/...            279 green (JDK 21 + Postgres + Redis Testcontainers).
+                        Testcontainers pinned to 1.20.4 in pom.xml so the
+                        bundled docker-java negotiates API ≥1.44 (required
+                        by Docker 25+ / Colima 29.x engines).
 
 repo/com/cake/clockify/  Vendored Clockify SDK jar+pom (addon-sdk 1.5.3 +
                          annotation-processor 1.0.10). Eliminates the
@@ -205,11 +231,19 @@ repo/com/cake/clockify/  Vendored Clockify SDK jar+pom (addon-sdk 1.5.3 +
 - `docs/clockify-marketplace/` — canonical marketplace docs mirror
 - `docs/addon-java-sdk/` — Java SDK 1.5.3 source (consumed via vendored `repo/`)
 - `AGENTS.md` — operational rules for AI agents
+- **Marketplace packet**: `docs/PRIVACY.md`, `docs/SECURITY.md`,
+  `docs/DATA_RETENTION.md`, `docs/LEGAL_NOTICES.md`, `docs/LIVE_VALIDATION.md`
+  (production install/uninstall evidence), `docs/LISTING.md` (source-of-truth
+  listing copy), `docs/SUPPORT.md`, `CHANGELOG.md`.
+- **Plan archive**: `~/.claude/plans/verdict-do-not-zesty-gray.md` (P0+P1
+  rollout plan that produced commits `206e099…1257ffd`).
 
-## Dev workspace + seeded test data (2026-05-12)
+## Dev workspace + seeded test data
 
-Installed in workspace `69bda6b317a0c5babe34b4ff` (account
-`s3cvnjzji7@clockify-test.com`, user "John Owner").
+Workspace `69bda6b317a0c5babe34b4ff` (account `s3cvnjzji7@clockify-test.com`,
+user "John Owner"). The 2026-05-12 seed below was **wiped during the
+2026-05-13 live install/uninstall cycle** (see `docs/LIVE_VALIDATION.md`).
+Re-seed via the dev portal Tracker before running engine-output regressions.
 
 | Date | Work | Break | Expected (custom-basic) |
 |---|---|---|---|

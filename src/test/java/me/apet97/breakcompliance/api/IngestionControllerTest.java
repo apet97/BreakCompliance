@@ -161,6 +161,37 @@ class IngestionControllerTest {
         org.assertj.core.api.Assertions.assertThat(runRepo.findAll()).isEmpty();
     }
 
+    @Test
+    void detailedReport_inflightRunForSameRange_returns409WithExistingRunId() throws Exception {
+        // Seed a RUNNING run for the workspace + date range the next
+        // request will ask for. The controller's dedupe must surface a
+        // 409 with a pointer to the existing run instead of spawning a
+        // second ingest.
+        IngestionRun inflight = new IngestionRun();
+        inflight.setWorkspaceId(TestJwtForger.DEFAULT_WORKSPACE_ID);
+        inflight.setId("inflight-run-1");
+        inflight.setDateRangeStart("2026-05-01");
+        inflight.setDateRangeEnd("2026-05-07");
+        inflight.setStatus(IngestionStatus.RUNNING);
+        inflight.setEntriesProcessed(0);
+        Instant now = Instant.now();
+        inflight.setCreatedAt(now);
+        inflight.setCompletedAt(now);
+        runRepo.saveAndFlush(inflight);
+
+        mockMvc.perform(post("/api/ingest/detailed-report")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("ingest_in_progress"))
+                .andExpect(jsonPath("$.existingRunId").value("inflight-run-1"))
+                .andExpect(jsonPath("$.pollUrl").value("/api/ingest/runs/inflight-run-1"));
+
+        // Still exactly one run — the seeded one.
+        org.assertj.core.api.Assertions.assertThat(runRepo.count()).isEqualTo(1);
+    }
+
     private void seedInstallation() {
         Installation install = new Installation();
         install.setWorkspaceId(TestJwtForger.DEFAULT_WORKSPACE_ID);

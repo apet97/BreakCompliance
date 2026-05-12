@@ -26,7 +26,10 @@ import org.mockito.Mockito;
  *       {@code exportType}).</li>
  *   <li>Dates are ISO_LOCAL_DATE_TIME without a timezone suffix.</li>
  *   <li>Response key is {@code timeentries} (ALL LOWERCASE — the OpenAPI
- *       spec says camelCase but live probe shows lowercase).</li>
+ *       spec says camelCase but live probe shows lowercase). Parser also
+ *       accepts {@code timeEntries} as a defensive fallback in case
+ *       Clockify ever migrates the live API to match the spec — better to
+ *       quietly ingest correctly than to silently drop every entry.</li>
  * </ul>
  *
  * Each regression below corresponds to a real bug previously deployed that
@@ -148,15 +151,19 @@ class DetailedReportFetcherTest {
     }
 
     @Test
-    void ignoresSpecsCamelCaseTimeEntriesKey() {
-        // The OpenAPI spec mislabels the field as `timeEntries` (camelCase)
-        // but the live API returns `timeentries` (all-lowercase, confirmed by
-        // probe-lab live call on 2026-05-11). A payload using the spec's
-        // (wrong) casing must not match — we read the live shape only.
+    void fallsBackToCamelCaseTimeEntriesKeyWhenLowercaseMissing() {
+        // The live API returns `timeentries` (lowercase) and the OpenAPI spec
+        // labels the field as `timeEntries` (camelCase). The fetcher prefers
+        // the live shape but accepts the spec shape as a fallback so a future
+        // Clockify migration to match its own spec won't silently drop every
+        // entry — the worst case before this fallback was "looks like the
+        // workspace has no time entries, no findings, no complaint surfaced
+        // to the admin."
         mockResponse("""
                 {
                   "timeEntries": [
-                    {"_id": "ignoreMe", "userId": "u1"}
+                    {"_id": "e1", "userId": "u1"},
+                    {"_id": "e2", "userId": "u1"}
                   ]
                 }
                 """);
@@ -165,7 +172,32 @@ class DetailedReportFetcherTest {
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
-        assertThat(entries).isEmpty();
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0)).containsEntry("_id", "e1");
+    }
+
+    @Test
+    void prefersLowercaseTimeentriesWhenBothKeysPresent() {
+        // Defensive: if Clockify ever ships both keys during a transition,
+        // we keep reading the lowercase one (matches live API and the
+        // historical contract pinned by other tests).
+        mockResponse("""
+                {
+                  "timeentries": [
+                    {"_id": "live-1", "userId": "u1"}
+                  ],
+                  "timeEntries": [
+                    {"_id": "spec-1", "userId": "u1"}
+                  ]
+                }
+                """);
+
+        List<Map<String, Object>> entries = fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0)).containsEntry("_id", "live-1");
     }
 
     @SuppressWarnings("unchecked")

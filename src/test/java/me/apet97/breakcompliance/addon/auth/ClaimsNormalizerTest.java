@@ -3,6 +3,8 @@ package me.apet97.breakcompliance.addon.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -133,6 +135,46 @@ class ClaimsNormalizerTest {
     @Test
     void nullClaimsMapRejected() {
         assertThatThrownBy(() -> ClaimsNormalizer.normalize(null)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void extractsIatAsInstantFromJjwtDateClaim() {
+        // JJWT surfaces NumericDate-typed claims as java.util.Date.
+        Instant when = Instant.parse("2026-05-12T08:30:00Z");
+        NormalizedClaims n = ClaimsNormalizer.normalize(Map.of(
+                "workspaceId", "ws-1", "iat", Date.from(when)));
+
+        assertThat(n.iat()).isEqualTo(when);
+    }
+
+    @Test
+    void extractsIatAsInstantFromNumericSecondsSinceEpoch() {
+        // Raw JWT bodies (RFC 7519 §2 NumericDate) carry iat as seconds.
+        Instant when = Instant.parse("2026-05-12T08:30:00Z");
+        NormalizedClaims n = ClaimsNormalizer.normalize(Map.of(
+                "workspaceId", "ws-1", "iat", when.getEpochSecond()));
+
+        assertThat(n.iat()).isEqualTo(when);
+    }
+
+    @Test
+    void missingIatYieldsNull() {
+        NormalizedClaims n = ClaimsNormalizer.normalize(Map.of(
+                "workspaceId", "ws-1"));
+
+        assertThat(n.iat()).isNull();
+    }
+
+    @Test
+    void enrichFromInstalledPayload_preservesIatFromJwt() {
+        Instant when = Instant.parse("2026-05-12T08:30:00Z");
+        NormalizedClaims fromJwt = ClaimsNormalizer.normalize(Map.of(
+                "workspaceId", "ws-1", "iat", Date.from(when)));
+
+        NormalizedClaims enriched = ClaimsNormalizer.enrichFromInstalledPayload(
+                fromJwt, Map.of("apiUrl", "https://api.clockify.me"));
+
+        assertThat(enriched.iat()).isEqualTo(when);
     }
 
     @Test

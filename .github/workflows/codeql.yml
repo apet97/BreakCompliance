@@ -1,0 +1,52 @@
+# CodeQL static analysis for Java. Runs on PRs + a weekly cron to
+# catch new CVE-style patterns introduced after the PR landed.
+# Cheap to enable on GitHub Actions; alerts surface in the repo's
+# Security tab so reviewers can act on them without leaving GitHub.
+#
+# This workflow uses only static configuration (no event payload
+# interpolation in run: steps), so it's not susceptible to the
+# Actions injection class flagged at
+# https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "23 6 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze Java
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+          # security-extended trades scan time for more queries —
+          # acceptable on a weekly cron; PR runs use the default suite.
+          queries: security-extended
+
+      - name: Build (skip tests)
+        run: mvn -B -ntp -DskipTests package
+
+      - name: Run CodeQL
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:java-kotlin"

@@ -1,0 +1,16 @@
+HTTP/2 200 
+content-security-policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://resources.developer.clockify.me; img-src 'self' data: https://resources.developer.clockify.me; font-src 'self' https://resources.developer.clockify.me; connect-src 'self' https://*.clockify.me; frame-ancestors https://app.clockify.me https://*.clockify.me
+content-type: application/json
+date: Tue, 12 May 2026 22:21:48 GMT
+permissions-policy: camera=(), microphone=(), geolocation=()
+referrer-policy: no-referrer
+server: railway-edge
+strict-transport-security: max-age=63072000; includeSubDomains
+vary: Origin
+vary: Access-Control-Request-Method
+vary: Access-Control-Request-Headers
+x-content-type-options: nosniff
+x-railway-edge: railway/europe-west4-drams3a
+x-railway-request-id: 7kLHLuyCQxq6hGx0EuroCg
+
+{"status":"ok"}
