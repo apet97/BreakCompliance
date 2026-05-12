@@ -1,6 +1,8 @@
 package me.apet97.breakcompliance.addon.auth;
 
 import java.net.URI;
+import java.time.Instant;
+import java.util.Date;
 import java.util.Map;
 
 /**
@@ -34,7 +36,8 @@ public final class ClaimsNormalizer {
                 normalizeBackendUrl(pickString(claims, "backendUrl", "apiUrl", "baseURL", "baseUrl")),
                 pickString(claims, "reportsUrl"),
                 pickString(claims, "user"),
-                pickString(claims, "workspaceRole"));
+                pickString(claims, "workspaceRole"),
+                pickInstant(claims, "iat"));
     }
 
     /**
@@ -68,7 +71,8 @@ public final class ClaimsNormalizer {
                 backendUrl,
                 claims.reportsUrl(),
                 userId,
-                claims.workspaceRole());
+                claims.workspaceRole(),
+                claims.iat());
     }
 
     static String normalizeBackendUrl(String raw) {
@@ -115,6 +119,32 @@ public final class ClaimsNormalizer {
             Object value = claims.get(key);
             if (value instanceof String s && !s.isBlank()) {
                 return s;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Extract a JWT NumericDate-style claim as an {@link Instant}. JJWT
+     * parses {@code iat}/{@code exp} as {@link Date}; raw maps may carry a
+     * {@link Number} of seconds since epoch (RFC 7519 §2). String numerics
+     * are also tolerated because lifecycle replays sometimes round-trip
+     * through JSON-like text without ever rebuilding a typed claim. Returns
+     * {@code null} for missing or unparseable values.
+     */
+    private static Instant pickInstant(Map<String, Object> claims, String key) {
+        Object value = claims.get(key);
+        if (value instanceof Date d) {
+            return d.toInstant();
+        }
+        if (value instanceof Number n) {
+            return Instant.ofEpochSecond(n.longValue());
+        }
+        if (value instanceof String s && !s.isBlank()) {
+            try {
+                return Instant.ofEpochSecond(Long.parseLong(s.trim()));
+            } catch (NumberFormatException ignored) {
+                return null;
             }
         }
         return null;

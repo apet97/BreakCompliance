@@ -74,8 +74,11 @@ class ManifestContractTest {
         List<String> normalized = new java.util.ArrayList<>();
         scopes.forEach(node -> normalized.add(node.isObject() ? node.get("name").asText() : node.asText()));
 
+        // Marketplace least-scope: workspace metadata is not read anywhere
+        // in the codebase, so WORKSPACE_READ was dropped to keep the consent
+        // dialog honest. Detailed-report calls need REPORTS_READ only.
         assertThat(normalized).containsExactlyInAnyOrder(
-                "TIME_ENTRY_READ", "USER_READ", "REPORTS_READ", "WORKSPACE_READ");
+                "TIME_ENTRY_READ", "USER_READ", "REPORTS_READ");
     }
 
     @Test

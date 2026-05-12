@@ -57,8 +57,7 @@ public class ClockifyAddonConfig {
                 .scopes(List.of(
                         ClockifyScope.TIME_ENTRY_READ,
                         ClockifyScope.USER_READ,
-                        ClockifyScope.REPORTS_READ,
-                        ClockifyScope.WORKSPACE_READ))
+                        ClockifyScope.REPORTS_READ))
                 .description(props.description())
                 .iconPath("/icon.svg")
                 .build();
