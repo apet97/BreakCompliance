@@ -56,7 +56,7 @@ public class SidebarHtmlController {
                 <div class="app-container" role="application" aria-label="Break Compliance">
                   <header class="app-header">
                     <h1>Break Compliance</h1>
-                    <p id="session-status" class="caption muted" aria-live="polite">Connecting…</p>
+                    <p id="session-status" class="session-status" aria-live="polite" hidden></p>
                     <div class="active-template-row">
                       <span class="control-label">Active template</span>
                       <button
@@ -72,7 +72,10 @@ public class SidebarHtmlController {
                       </button>
                       <div id="active-template-details" class="active-template-details" role="dialog" aria-label="Active template thresholds" hidden></div>
                     </div>
-                    <p class="caption muted hint">Configure thresholds &amp; preset in <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong>.</p>
+                    <details class="settings-hint">
+                      <summary class="settings-hint-summary"><span class="settings-hint-glyph" aria-hidden="true">ⓘ</span> Where do I configure thresholds?</summary>
+                      <p class="settings-hint-body">In Clockify: <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong>. The dropdown there loads a jurisdiction starter; any field you edit afterwards wins.</p>
+                    </details>
                     <div class="header-controls">
                       <div class="control-group">
                         <label for="date-preset-select">Date Range</label>
@@ -103,6 +106,7 @@ public class SidebarHtmlController {
                       </div>
                     </div>
                   </header>
+                  <div id="settings-warning-banner" class="settings-warning-banner" role="status" aria-live="polite" hidden></div>
                   <div id="status-banner" class="error-banner" role="status" aria-live="polite" hidden></div>
                   <div id="diagnostics" class="diagnostics" hidden></div>
                   <p id="last-checked" class="caption muted last-checked" hidden></p>
@@ -112,7 +116,9 @@ public class SidebarHtmlController {
                     <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span>Checklist</span></label>
                   </fieldset>
                   <div id="loading" class="loading" role="status" aria-live="polite" hidden>
-                    <div class="loading-spinner" aria-hidden="true"></div><span>Checking compliance…</span>
+                    <div class="loading-spinner" aria-hidden="true"></div>
+                    <span>Checking compliance…</span>
+                    <button id="cancel-ingest-btn" class="btn-link" type="button">Cancel</button>
                   </div>
                   <div id="results-container" class="results-container" aria-live="polite"></div>
                 </div>

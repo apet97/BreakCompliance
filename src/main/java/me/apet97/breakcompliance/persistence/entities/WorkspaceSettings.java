@@ -71,6 +71,18 @@ public class WorkspaceSettings {
     @Column(name = "applied_preset_key", nullable = false)
     private String appliedPresetKey = "custom-basic";
 
+    /**
+     * JSON-encoded list of {@code SettingsWarning} produced by the most
+     * recent {@code SETTINGS_UPDATED} delivery. Populated by
+     * {@code InstallationService.handleSettingsUpdated} and surfaced via
+     * {@code SessionController} so the sidebar renders a warning banner
+     * when admin-saved thresholds are internally inconsistent. Null when
+     * no warnings have been produced (fresh workspaces or fully-consistent
+     * saves).
+     */
+    @Column(name = "validation_warnings", columnDefinition = "TEXT")
+    private String validationWarnings;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

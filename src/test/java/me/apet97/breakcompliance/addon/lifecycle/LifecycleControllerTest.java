@@ -291,6 +291,40 @@ class LifecycleControllerTest {
     }
 
     @Test
+    void settingsUpdated_appliedPresetManifestLabel_isResolvedToInternalSlug() throws Exception {
+        installViaLifecycle();
+        // Clockify now emits the user-visible manifest label as the value.
+        // The handler must resolve it back to the internal slug before
+        // applying the preset's threshold values.
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"id\":\"appliedPresetKey\",\"value\":\"Germany (ArbZG §3 + §4)\"}]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getAppliedPresetKey()).isEqualTo("germany-arbzg-style");
+        assertThat(settings.getCustomWorkThresholdMinutes()).isEqualTo(360);
+        assertThat(settings.getCustomSecondWorkThresholdMinutes()).isEqualTo(540);
+    }
+
+    @Test
+    void settingsUpdated_timezoneStrategyManifestLabel_isResolvedToEnum() throws Exception {
+        installViaLifecycle();
+
+        mockMvc.perform(post("/lifecycle/settings-updated")
+                        .header("X-Addon-Lifecycle-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"id\":\"timezoneStrategy\",\"value\":\"Use entry's local time zone\"}]"))
+                .andExpect(status().isOk());
+
+        WorkspaceSettings settings = settingsRepo
+                .findById(TestJwtForger.DEFAULT_WORKSPACE_ID).orElseThrow();
+        assertThat(settings.getTimezoneStrategy()).isEqualTo(TimezoneStrategy.ENTRY_TIMEZONE);
+    }
+
+    @Test
     void settingsUpdated_appliedPresetUnchanged_persistsAdminEdit() throws Exception {
         installViaLifecycle();
 

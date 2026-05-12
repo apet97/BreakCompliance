@@ -1,10 +1,13 @@
 package me.apet97.breakcompliance.addon.lifecycle;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.domain.RuleTemplatePresets;
+import me.apet97.breakcompliance.domain.SettingsWarning;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.Installation;
@@ -47,6 +50,7 @@ public class InstallationService {
     private final PayloadDriftLogger driftLogger;
     private final TokenCodec codec;
     private final WorkspaceDataDeletionService deletionService;
+    private final ObjectMapper objectMapper;
 
     public InstallationService(
             InstallationRepository installationRepo,
@@ -55,7 +59,8 @@ public class InstallationService {
             RuleTemplateRepository templatesRepo,
             PayloadDriftLogger driftLogger,
             TokenCodec codec,
-            WorkspaceDataDeletionService deletionService) {
+            WorkspaceDataDeletionService deletionService,
+            ObjectMapper objectMapper) {
         this.installationRepo = installationRepo;
         this.webhookRepo = webhookRepo;
         this.settingsRepo = settingsRepo;
@@ -63,6 +68,7 @@ public class InstallationService {
         this.driftLogger = driftLogger;
         this.codec = codec;
         this.deletionService = deletionService;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -222,12 +228,13 @@ public class InstallationService {
         // differs from the stored value, overwrite all 8 threshold columns
         // with the preset's values BEFORE applying any per-field edits in
         // phase 2 (so a single save can "load preset values + tweak one
-        // field" atomically).
+        // field" atomically). Clockify emits the user-visible manifest
+        // label (e.g. "California (IWC meal/rest)") — resolve to the
+        // internal slug before storing.
         String incomingPresetKey = extractPresetKey(updates);
         boolean presetChanged = false;
         if (incomingPresetKey != null
-                && !incomingPresetKey.equals(settings.getAppliedPresetKey())
-                && isKnownPreset(incomingPresetKey)) {
+                && !incomingPresetKey.equals(settings.getAppliedPresetKey())) {
             applyPresetToSettings(settings, incomingPresetKey);
             settings.setAppliedPresetKey(incomingPresetKey);
             presetChanged = true;
@@ -247,27 +254,64 @@ public class InstallationService {
             fieldChanged |= applySettingUpdate(settings, id, value);
         }
 
-        if (presetChanged || fieldChanged) {
+        // Phase 3: validate the merged threshold set. Warnings are stored
+        // on the settings row so the sidebar can render a banner without
+        // re-running validation per session call. We never reject the
+        // delivery — Clockify would just retry and the underlying admin
+        // mistake would still need to be surfaced. Warn-only is the right
+        // shape here: persist the bad value, tell the user about it.
+        List<SettingsWarning> warnings = SettingsWarning.validate(settings);
+        String serialized = serializeWarnings(warnings);
+        boolean warningsChanged = !java.util.Objects.equals(
+                serialized, settings.getValidationWarnings());
+        if (warningsChanged) {
+            settings.setValidationWarnings(serialized);
+            if (!warnings.isEmpty()) {
+                log.warn("lifecycle.settings-updated.validation-warnings workspace={} count={}",
+                        workspaceId, warnings.size());
+            }
+        }
+
+        if (presetChanged || fieldChanged || warningsChanged) {
             settings.setUpdatedAt(now);
             settingsRepo.save(settings);
             log.info("lifecycle.settings-updated workspace={}", workspaceId);
         }
     }
 
+    private String serializeWarnings(List<SettingsWarning> warnings) {
+        if (warnings.isEmpty()) return null;
+        try {
+            return objectMapper.writeValueAsString(warnings);
+        } catch (JsonProcessingException e) {
+            // Serialisation of a record list cannot realistically fail; log
+            // and skip persistence so the rest of the save isn't lost.
+            log.error("lifecycle.settings-updated.warning-serialize-failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * Extract the incoming preset selection and resolve it to the internal
+     * slug. Clockify emits the manifest label (e.g. "California (IWC
+     * meal/rest)"); legacy deliveries may still carry the raw slug
+     * ({@code "california-style"}). Tolerate both, return null when
+     * neither matches a known preset.
+     */
     private static String extractPresetKey(List<Map<String, Object>> updates) {
         for (Map<String, Object> entry : updates) {
             if (entry == null) continue;
             if ("appliedPresetKey".equals(entry.get("id"))
                     && entry.get("value") instanceof String s
                     && !s.isBlank()) {
-                return s;
+                var byLabel = RuleTemplatePresets.fromManifestLabel(s);
+                if (byLabel != null) return byLabel.key();
+                if (RuleTemplatePresets.ALL.stream().anyMatch(p -> p.key().equals(s))) {
+                    return s;
+                }
             }
         }
         return null;
-    }
-
-    private static boolean isKnownPreset(String key) {
-        return RuleTemplatePresets.ALL.stream().anyMatch(p -> p.key().equals(key));
     }
 
     private boolean applySettingUpdate(WorkspaceSettings settings, String id, Object value) {
@@ -280,11 +324,10 @@ public class InstallationService {
             }
             case "timezoneStrategy" -> {
                 if (value instanceof String s && !s.isBlank()) {
-                    try {
-                        settings.setTimezoneStrategy(TimezoneStrategy.valueOf(s));
+                    TimezoneStrategy strat = TimezoneStrategy.fromManifestLabel(s);
+                    if (strat != null) {
+                        settings.setTimezoneStrategy(strat);
                         yield true;
-                    } catch (IllegalArgumentException ignored) {
-                        yield false;
                     }
                 }
                 yield false;

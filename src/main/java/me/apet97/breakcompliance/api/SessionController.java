@@ -1,5 +1,7 @@
 package me.apet97.breakcompliance.api;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -7,6 +9,8 @@ import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,10 +32,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class SessionController {
 
-    private final WorkspaceSettingsRepository settingsRepo;
+    private static final Logger log = LoggerFactory.getLogger(SessionController.class);
 
-    public SessionController(WorkspaceSettingsRepository settingsRepo) {
+    private final WorkspaceSettingsRepository settingsRepo;
+    private final ObjectMapper objectMapper;
+
+    public SessionController(WorkspaceSettingsRepository settingsRepo, ObjectMapper objectMapper) {
         this.settingsRepo = settingsRepo;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping("/api/session")
@@ -54,13 +62,35 @@ public class SessionController {
                     settings -> {
                         body.put("appliedPresetKey", settings.getAppliedPresetKey());
                         body.put("activeTemplate", buildActiveTemplate(settings));
+                        body.put("validationWarnings", parseValidationWarnings(settings));
                     },
                     () -> {
                         body.put("appliedPresetKey", null);
                         body.put("activeTemplate", null);
+                        body.put("validationWarnings", java.util.List.of());
                     });
         }
         return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Decode the JSON-encoded warnings list stored on {@code WorkspaceSettings}
+     * so the response carries a real nested array, not a double-encoded
+     * string. Empty list when no warnings exist or the stored JSON is
+     * malformed (defensive — we log and degrade silently rather than fail
+     * the whole session call).
+     */
+    private Object parseValidationWarnings(WorkspaceSettings settings) {
+        String raw = settings.getValidationWarnings();
+        if (raw == null || raw.isBlank()) return java.util.List.of();
+        try {
+            JsonNode node = objectMapper.readTree(raw);
+            return node.isArray() ? node : java.util.List.of();
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.warn("session.validation-warnings.parse-failed workspace={}",
+                    settings.getWorkspaceId(), e);
+            return java.util.List.of();
+        }
     }
 
     private static Map<String, Object> buildActiveTemplate(WorkspaceSettings s) {

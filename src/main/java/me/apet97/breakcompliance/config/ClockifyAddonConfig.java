@@ -13,6 +13,8 @@ import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.util.List;
 import me.apet97.breakcompliance.addon.auth.PublicKeyParser;
+import me.apet97.breakcompliance.domain.RuleTemplatePresets;
+import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -111,14 +113,22 @@ public class ClockifyAddonConfig {
         // field. Each subsequent save without changing the preset just
         // persists the admin's manual edits.
 
+        // Preset and timezone dropdowns emit the user-visible label as the
+        // stored value — Clockify's structured-settings DSL only accepts
+        // {@code List<String>} for allowedValues, so we sidestep the
+        // raw-key complaint by making the keys themselves human-readable.
+        // The lifecycle handler maps the inbound label back to the internal
+        // slug via {@link RuleTemplatePresets#fromManifestLabel(String)}.
         ClockifySetting appliedPreset = ClockifySetting.builder()
                 .id("appliedPresetKey")
                 .name("Load preset values")
                 .allowAdmins()
                 .asDropdownSingle()
-                .value("custom-basic")
-                .allowedValues(List.of("custom-basic", "california-style", "germany-arbzg-style"))
-                .description("Picking a preset here overwrites the threshold fields below with that preset's recommended values. Edit any field after to fine-tune.")
+                .value(RuleTemplatePresets.CUSTOM_BASIC.manifestLabel())
+                .allowedValues(RuleTemplatePresets.ALL.stream()
+                        .map(RuleTemplatePresets.Preset::manifestLabel)
+                        .toList())
+                .description("Loads a jurisdiction starter into the fields below. Picking a preset overwrites every threshold; edits you make afterwards in the same save still win. Defaults match published policy — e.g. California's IWC Wage Orders require a 30-min meal break before the 5th hour.")
                 .build();
 
         ClockifySetting workThreshold = ClockifySetting.builder()
@@ -127,7 +137,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asNumber()
                 .value(240)
-                .description("Minutes of work after which a break is required.")
+                .description("Once a user has logged this many minutes of work in a day, a qualifying break must appear. Example: 240 = 4 hours.")
                 .build();
 
         ClockifySetting breakThreshold = ClockifySetting.builder()
@@ -136,7 +146,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asNumber()
                 .value(15)
-                .description("Minimum total qualifying break minutes once over the work threshold.")
+                .description("Total qualifying break minutes the user must accumulate in a day after crossing the work threshold. Example: 30 (California meal break).")
                 .build();
 
         ClockifySetting minBreakSegment = ClockifySetting.builder()
@@ -145,7 +155,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asNumber()
                 .value(5)
-                .description("Shortest break segment that counts toward the required total. Smaller segments are ignored.")
+                .description("Break entries shorter than this don't count toward the daily required total. Example: ArbZG §4 requires segments ≥15 min to qualify.")
                 .build();
 
         ClockifySetting maxContinuousWork = ClockifySetting.builder()
@@ -154,7 +164,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asNumber()
                 .value(240)
-                .description("Maximum minutes of uninterrupted work before a qualifying break must be taken.")
+                .description("Longest stretch of uninterrupted work allowed before a qualifying break must occur. Findings emit MAX_CONTINUOUS_WORK_EXCEEDED when a user exceeds this without a break.")
                 .build();
 
         ClockifySetting gracePeriod = ClockifySetting.builder()
@@ -163,7 +173,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asNumber()
                 .value(5)
-                .description("Tolerance applied to threshold comparisons. Example: 245 min work is still ALLOWED when work threshold = 240, grace = 5.")
+                .description("Tolerance added to every threshold so trivial overruns don't fire violations. Example: with work threshold 240 and grace 5, a 244-minute shift is still compliant.")
                 .build();
 
         ClockifySetting allowSplit = ClockifySetting.builder()
@@ -172,7 +182,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asCheckbox()
                 .value(Boolean.TRUE)
-                .description("ON = required break can be summed from multiple qualifying segments. OFF = one uninterrupted break of the required length is needed (California meal-rule style).")
+                .description("ON: the required break total can be summed from multiple qualifying segments. OFF: a single uninterrupted break of the full required length is needed — turn OFF for California's IWC meal-period rule.")
                 .build();
 
         ClockifySetting secondWork = ClockifySetting.builder()
@@ -181,7 +191,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asNumber()
                 .value(0)
-                .description("Optional second-tier work threshold (e.g. ArbZG 9 h → 45 min). Set 0 to disable the second tier.")
+                .description("Set 0 to disable. Otherwise: when a user crosses this longer shift length, the SECOND-tier required break replaces the first-tier requirement. Example: ArbZG §4 — 540 (9 h) triggers a 45-min total.")
                 .build();
 
         ClockifySetting secondBreak = ClockifySetting.builder()
@@ -190,7 +200,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asNumber()
                 .value(0)
-                .description("Required break total once the second-tier work threshold is exceeded. Set 0 to disable.")
+                .description("Set 0 to disable. Otherwise: total qualifying break minutes required once the second-tier work threshold is exceeded. Example: 45 (ArbZG §4 after 9 hours).")
                 .build();
 
         ClockifySetting timezoneStrategy = ClockifySetting.builder()
@@ -198,9 +208,11 @@ public class ClockifyAddonConfig {
                 .name("Time-zone strategy")
                 .allowAdmins()
                 .asDropdownSingle()
-                .value("ENTRY_TIMEZONE")
-                .allowedValues(List.of("ENTRY_TIMEZONE"))
-                .description("How to determine the day boundary for time entries.")
+                .value(TimezoneStrategy.ENTRY_TIMEZONE.manifestLabel())
+                .allowedValues(java.util.Arrays.stream(TimezoneStrategy.values())
+                        .map(TimezoneStrategy::manifestLabel)
+                        .toList())
+                .description("How to compute the day a time entry belongs to when evaluating break requirements. Entry-local keeps each shift on the day the user worked it (recommended for distributed teams).")
                 .build();
 
         ClockifySetting fallbackDetection = ClockifySetting.builder()
@@ -209,7 +221,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asCheckbox()
                 .value(Boolean.FALSE)
-                .description("ON = flag continuous work blocks over the threshold even when there is no explicit BREAK time entry.")
+                .description("ON: flag long uninterrupted work as MISSING_REQUIRED_BREAK even when there is no explicit BREAK-type time entry on that day. Turn ON when your workspace records breaks as gaps between work entries rather than as dedicated BREAK entries.")
                 .build();
 
         ClockifySettingsTab settingsTab = ClockifySettingsTab.builder()

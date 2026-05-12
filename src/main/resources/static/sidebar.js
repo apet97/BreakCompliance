@@ -61,6 +61,7 @@ const state = {
     lastRunAt: null,        // Date — when the last successful Check Compliance completed
     lastRunRange: null,     // { start, end } — used by the refresh button
     detailsOpen: false,     // active-template details popover visibility
+    cancelIngest: false,    // flips true when the user clicks Cancel mid-poll
 };
 
 // ────────────────────────── Errors ──────────────────────────
@@ -393,6 +394,30 @@ function renderLastChecked() {
     node.textContent = `Last checked ${formatRelativeTime(state.lastRunAt)}`;
 }
 
+function renderValidationWarnings() {
+    const node = el("settings-warning-banner");
+    const warnings = Array.isArray(state.session?.validationWarnings)
+        ? state.session.validationWarnings
+        : [];
+    if (warnings.length === 0) {
+        node.hidden = true;
+        clearChildren(node);
+        return;
+    }
+    clearChildren(node);
+    node.hidden = false;
+    node.appendChild(create("p", { className: "settings-warning-title", text: "Settings need a fix" }));
+    const list = create("ul", { className: "settings-warning-list" });
+    for (const w of warnings) {
+        const text = (w && typeof w === "object" && typeof w.message === "string")
+            ? w.message
+            : String(w);
+        list.appendChild(create("li", { text }));
+    }
+    node.appendChild(list);
+    node.appendChild(create("p", { className: "settings-warning-foot", text: "Reopen the settings page (⋯ → Settings on the add-on) to fix these, then re-run Check Compliance." }));
+}
+
 function renderActiveTemplate() {
     const labelNode = el("active-template-label");
     const chip = el("active-template-chip");
@@ -415,11 +440,15 @@ function renderActiveTemplate() {
         ["Min break segment", formatMinutes(active.minBreakSegmentMinutes)],
         ["Max continuous work", formatMinutes(active.maxContinuousWorkMinutes)],
         ["Grace period", formatMinutes(active.gracePeriodMinutes)],
-        ["Split breaks", active.allowSplitBreaks ? "Allowed" : "One block required"],
+        ["Split breaks", active.allowSplitBreaks
+            ? "Allowed (sum of qualifying segments)"
+            : "Not allowed (single uninterrupted break required — California meal-rule)"],
     ];
     if (active.secondWorkThresholdMinutes && active.secondWorkThresholdMinutes > 0) {
         rows.push(["Second-tier work threshold", formatMinutes(active.secondWorkThresholdMinutes)]);
         rows.push(["Second-tier required break", formatMinutes(active.secondBreakThresholdMinutes)]);
+    } else {
+        rows.push(["Second tier", "Disabled"]);
     }
     rows.push(["Timezone strategy", TIMEZONE_LABELS[active.timezoneStrategy] ?? (active.timezoneStrategy ?? "—")]);
     rows.push(["Fallback detection", active.fallbackDetectionEnabled ? "On" : "Off"]);
@@ -639,6 +668,52 @@ function renderChecklist(container) {
 
 // ─────────────────── Main flow: Check Compliance ───────────────────
 
+function setLoadingMessage(text) {
+    const node = el("loading");
+    if (!node) return;
+    // Loading element layout: <spinner /><span>...</span>. Update the
+    // span (the second child) so we keep the spinner glyph intact.
+    const span = node.querySelector("span");
+    if (span) span.textContent = text;
+}
+
+// Poll the async ingest run until it reaches a terminal state (COMPLETED or
+// FAILED). Returns the final IngestionRun body. Throws on poll-level errors
+// (network / 4xx). Cancellation is cooperative — the caller flips
+// state.cancelIngest and the loop exits the next tick.
+async function pollIngestionRun(runId, range, isCanceled) {
+    let delay = 800;
+    const maxDelay = 4000;
+    while (true) {
+        if (isCanceled?.()) {
+            const err = new Error("canceled");
+            err.canceled = true;
+            throw err;
+        }
+        const body = await api(`/api/ingest/runs/${encodeURIComponent(runId)}`);
+        if (body.status === "COMPLETED" || body.status === "FAILED") return body;
+        if (body.status === "RUNNING") {
+            const processed = Number(body.entriesProcessed) || 0;
+            setLoadingMessage(processed > 0
+                ? `Imported ${processed.toLocaleString()} entries…`
+                : `Fetching ${range.start} → ${range.end} from Clockify…`);
+        }
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(maxDelay, Math.round(delay * 1.4));
+    }
+}
+
+function describeIngestFailure(errorCode) {
+    if (!errorCode) return "Ingestion failed. The run was recorded — re-open the addon and try again.";
+    if (errorCode === "ClockifyApi:401") {
+        return "Reports API is unavailable in this workspace. Install in a production Clockify workspace to run full compliance checks.";
+    }
+    if (errorCode.startsWith("ClockifyApi:")) {
+        return `Clockify rejected the report request (${errorCode}). Try again in a minute; if it persists, re-open the addon to refresh credentials.`;
+    }
+    return `Ingestion failed (${errorCode}). The run was recorded so an admin can audit it from Settings.`;
+}
+
 async function runCompliance() {
     showBanner("hidden");
     const range = computeDateRange();
@@ -648,35 +723,61 @@ async function runCompliance() {
     }
     setRunButtonState(true);
     setLoading(true);
+    setLoadingMessage(`Fetching ${range.start} → ${range.end} from Clockify…`);
+    state.cancelIngest = false;
 
-    let entriesProcessed = 0;
+    let runId;
     try {
-        const ingest = await api("/api/ingest/detailed-report", {
+        const startResponse = await api("/api/ingest/detailed-report", {
             method: "POST",
             body: JSON.stringify({ dateRangeStart: range.start, dateRangeEnd: range.end }),
         });
-        entriesProcessed = ingest.run.entriesProcessed;
+        runId = startResponse.run.id;
     } catch (err) {
         setLoading(false);
         setRunButtonState(false);
         if (err instanceof HttpError) {
             const code = String(err.body?.error ?? err.message);
-            if (err.status === 503 && code === "reports_unavailable") {
-                // Dev-portal / non-production workspace: not a real failure, friendly notice.
-                showBanner("warn", err.body?.message
-                    ?? "Reports API is unavailable in this workspace. Install in a production Clockify workspace to run full compliance checks.");
+            if (err.status === 503 && code === "installation_inactive") {
+                showBanner("err", err.body?.message
+                    ?? "This workspace's add-on is currently inactive.");
             } else if (err.status === 503 && code === "installation_not_found") {
                 showBanner("err",
                     "Add-on not installed for this workspace yet. Re-install from the marketplace and try again.");
             } else {
                 showBanner("err",
-                    `Ingestion failed: ${code}. The run is recorded so an admin can audit it from Settings.`);
+                    `Could not start ingestion: ${code}.`);
             }
             return;
         }
         showBanner("err", "Unexpected ingestion failure.");
         return;
     }
+
+    let runFinal;
+    try {
+        runFinal = await pollIngestionRun(runId, range, () => state.cancelIngest);
+    } catch (err) {
+        setLoading(false);
+        setRunButtonState(false);
+        if (err && err.canceled) {
+            showBanner("warn", "Check canceled. The ingestion will keep running in the background — refresh later to pick up the results.");
+            return;
+        }
+        showBanner("err", err instanceof HttpError
+            ? `Lost contact with the ingestion run: ${err.message}`
+            : "Lost contact with the ingestion run.");
+        return;
+    }
+
+    if (runFinal.status === "FAILED") {
+        setLoading(false);
+        setRunButtonState(false);
+        showBanner("warn", describeIngestFailure(runFinal.errorCode));
+        return;
+    }
+    const entriesProcessed = Number(runFinal.entriesProcessed) || 0;
+    setLoadingMessage("Evaluating compliance…");
 
     let evalResult;
     try {
@@ -731,13 +832,21 @@ function updateFormFromState() {
 }
 
 async function loadInitialData() {
+    const statusNode = el("session-status");
     try {
         state.session = await api("/api/session");
-        el("session-status").textContent = `Connected · ${state.session.workspaceId}`;
+        // Successful auth needs no chrome in the header — keep the node
+        // hidden and let the body of the sidebar tell the story. We were
+        // previously leaking the raw workspaceId here, which is debug
+        // information, not user content.
+        statusNode.hidden = true;
+        statusNode.textContent = "";
         renderActiveTemplate();
+        renderValidationWarnings();
         renderResults(); // first-paint empty state
     } catch (err) {
-        el("session-status").textContent = "Not connected";
+        statusNode.hidden = false;
+        statusNode.textContent = "Not connected — try reloading the addon.";
         if (err instanceof HttpError && (err.status === 401 || err.status === 403)) {
             showBanner("err", "Session expired — try reloading the addon.");
         } else {
@@ -758,6 +867,7 @@ function wireEvents() {
     el("custom-start-date").addEventListener("change", e => { state.customStart = e.target.value; });
     el("custom-end-date").addEventListener("change", e => { state.customEnd = e.target.value; });
     el("run-btn").addEventListener("click", () => { runCompliance(); });
+    el("cancel-ingest-btn").addEventListener("click", () => { state.cancelIngest = true; });
 
     // Refresh button — re-run the last range, or fall through to the active
     // preset if no run has happened yet.
@@ -771,7 +881,7 @@ function wireEvents() {
         // Also refresh the session info so the active-template chip picks
         // up any threshold/preset change from the structured-settings page.
         api("/api/session")
-            .then(s => { state.session = s; renderActiveTemplate(); })
+            .then(s => { state.session = s; renderActiveTemplate(); renderValidationWarnings(); })
             .catch(() => { /* non-fatal — runCompliance will surface its own errors */ });
         runCompliance();
     });

@@ -97,8 +97,75 @@ a:hover { text-decoration: underline; }
 .app-header { margin-bottom: 12px; }
 .app-header h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
 .app-header .caption { margin: 0 0 8px; font-size: 11px; }
-.app-header .hint { margin: 6px 0 12px; font-size: 11px; line-height: 1.45; }
-.app-header .hint strong { color: var(--text-primary); font-weight: 600; }
+.session-status {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--severity-fail-text, #b00);
+}
+
+/* "Where do I configure thresholds?" collapsible — visible enough to find but
+ * out of the way for repeat users who already know where the settings tab
+ * lives. */
+.settings-hint {
+  margin: 6px 0 12px;
+}
+.settings-hint-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+.settings-hint-summary::-webkit-details-marker { display: none; }
+.settings-hint-summary:hover { color: var(--text-primary); }
+.settings-hint-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+.settings-hint-body {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.settings-hint-body strong { color: var(--text-primary); font-weight: 600; }
+
+/* Cross-field validation banner — appears when admin-saved thresholds are
+ * inconsistent and the engine is silently falling back to preset defaults. */
+.settings-warning-banner {
+  border: 1px solid var(--severity-warn-border, #d99500);
+  background: var(--severity-warn-bg, #fff7e0);
+  color: var(--severity-warn-text, #5c3a00);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.settings-warning-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.settings-warning-list {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+.settings-warning-list li { margin: 2px 0; }
+.settings-warning-foot {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 
 /* Active template chip + threshold popover */
 .active-template-row {

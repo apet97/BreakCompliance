@@ -107,4 +107,34 @@ class RuleTemplatePresetsTest {
         // allowedValues order. Both default to custom-basic.
         assertThat(RuleTemplatePresets.ALL.get(0).key()).isEqualTo("custom-basic");
     }
+
+    @Test
+    void manifestLabels_areHumanReadable() {
+        assertThat(RuleTemplatePresets.CUSTOM_BASIC.manifestLabel())
+                .isEqualTo("Custom (editable defaults)");
+        assertThat(RuleTemplatePresets.CALIFORNIA_STYLE.manifestLabel())
+                .isEqualTo("California (IWC meal/rest)");
+        assertThat(RuleTemplatePresets.GERMANY_ARBZG_STYLE.manifestLabel())
+                .isEqualTo("Germany (ArbZG §3 + §4)");
+    }
+
+    @Test
+    void fromManifestLabel_roundTripsForEveryPreset() {
+        for (Preset p : RuleTemplatePresets.ALL) {
+            assertThat(RuleTemplatePresets.fromManifestLabel(p.manifestLabel()))
+                    .as("round-trip %s", p.key())
+                    .isEqualTo(p);
+        }
+    }
+
+    @Test
+    void fromManifestLabel_returnsNullForUnknownOrBlank() {
+        assertThat(RuleTemplatePresets.fromManifestLabel(null)).isNull();
+        assertThat(RuleTemplatePresets.fromManifestLabel("")).isNull();
+        assertThat(RuleTemplatePresets.fromManifestLabel("not-a-preset")).isNull();
+        // Slug-form is intentionally NOT matched here — lookup is by the
+        // user-visible label only. Slug compatibility lives in
+        // InstallationService.extractPresetKey as a defensive fallback.
+        assertThat(RuleTemplatePresets.fromManifestLabel("custom-basic")).isNull();
+    }
 }

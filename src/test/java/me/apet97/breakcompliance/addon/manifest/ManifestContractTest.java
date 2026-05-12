@@ -151,9 +151,28 @@ class ManifestContractTest {
 
         List<String> allowedValues = new java.util.ArrayList<>();
         appliedPreset.get("allowedValues").forEach(v -> allowedValues.add(v.asText()));
+        // The manifest dropdown now emits user-readable labels — Clockify's
+        // structured-settings DSL stores the chosen value as-is, so the
+        // labels become the storage key. InstallationService maps back to
+        // the internal slug via RuleTemplatePresets.fromManifestLabel.
         assertThat(allowedValues).containsExactly(
-                "custom-basic", "california-style", "germany-arbzg-style");
+                "Custom (editable defaults)",
+                "California (IWC meal/rest)",
+                "Germany (ArbZG §3 + §4)");
 
-        assertThat(appliedPreset.get("value").asText()).isEqualTo("custom-basic");
+        assertThat(appliedPreset.get("value").asText()).isEqualTo("Custom (editable defaults)");
+
+        JsonNode timezoneStrategy = null;
+        for (JsonNode node : tabSettings) {
+            if ("timezoneStrategy".equals(node.get("id").asText())) {
+                timezoneStrategy = node;
+                break;
+            }
+        }
+        assertThat(timezoneStrategy).isNotNull();
+        List<String> tzAllowed = new java.util.ArrayList<>();
+        timezoneStrategy.get("allowedValues").forEach(v -> tzAllowed.add(v.asText()));
+        assertThat(tzAllowed).containsExactly("Use entry's local time zone");
+        assertThat(timezoneStrategy.get("value").asText()).isEqualTo("Use entry's local time zone");
     }
 }

@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
+import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
@@ -19,6 +21,7 @@ import me.apet97.breakcompliance.persistence.repositories.InstallationRepository
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -58,6 +61,7 @@ public class IngestionService {
     private final DetailedReportFetcher fetcher;
     private final TokenCodec codec;
     private final TransactionTemplate tx;
+    private final Executor ingestExecutor;
 
     public IngestionService(
             InstallationRepository installationRepo,
@@ -65,13 +69,15 @@ public class IngestionService {
             IngestionRunRepository runRepo,
             DetailedReportFetcher fetcher,
             TokenCodec codec,
-            PlatformTransactionManager txManager) {
+            PlatformTransactionManager txManager,
+            @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
         this.fetcher = fetcher;
         this.codec = codec;
         this.tx = new TransactionTemplate(txManager);
+        this.ingestExecutor = ingestExecutor;
     }
 
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to) {
@@ -99,6 +105,66 @@ public class IngestionService {
         }
 
         return tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+    }
+
+    /**
+     * Begin an ingest asynchronously. Synchronously prepares the run
+     * (installation/active check, token decrypt, RUNNING row inserted) so
+     * the controller can return 202 with a real {@code run.id} for the
+     * sidebar to poll, then dispatches the long Clockify fetch + finalize
+     * onto {@link AsyncConfig#INGEST_EXECUTOR_BEAN}. Exceptions raised in
+     * prepare propagate to the caller (controller maps
+     * {@link InstallationInactiveException} → 503 installation_inactive);
+     * exceptions raised during the async fetch are captured on the run
+     * row as {@code errorCode} so the polling endpoint can surface them.
+     */
+    public IngestionRun beginAsync(
+            String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
+        PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
+        Objects.requireNonNull(prepared, "prepareRun returned null");
+        IngestionRun inFlight = runRepo
+                .findById(new IngestionRun.Pk(workspaceId, prepared.runId()))
+                .orElseThrow(() -> new IllegalStateException(
+                        "prepared run vanished between insert and re-read: " + prepared.runId()));
+
+        ingestExecutor.execute(() -> executeRun(
+                workspaceId, prepared.runId(), prepared.token(), prepared.reportsUrl(), from, to));
+        return inFlight;
+    }
+
+    /**
+     * Long, off-request portion of an ingest: the Clockify HTTP fetch and
+     * the finalize batch upsert. Called by the executor dispatched from
+     * {@link #beginAsync} — never throws to its caller; instead, every
+     * failure is captured on the run row so the polling endpoint reports it.
+     * Public so {@code IngestRunControllerTest} can drive it directly, but
+     * production callers should use {@link #beginAsync}.
+     */
+    public void executeRun(
+            String workspaceId,
+            String runId,
+            String token,
+            String reportsUrl,
+            LocalDate from,
+            LocalDate to) {
+        List<Map<String, Object>> entries;
+        try {
+            entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to);
+        } catch (ClockifyApiException e) {
+            tx.execute(status -> markRunFailed(workspaceId, runId, "ClockifyApi:" + e.statusCode()));
+            log.warn("ingestion.async.failed.clockify workspace={} status={}", workspaceId, e.statusCode());
+            return;
+        } catch (RuntimeException e) {
+            tx.execute(status -> markRunFailed(workspaceId, runId, e.getClass().getSimpleName()));
+            log.warn("ingestion.async.failed workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
+            return;
+        }
+        try {
+            tx.execute(status -> finalizeRun(workspaceId, runId, entries));
+        } catch (RuntimeException e) {
+            tx.execute(status -> markRunFailed(workspaceId, runId, "Finalize:" + e.getClass().getSimpleName()));
+            log.warn("ingestion.async.failed.finalize workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
+        }
     }
 
     private PreparedRun prepareRun(

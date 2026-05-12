@@ -5,7 +5,6 @@ import java.time.LocalDate;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
-import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +13,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Kicks off an async detailed-report ingest. The controller commits the
+ * {@link IngestionRun} row in {@code RUNNING} state and returns 202 with
+ * the run id so the sidebar can poll {@code GET /api/ingest/runs/{id}}
+ * for status. The long Clockify HTTP call + DB upsert run on the
+ * {@code ingestExecutor} pool (see {@code AsyncConfig}); their outcome is
+ * captured on the run row, not propagated to this controller.
+ */
 @RestController
 @RequestMapping("/api/ingest")
 public class IngestionController {
@@ -38,7 +45,7 @@ public class IngestionController {
         LocalDate to = range.to();
         IngestionRun run;
         try {
-            run = service.ingest(claims.workspaceId(), from, to, claims.reportsUrl());
+            run = service.beginAsync(claims.workspaceId(), from, to, claims.reportsUrl());
         } catch (InstallationInactiveException e) {
             // Lifecycle STATUS_CHANGED → INACTIVE: stop all operations for
             // this workspace per the marketplace contract. Friendly 503 so
@@ -46,24 +53,18 @@ public class IngestionController {
             return ResponseEntity.status(503).body(Map.of(
                     "error", "installation_inactive",
                     "message", "This workspace's add-on is currently inactive. Re-enable it from Workspace Settings → Add-ons → Break Compliance to run compliance checks."));
-        } catch (ClockifyApiException e) {
-            // The Clockify developer portal returns 401 for the detailed-report
-            // endpoint — surface it as a structured, non-fatal 503 so the
-            // sidebar can render a friendly banner instead of "ingestion failed:
-            // ClockifyApiException". Production workspaces with reports access
-            // will not hit this branch. Other ClockifyApiException statuses keep
-            // the legacy FAILED-recorded-in-body path (controller-level rethrow).
-            if (e.statusCode() == 401) {
-                return ResponseEntity.status(503).body(Map.of(
-                        "error", "reports_unavailable",
-                        "message", "Reports API is unavailable in the Clockify developer environment. Install in a production Clockify workspace to run full compliance checks."));
-            }
-            throw e;
         }
-        return ResponseEntity.ok(Map.of("run", Map.of(
+        // 202 Accepted: the prepare step (sync, transactional) committed
+        // the run row. The actual fetch + finalize is now executing on
+        // the ingest pool; the sidebar polls /api/ingest/runs/{id} for
+        // progress and terminal state. Errors that happen after this
+        // point (Clockify 401 / network) land on the run as errorCode.
+        return ResponseEntity.accepted().body(Map.of("run", Map.of(
                 "id", run.getId(),
                 "status", run.getStatus().name(),
-                "entriesProcessed", run.getEntriesProcessed(),
-                "errorCode", run.getErrorCode() == null ? "" : run.getErrorCode())));
+                "workspaceId", run.getWorkspaceId(),
+                "dateRangeStart", run.getDateRangeStart(),
+                "dateRangeEnd", run.getDateRangeEnd(),
+                "entriesProcessed", run.getEntriesProcessed())));
     }
 }
