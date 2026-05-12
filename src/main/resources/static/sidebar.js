@@ -772,9 +772,73 @@ function pickWorstSeverityFinding(findings) {
         rank[current.severity] > rank[worst.severity] ? current : worst, findings[0]);
 }
 
+function renderExportButton() {
+    const btn = document.getElementById("export-csv-btn");
+    if (!btn) return;
+    btn.hidden = state.findings.length === 0;
+}
+
+// Build the export URL from the same range the findings list used. Falling
+// back to state.lastRunRange means a freshly-opened sidebar (seeded from
+// /api/ingest/runs/latest by the staleness wiring) can also export without
+// requiring a Check Compliance click in this tab first.
+function currentFindingsRange() {
+    if (state.lastRunRange?.start && state.lastRunRange?.end) {
+        return { start: state.lastRunRange.start, end: state.lastRunRange.end };
+    }
+    const computed = computeDateRange();
+    if ("error" in computed) return null;
+    return computed;
+}
+
+async function downloadFindingsCsv() {
+    const range = currentFindingsRange();
+    if (!range) {
+        showBanner("err", "Pick a date range before exporting.");
+        return;
+    }
+    const url = buildApiUrl("/api/findings/export", {
+        dateRangeStart: range.start,
+        dateRangeEnd: range.end,
+        format: "csv",
+    });
+    let blob;
+    let filename = `break-compliance-${range.start}-${range.end}.csv`;
+    try {
+        const response = await fetch(url, { headers: { "x-addon-token": addonToken } });
+        if (!response.ok) {
+            throw new HttpError(response.status, null, `HTTP ${response.status}`);
+        }
+        // Honor the server's Content-Disposition filename when it's a plain
+        // ASCII bare filename — keeps the workspaceId in the saved file.
+        const cd = response.headers.get("Content-Disposition") || "";
+        const match = cd.match(/filename="([^"\\]+)"/);
+        if (match) filename = match[1];
+        blob = await response.blob();
+    } catch (err) {
+        showBanner("err", err instanceof HttpError
+            ? `Export failed (${err.status}). Try again, or refresh the addon if the error persists.`
+            : "Export failed. Try again, or refresh the addon if the error persists.");
+        return;
+    }
+    // Trigger the browser-native download. URL.createObjectURL stays alive
+    // until we revoke it; doing so on the next animation frame is safe and
+    // avoids leaking the object URL.
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    requestAnimationFrame(() => URL.revokeObjectURL(objectUrl));
+}
+
 function renderResults() {
     const container = el("results-container");
     clearChildren(container);
+    renderExportButton();
     if (state.findings.length === 0) {
         if (state.lastRun) {
             // Successful run, just no violations — celebrate the empty list.
@@ -1275,6 +1339,9 @@ function wireEvents() {
             chip?.focus?.();
         }
     });
+
+    const exportBtn = document.getElementById("export-csv-btn");
+    if (exportBtn) exportBtn.addEventListener("click", () => { downloadFindingsCsv(); });
 
     for (const radio of document.querySelectorAll('input[name="view-toggle"]')) {
         radio.addEventListener("change", () => {

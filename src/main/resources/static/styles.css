@@ -590,15 +590,35 @@ select:focus, input:focus {
   padding: 12px 0;
 }
 
+/* Row holding the Pivot/Checklist toggle on the left and the Export CSV
+ * button on the right. The button stays hidden until findings are loaded;
+ * the wrapper exists even when empty so layout doesn't jump as findings
+ * arrive. */
+.results-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
 /* View toggle (Pivot ↔ Checklist) */
 .view-toggle {
   display: flex;
   gap: 4px;
-  margin-bottom: 12px;
+  /* margin handled by .results-toolbar wrapper */
   padding: 3px;
   background: var(--bg-secondary);
   border-radius: var(--radius);
   width: fit-content;
+}
+
+.export-csv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
 }
 .toggle-option { display: flex; align-items: center; cursor: pointer; }
 .toggle-option input[type="radio"] { display: none; }
