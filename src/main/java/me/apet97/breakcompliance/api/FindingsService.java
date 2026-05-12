@@ -108,4 +108,14 @@ public class FindingsService {
     public List<Finding> list(String workspaceId, LocalDate from, LocalDate to) {
         return findingsRepo.findByWorkspaceIdAndDateBetween(workspaceId, from, to);
     }
+
+    /**
+     * Existence check scoped to the JWT workspace. Used by the review
+     * endpoint so an admin can't review another workspace's finding by
+     * guessing its id — the workspace_id half of the composite PK is the
+     * tenant boundary.
+     */
+    public boolean exists(String workspaceId, String findingId) {
+        return findingsRepo.existsById(new me.apet97.breakcompliance.persistence.entities.Finding.Pk(workspaceId, findingId));
+    }
 }

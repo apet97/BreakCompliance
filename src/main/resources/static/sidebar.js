@@ -805,6 +805,75 @@ function renderPivot(container) {
     container.appendChild(scroll);
 }
 
+// Workspace-admin guard for review writes — mirrors the backend's
+// RequestValidator.requireAdmin so non-admins see a disabled button with
+// a clear tooltip instead of a 403 round-trip. The session payload (and
+// only the session payload) carries workspaceRole.
+function isAdminRole() {
+    const role = String(state.session?.workspaceRole ?? "").toUpperCase();
+    return role === "ADMIN" || role === "OWNER";
+}
+
+// Map a server-side review-status to the small chip rendered next to a
+// finding's day header. OPEN is the absence state and produces no chip
+// so the row reads the same as it did before reviews shipped.
+function reviewBadgeText(status) {
+    if (status === "ACKNOWLEDGED") return "Acknowledged";
+    if (status === "OVERRIDDEN") return "Overridden";
+    return null;
+}
+
+function reviewBadgeClass(status) {
+    if (status === "ACKNOWLEDGED") return "review-badge review-badge--ack";
+    if (status === "OVERRIDDEN") return "review-badge review-badge--override";
+    return "review-badge";
+}
+
+// Cycle a finding through OPEN → ACKNOWLEDGED → OVERRIDDEN → OPEN. The
+// note is captured via window.prompt when transitioning into a non-OPEN
+// state and skipped (cleared server-side) when going back to OPEN. Prompt
+// is intentional — a richer modal isn't worth the surface area for an
+// audit-text capture; it matches the existing applyPreset confirm() UX.
+async function cycleReview(findingId, currentStatus) {
+    const next = currentStatus === "ACKNOWLEDGED" ? "OVERRIDDEN"
+        : currentStatus === "OVERRIDDEN" ? "OPEN"
+        : "ACKNOWLEDGED";
+    let note = null;
+    if (next !== "OPEN") {
+        const entered = window.prompt(
+            `Add an optional note for marking this finding as ${next.toLowerCase()} (Cancel to leave blank):`,
+            "");
+        // Cancel returns null; empty string is a deliberate "no note" — both
+        // omit the note from the request body, letting the server clear it.
+        note = entered == null ? null : entered.trim();
+    }
+    const body = note ? { status: next, note } : { status: next };
+    try {
+        const review = await api(`/api/findings/${encodeURIComponent(findingId)}/review`, {
+            method: "POST",
+            body: JSON.stringify(body),
+        });
+        // Patch the in-memory finding so the next renderResults reflects
+        // the new state without a full /api/findings round-trip.
+        for (const f of state.findings) {
+            if (f.id === findingId) {
+                f.review = next === "OPEN" ? null : {
+                    findingId: review.findingId,
+                    status: review.status,
+                    note: review.note,
+                    updatedAt: review.updatedAt,
+                };
+                break;
+            }
+        }
+        renderResults();
+    } catch (err) {
+        showBanner("err", err instanceof HttpError
+            ? `Couldn't update review: ${err.message}`
+            : "Couldn't update review.");
+    }
+}
+
 function renderChecklist(container) {
     const byUser = new Map();
     for (const f of state.findings) {
@@ -841,10 +910,37 @@ function renderChecklist(container) {
             for (const f of findings) {
                 const itemCls = severityClass(f.severity);
                 const itemIcon = itemCls === "pass" ? "✓" : itemCls === "warn" ? "!" : "✗";
-                const li = create("li", { className: "rule-item" });
+                const reviewStatus = f.review?.status ?? "OPEN";
+                const liClasses = ["rule-item"];
+                if (reviewStatus !== "OPEN") liClasses.push("rule-item--reviewed");
+                const li = create("li", { className: liClasses.join(" ") });
                 li.appendChild(create("span", { className: `rule-icon status-${itemCls}`, text: itemIcon }));
                 li.appendChild(create("span", { className: "rule-name", text: f.code }));
                 li.appendChild(create("span", { className: "rule-detail", text: f.message }));
+                const badgeText = reviewBadgeText(reviewStatus);
+                if (badgeText) {
+                    const badge = create("span", {
+                        className: reviewBadgeClass(reviewStatus),
+                        text: badgeText,
+                        title: f.review?.note ? `Note: ${f.review.note}` : "No note recorded",
+                    });
+                    li.appendChild(badge);
+                }
+                const reviewBtn = create("button", {
+                    className: "btn-link rule-review-btn",
+                    text: reviewStatus === "OPEN" ? "Mark…"
+                        : reviewStatus === "ACKNOWLEDGED" ? "→ Override"
+                        : "→ Re-open",
+                    title: "Cycle this finding's review state (admin only)",
+                });
+                reviewBtn.type = "button";
+                reviewBtn.disabled = !isAdminRole();
+                if (!isAdminRole()) reviewBtn.title = "Workspace admin required to review findings";
+                reviewBtn.addEventListener("click", () => {
+                    if (!isAdminRole()) return;
+                    cycleReview(f.id, reviewStatus);
+                });
+                li.appendChild(reviewBtn);
                 items.appendChild(li);
             }
             section.appendChild(items);
