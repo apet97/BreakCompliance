@@ -133,6 +133,58 @@ public class IngestionService {
     }
 
     /**
+     * Begin an async ingest with a post-finalize hook. Same shape as
+     * {@link #beginAsync} but the supplied {@code afterFinalize} callback
+     * runs on the executor thread once the ingest committed cleanly (run
+     * status {@code COMPLETED}). The callback receives the run id as a
+     * parameter so it can back-reference the ingest in any side-effect
+     * (e.g. marking refresh signals consumed by run-id). Callback
+     * exceptions are caught and logged so the run record stays
+     * trustworthy — a downstream side effect failing must not corrupt
+     * the upstream ingest's terminal state. Used by the refresh-signal
+     * trigger to drive {@code FindingsService.evaluateAndReplace} after
+     * the time-entry upsert without blocking the controller thread; the
+     * sidebar polls {@code GET /api/ingest/runs/{id}} for status.
+     */
+    public IngestionRun beginAsyncForRefresh(
+            String workspaceId,
+            LocalDate from,
+            LocalDate to,
+            String reportsUrlOverride,
+            java.util.function.Consumer<String> afterFinalize) {
+        PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
+        Objects.requireNonNull(prepared, "prepareRun returned null");
+        IngestionRun inFlight = runRepo
+                .findById(new IngestionRun.Pk(workspaceId, prepared.runId()))
+                .orElseThrow(() -> new IllegalStateException(
+                        "prepared run vanished between insert and re-read: " + prepared.runId()));
+
+        ingestExecutor.execute(() -> {
+            executeRun(workspaceId, prepared.runId(), prepared.token(), prepared.reportsUrl(), from, to);
+            if (afterFinalize == null) {
+                return;
+            }
+            IngestionRun result = runRepo
+                    .findById(new IngestionRun.Pk(workspaceId, prepared.runId()))
+                    .orElse(null);
+            if (result == null || result.getStatus() != IngestionStatus.COMPLETED) {
+                return;
+            }
+            try {
+                afterFinalize.accept(prepared.runId());
+            } catch (RuntimeException e) {
+                log.warn(
+                        "ingestion.async.after-finalize-failed workspace={} runId={} reason={}",
+                        workspaceId,
+                        prepared.runId(),
+                        e.getClass().getSimpleName(),
+                        e);
+            }
+        });
+        return inFlight;
+    }
+
+    /**
      * Long, off-request portion of an ingest: the Clockify HTTP fetch and
      * the finalize batch upsert. Called by the executor dispatched from
      * {@link #beginAsync} — never throws to its caller; instead, every

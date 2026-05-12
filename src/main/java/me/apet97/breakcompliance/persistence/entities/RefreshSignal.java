@@ -52,6 +52,15 @@ public class RefreshSignal {
     @Column(name = "status", nullable = false)
     private RefreshSignalStatus status;
 
+    /**
+     * Back-pointer to the {@link IngestionRun} that consumed (or coalesced)
+     * this signal. Null for PENDING rows, populated by the consumer when
+     * it CLAIMs a signal. Nullable in the schema (V10) — pre-V10 rows in
+     * ACKNOWLEDGED carry no run reference.
+     */
+    @Column(name = "ingestion_run_id")
+    private String ingestionRunId;
+
     @Getter
     @Setter
     @NoArgsConstructor

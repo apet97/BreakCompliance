@@ -11,9 +11,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
 import me.apet97.breakcompliance.addon.auth.TestJwtForger;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
+import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
@@ -30,23 +32,46 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Locks the /api/refresh-signals response contracts. {@code GET} lists the
- * workspace's recent signals; {@code POST /run} triggers an ingest+evaluate
- * cycle (admin-only) and reports {@code findingsCount} so the sidebar can
- * surface a fresh count after webhook-driven refreshes.
+ * workspace's recent signals; {@code POST /run} dispatches an
+ * ingest+evaluate cycle (admin-only) asynchronously and returns
+ * {@code 202 Accepted} with a run id the sidebar can poll at
+ * {@code /api/ingest/runs/{id}}. The pre-2026-05-12 contract returned
+ * {@code 200} with {@code findingsCount} inline; that was rewritten when
+ * the synchronous body started blocking the request thread for 30s+ on
+ * realistic workspace sizes.
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.main.allow-bean-definition-overriding=true")
 @AutoConfigureMockMvc
 @Import({PostgresTestcontainersConfig.class, TestClockifyKeyConfig.class})
 @Transactional
 class RefreshSignalsControllerTest {
+
+    /**
+     * Run async ingest+evaluate inline so the test's {@code @Transactional}
+     * rollback still bounds the row lifecycle — the prod {@code ingestExecutor}
+     * dispatches to a separate thread that wouldn't see the test's pending
+     * transaction. Mirrors the {@code IngestionControllerTest} override.
+     */
+    @TestConfiguration
+    static class SyncIngestExecutorConfig {
+        @Bean(name = AsyncConfig.INGEST_EXECUTOR_BEAN)
+        @Primary
+        Executor syncIngestExecutor() {
+            return new SyncTaskExecutor();
+        }
+    }
 
     @Autowired
     MockMvc mockMvc;
@@ -91,7 +116,7 @@ class RefreshSignalsControllerTest {
     }
 
     @Test
-    void run_adminAndValidRange_returns200WithFindingsCount() throws Exception {
+    void run_adminAndValidRange_returns202WithRunIdAndPollUrl() throws Exception {
         Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(List.of());
 
@@ -99,8 +124,13 @@ class RefreshSignalsControllerTest {
                         .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.findingsCount").value(0))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.run.id").exists())
+                .andExpect(jsonPath("$.run.workspaceId").value(TestJwtForger.DEFAULT_WORKSPACE_ID))
+                .andExpect(jsonPath("$.run.dateRangeStart").value("2026-05-01"))
+                .andExpect(jsonPath("$.run.dateRangeEnd").value("2026-05-07"))
+                .andExpect(jsonPath("$.pollUrl",
+                        org.hamcrest.Matchers.startsWith("/api/ingest/runs/")))
                 .andExpect(jsonPath("$.dateRangeStart").value("2026-05-01"))
                 .andExpect(jsonPath("$.dateRangeEnd").value("2026-05-07"));
     }

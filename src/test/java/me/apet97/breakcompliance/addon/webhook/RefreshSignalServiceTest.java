@@ -47,12 +47,22 @@ class RefreshSignalServiceTest {
         assertThat(s.getStatus()).isEqualTo(RefreshSignalStatus.PENDING);
         assertThat(s.getEventType()).isEqualTo("NEW_TIME_ENTRY");
         assertThat(s.getReceivedAt()).isNotNull();
-        // Detail fields deliberately null — Detailed Report is the source
-        // of truth.
+        // Detail fields default null when caller didn't supply them —
+        // Detailed Report stays the source of truth for the actual entry.
         assertThat(s.getEntityId()).isNull();
         assertThat(s.getDateHint()).isNull();
 
         assertThat(repo.findByWorkspaceIdOrderByReceivedAtDesc(WS)).hasSize(1);
+    }
+
+    @Test
+    void recordWebhookSignal_persistsDateHintWhenSupplied() {
+        // The consumer in Phase 2 reads dateHint to coalesce signals to the
+        // smallest covering re-ingest window. A null hint still records
+        // the signal; the consumer falls back to a default window.
+        RefreshSignal s = service.recordWebhookSignal(WS, "NEW_TIME_ENTRY", "2026-05-09");
+
+        assertThat(s.getDateHint()).isEqualTo("2026-05-09");
     }
 
     @Test
