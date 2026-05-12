@@ -138,6 +138,35 @@ class ClaimsNormalizerTest {
     }
 
     @Test
+    void capturesUserTimeZoneFromCanonicalClaim() {
+        NormalizedClaims n = ClaimsNormalizer.normalize(Map.of(
+                "workspaceId", "ws-1",
+                "userTimeZone", "America/Los_Angeles"));
+        assertThat(n.userTimeZone()).isEqualTo("America/Los_Angeles");
+    }
+
+    @Test
+    void capturesUserTimeZoneFromLegacyAliases() {
+        // Dev-portal payloads sometimes ship a lowercase 'z' or a shorter
+        // 'tz' alias instead of the canonical 'userTimeZone'.
+        NormalizedClaims a = ClaimsNormalizer.normalize(Map.of(
+                "workspaceId", "ws-1",
+                "userTimezone", "Europe/Berlin"));
+        assertThat(a.userTimeZone()).isEqualTo("Europe/Berlin");
+
+        NormalizedClaims b = ClaimsNormalizer.normalize(Map.of(
+                "workspaceId", "ws-1",
+                "tz", "Asia/Tokyo"));
+        assertThat(b.userTimeZone()).isEqualTo("Asia/Tokyo");
+    }
+
+    @Test
+    void userTimeZoneNullWhenAbsent() {
+        NormalizedClaims n = ClaimsNormalizer.normalize(Map.of("workspaceId", "ws-1"));
+        assertThat(n.userTimeZone()).isNull();
+    }
+
+    @Test
     void extractsIatAsInstantFromJjwtDateClaim() {
         // JJWT surfaces NumericDate-typed claims as java.util.Date.
         Instant when = Instant.parse("2026-05-12T08:30:00Z");

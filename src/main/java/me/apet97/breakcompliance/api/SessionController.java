@@ -58,6 +58,10 @@ public class SessionController {
         body.put("workspaceId", claims.workspaceId());
         body.put("userId", claims.userId());
         body.put("workspaceRole", claims.workspaceRole());
+        // userTimeZone is best-effort — only some Clockify token shapes
+        // carry it. The sidebar falls back to the browser's locale tz when
+        // null, so emitting null here is fine.
+        body.put("userTimeZone", claims.userTimeZone());
         body.put("addonId", claims.addonId());
         body.put("settingsUrl", buildSettingsUrl(claims));
 
