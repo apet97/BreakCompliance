@@ -1,6 +1,6 @@
 # Security — Break Compliance for Clockify
 
-_Last updated: 2026-05-12._
+_Last updated: 2026-05-13._
 
 ## Threat model
 
@@ -29,7 +29,7 @@ Specific threats handled:
 
 ## Transport
 
-- TLS 1.2+ enforced at Railway's load balancer. HSTS toggled on via `ENABLE_HSTS=true` once the custom domain is fully verified end-to-end.
+- TLS 1.2+ enforced at Railway's load balancer. HSTS toggled on via `ENABLE_HSTS=true` once the custom domain is fully verified end-to-end. `SecurityHeadersFilter` additionally gates HSTS on `request.isSecure()` so the header is only emitted when Railway's `X-Forwarded-Proto` reports HTTPS — a config slip that exposes the service over plain HTTP cannot pin a browser to HTTPS for two years (P1 commit `d06cdff`).
 - The add-on rejects non-HTTPS `backendUrl`/`reportsUrl` claims (except `localhost` for tests).
 
 ## Per-request hardening
@@ -50,12 +50,20 @@ Specific threats handled:
 
 - Dependencies are pinned via `pom.xml` parent + explicit version overrides where needed. Spring Boot's BOM controls transitive versions.
 - Security advisories from Spring, Hibernate, JJWT, the Clockify Java SDK, or any test dependency trigger an out-of-band update. The CI job runs `mvn verify` on every push so a vulnerable upgrade gets caught early.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly Maven + GitHub Actions update PRs; security-only advisories arrive immediately via Dependabot's security path.
+- **CodeQL** (`.github/workflows/codeql.yml`) runs the `security-extended` query suite on every PR + a weekly cron; results land in the repo's Security tab.
 
 ## Incident response
 
 - **Suspected token leak:** rotate `INSTALLATION_TOKEN_KEY` (generate new 64-hex value, update Railway env var, redeploy). New encryptions use the new key id; existing rows can be re-encrypted via a one-off migration job or left as-is (the codec still decrypts old key ids while the old key remains mapped).
 - **Suspected database compromise:** uninstall the addon in affected workspaces (DELETED lifecycle clears tokens), rotate the key, restore Postgres from a known-clean snapshot.
 - **Suspected Clockify-side credential leak:** uninstall + reinstall forces Clockify to issue fresh installation + webhook auth tokens.
+
+## Observability
+
+- **`/actuator/health`** — unauthenticated, used by Railway's healthcheck.
+- **`/actuator/prometheus`** — Micrometer Prometheus registry. Emits `breakcompliance_webhook_received{event}`, `…_webhook_duplicate{event}`, `…_refresh_signals_processed{outcome}`, `…_ingest_run_duration` (timer), `…_ingest_entries_processed`, `…_ingest_run_failed{reason}`. Scrape from inside the Railway network; narrow public access via reverse-proxy / IP allowlist before exposing externally.
+- **Redaction proof**: `LIVE_VALIDATION.md` §8 captures Railway log lines from a real install/ingest/uninstall cycle showing zero JWT triplets and zero token material in stdout.
 
 ## Open follow-ups
 

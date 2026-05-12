@@ -1,6 +1,6 @@
 # Privacy Policy — Break Compliance for Clockify
 
-_Last updated: 2026-05-12._
+_Last updated: 2026-05-13._
 
 ## What Break Compliance is
 
@@ -63,7 +63,7 @@ See `docs/DATA_RETENTION.md` for per-table policy.
 ## How users exercise their rights
 
 - **Right to know** — workspace admins see every row the add-on stored about their workspace via the Settings + Sidebar UI. Operator can produce a CSV/JSON export on request.
-- **Right to erasure** — uninstall the add-on (DELETED lifecycle) to clear installation + webhook auth tokens immediately; app-data wipe is operator-side per the procedure in `docs/DATA_RETENTION.md`.
+- **Right to erasure** — uninstall the add-on. The DELETED lifecycle handler wipes every workspace-scoped row (12 tables) in one transaction and the installation cascade clears the encrypted token rows. No operator action is required. Verified live on 2026-05-13 — see `docs/LIVE_VALIDATION.md` §6.
 - **Right to rectification** — workspace admins can edit templates, assignments, and finding review notes directly through the Settings UI.
 
 ## Contact
