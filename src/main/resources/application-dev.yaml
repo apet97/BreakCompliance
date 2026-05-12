@@ -1,5 +1,7 @@
 spring:
   datasource:
+    # Local Postgres is on plain TCP — no SSL, no keepalive needed; the URL
+    # is fully overridden here so the base sslmode=require doesn't apply.
     url: jdbc:postgresql://localhost:5432/break_compliance
     username: break_compliance
     password: dev
@@ -10,3 +12,7 @@ breakcompliance:
   crypto:
     keys:
       default: "0000000000000000000000000000000000000000000000000000000000000000"
+
+logging:
+  level:
+    me.apet97.breakcompliance: DEBUG

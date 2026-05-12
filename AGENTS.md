@@ -25,7 +25,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 226+ green. Postgres + Redis spin up via Testcontainers.
+# Expect 236+ green. Postgres + Redis spin up via Testcontainers.
 
 # Targeted run.
 mvn -B -ntp test -Dtest='LifecycleControllerTest,BreakRuleEngineTest'
@@ -75,6 +75,10 @@ any API call shape.
 | Webhook idempotency = Redis SETNX with ≥ 24h TTL. | Clockify retries up to ~24h. |
 | Flyway migrations are additive only. | DB shared across deploys; drops break rollback. Use `V<n>__add_*.sql`. |
 | Production `INSTALLATION_TOKEN_KEY` must be 64 hex chars **and not** legacy `…aa` or all-zero. | `CryptoConfig.validateActiveKey` fail-fasts at startup. |
+| JDBC URL keeps `sslmode=require` + `tcpKeepAlive=true`. `PG_SSLMODE` is an emergency env-knob, not a default to flip. | Railway drops idle TCP; without keepalive Hikari hands out half-dead sockets and the first query fails opaquely. |
+| Logger levels for `me.apet97.breakcompliance` come from `LOG_LEVEL_APP` (`application.yaml`). Don't hardcode `level="DEBUG"` in `logback-spring.xml`. | Production runs INFO by default; flip per-incident with `railway variables --set LOG_LEVEL_APP=DEBUG` (no redeploy). |
+| `spring.jpa.open-in-view: false` — touch lazy-loaded relations only inside `@Transactional`. | The session closes at the service boundary; controller-layer lazy access throws `LazyInitializationException`. |
+| HikariCP `leak-detection-threshold: 20000` is on. If you see `Connection leak detection triggered` in logs, fix the leak (forgotten session / unclosed `EntityManager`). | The pool is 10 connections; one leak starves the app under multi-tenant load. |
 
 ## Settings model (current)
 
@@ -108,6 +112,14 @@ back-compat only.
   `userName`, `userEmail`, `type` (REGULAR/BREAK/HOLIDAY/TIME_OFF), and
   `timeInterval.timeZone`. Don't add `/v1/users`, `/v1/time-off`, or `/v1/holidays`
   endpoints — same data, +1 scope cost per call.
+- **Don't tune Hikari by raising `maximum-pool-size` alone.** The 3-phase
+  ingestion split exists so the long Clockify HTTP call doesn't hold a DB
+  connection. If the pool gets saturated, look for a missed split first.
+- **Don't add Redis calls in hot paths without a fail-closed contract.** Today
+  `WebhookIdempotencyStore.markSeen` and `ClockifyRateLimiter.acquire` let
+  Redis exceptions bubble — that's intentional (Clockify retries the webhook,
+  ingestion aborts). New Redis-backed safety checks should preserve that
+  semantic.
 
 ## When you change behavior
 

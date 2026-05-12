@@ -23,7 +23,39 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**226 tests green** (2026-05-12). Postgres + Redis come up via Testcontainers.
+**236 tests green** (2026-05-12). Postgres + Redis come up via Testcontainers.
+
+## Runtime config (Railway env vars)
+
+Spring profile **not** activated in prod — `application.yaml` is the base. Local
+dev runs with `-Dspring.profiles.active=dev` to layer `application-dev.yaml`.
+
+| Var | Default | Notes |
+|---|---|---|
+| `PGHOST` / `PGPORT` / `PGDATABASE` / `PGUSER` / `PGPASSWORD` | — | Railway-linked Postgres service-reference vars. The JDBC URL is built from these. |
+| `PG_SSLMODE` | `require` | Emergency knob. Set to `disable`/`prefer` only if Railway's managed Postgres temporarily can't negotiate SSL. |
+| `REDISHOST` / `REDISPORT` / `REDISUSER` / `REDISPASSWORD` | — | Railway-linked Redis service-reference vars. Username defaults to **empty** (local no-auth Redis works). |
+| `INSTALLATION_TOKEN_KEY` | — | 64 hex chars. `CryptoConfig.validateActiveKey` fail-fasts on legacy/zero keys. |
+| `INSTALLATION_TOKEN_KEY_ID` | `default` | Active key id in the `crypto.keys` map. |
+| `LOG_LEVEL_APP` | `INFO` | Flip to `DEBUG` for live diagnosis without redeploy. |
+| `ADDON_BASE_URL` | `http://localhost:8080` | Used by the manifest builder. |
+| `EXTRA_FRAME_ANCESTORS` | — | Extra CSP `frame-ancestors` for embedding tests. |
+| `CORS_ALLOWED_ORIGIN_PATTERNS` | — | Marketplace-evidence allowlist (see `CorsConfigTest`). |
+| `ENABLE_HSTS` | `false` | Railway terminates TLS; only flip on if testing HSTS preload. |
+| `SIDEBAR_TOKEN_MAX_IAT_AGE_SECONDS` | `1800` | iat-replay window for sidebar JWT. |
+| `IAT_CLOCK_SKEW_SECONDS` | `60` | Tolerance applied around `iat`. |
+
+The JDBC URL is `jdbc:postgresql://{PG…}/{db}?sslmode={PG_SSLMODE:require}&tcpKeepAlive=true`
+— `tcpKeepAlive=true` is mandatory in prod (Railway drops idle TCP silently).
+
+HikariCP: `maximum-pool-size: 10`, `leak-detection-threshold: 20000`,
+`max-lifetime: 1500000`. If a `HikariPool-N - Connection leak detection
+triggered` WARN shows up in Railway logs, **fix the leak** (a service forgot to
+close a session) — do not just bump the threshold.
+
+`spring.jpa.open-in-view: false`. Any code path that needs lazy-loaded entity
+relations must run inside an `@Transactional` boundary; pulling lazy fields
+from a controller method body will throw `LazyInitializationException`.
 
 ## Settings model — single editable template, preset-as-loader (§18 / §22 / §24)
 
@@ -79,6 +111,20 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 | Webhook idempotency = Redis SETNX, TTL ≥ 24h. | Clockify retries up to ~24h. |
 | Flyway migrations are additive only. | DB shared across deploys; column drops break rollbacks. |
 | Production `INSTALLATION_TOKEN_KEY` must be 64 hex chars and not legacy `…aa` or all-zero. | `CryptoConfig.validateActiveKey` fail-fasts at startup. |
+| Don't hardcode `level="DEBUG"` in `logback-spring.xml`. Logger levels live in `application.yaml` via `${LOG_LEVEL_APP:INFO}`. | Otherwise prod runs at DEBUG and the redaction regex has to keep up with every new log line — log-leak risk. |
+| Don't strip `sslmode` / `tcpKeepAlive` from the JDBC URL. | Without keepalive, Railway's idle-TCP cutoff makes Hikari hand out half-dead sockets and the first query fails opaquely. |
+| Don't disable Hikari `leak-detection-threshold`. | It surfaces forgotten sessions; under load the pool is only 10 connections and a single leak starves the whole app. |
+
+## Known Clockify-renderer UI limitations
+
+These are NOT bugs in this codebase — file feedback upstream with Clockify if they ever block a launch goal.
+
+| Limitation | Workaround in place |
+|---|---|
+| Native structured-settings `allowedValues` only accepts `List<String>` — no key/label pairs. | The dropdown values for `appliedPresetKey` and `timezoneStrategy` ARE the user-visible labels (e.g. `"California (IWC meal/rest)"`). The lifecycle handler maps inbound labels back to internal slugs via `RuleTemplatePresets.fromManifestLabel` / `TimezoneStrategy.fromManifestLabel`. Don't introduce a parallel raw-key set without also updating those mappers. |
+| `navigate` postMessage only supports `tracker` — no deep-link to the addon's own settings page from the iframe. | Sidebar shows a collapsible "Where do I configure thresholds?" hint pointing admins at the breadcrumb in Clockify's own UI. |
+| Checkbox fields render the label twice (once as field name, once next to the input). | Cosmetic only — we own the field name copy; the duplicate is Clockify's renderer adding its own. Don't try to defeat it with empty `name`. |
+| `.description()` rendering on individual fields is at Clockify's discretion. | We still emit descriptions on every field — they're free, marketplace reviewers read them, and the strings are reusable on any future surface. |
 
 ## Key source files
 
@@ -103,12 +149,15 @@ src/main/java/me/apet97/breakcompliance/
   persistence/    Entities + repositories + AES-GCM TokenCodec
 
 src/main/resources/
-  application.yaml   Env-driven Spring config
-  db/migration/      V1__init through V7__composite_indexes (Flyway, additive only)
-  logback-spring.xml Token-redacting log pattern
-  static/            sidebar.js + styles.css + icon.svg (64×64 designed mark)
+  application.yaml      Env-driven Spring config (JDBC ssl/keepalive, Hikari tuning,
+                        open-in-view=false, LOG_LEVEL_APP gating)
+  application-dev.yaml  Local dev profile: pins DEBUG, plain-TCP localhost Postgres
+  db/migration/         V1__init through V8__ingestion_runs_status_allow_running
+                        (Flyway, additive only)
+  logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
+  static/               sidebar.js + styles.css + icon.svg (64×64 designed mark)
 
-src/test/...         226 green (JDK 21 + Postgres + Redis Testcontainers)
+src/test/...            236 green (JDK 21 + Postgres + Redis Testcontainers)
 ```
 
 ## Reference (read before changing behaviour)

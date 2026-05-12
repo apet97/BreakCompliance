@@ -22,7 +22,8 @@
         <appender-ref ref="STDOUT"/>
     </root>
 
-    <logger name="me.apet97.breakcompliance" level="DEBUG"/>
+    <!-- me.apet97.breakcompliance level is driven by application.yaml
+         (LOG_LEVEL_APP env var, defaults to INFO in prod / DEBUG in dev). -->
     <logger name="org.springframework" level="INFO"/>
     <logger name="org.hibernate" level="WARN"/>
     <logger name="org.flywaydb" level="INFO"/>

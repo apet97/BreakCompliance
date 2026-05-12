@@ -2,11 +2,21 @@ spring:
   application:
     name: break-compliance
   datasource:
-    url: jdbc:postgresql://${PGHOST:${DB_HOST:localhost}}:${PGPORT:${DB_PORT:5432}}/${PGDATABASE:${DB_NAME:break_compliance}}
+    # sslmode=require: Railway managed Postgres supports SSL on both the private
+    # ({service}.railway.internal) and public proxy hostnames; encrypt by default.
+    # tcpKeepAlive=true: Railway / cloud load balancers silently drop idle TCP;
+    # without keepalive Hikari can hand out half-dead sockets and the first query
+    # fails with a stale-connection error instead of being transparently retried.
+    url: jdbc:postgresql://${PGHOST:${DB_HOST:localhost}}:${PGPORT:${DB_PORT:5432}}/${PGDATABASE:${DB_NAME:break_compliance}}?sslmode=${PG_SSLMODE:require}&tcpKeepAlive=true
     username: ${PGUSER:${DATABASE_USERNAME:}}
     password: ${PGPASSWORD:${DATABASE_PASSWORD:}}
     hikari:
       maximum-pool-size: 10
+      # Surface connection leaks (held >20s) in the logs instead of starving
+      # the pool silently — useful under Railway's restart-on-failure policy.
+      leak-detection-threshold: 20000
+      # Recycle connections before Railway's idle-disconnect window kicks in.
+      max-lifetime: 1500000
   flyway:
     enabled: true
     baseline-on-migrate: false
@@ -15,10 +25,17 @@ spring:
     redis:
       host: ${REDISHOST:${REDIS_HOST:localhost}}
       port: ${REDISPORT:${REDIS_PORT:6379}}
-      username: ${REDISUSER:default}
+      # Empty default lets local dev (no-auth Redis from `brew services start redis`)
+      # connect without sending AUTH. Railway injects REDISUSER/REDISPASSWORD.
+      username: ${REDISUSER:}
       password: ${REDISPASSWORD:}
       timeout: 2s
       connect-timeout: 2s
+  jpa:
+    # No lazy loading at the view layer — every @Transactional is at the service
+    # layer. Closing the session at the boundary frees the Hikari connection
+    # immediately rather than holding it for the full response lifecycle.
+    open-in-view: false
 
 server:
   port: 8080
@@ -43,7 +60,11 @@ management:
 logging:
   level:
     root: INFO
-    me.apet97.breakcompliance: DEBUG
+    # DEBUG in prod is noisy and risks future log-leak (every new DEBUG line
+    # has to match logback-spring.xml's redaction regex). Default INFO; the
+    # `dev` profile overrides this to DEBUG, and Railway can still flip it
+    # via LOG_LEVEL_APP=DEBUG without a redeploy.
+    me.apet97.breakcompliance: ${LOG_LEVEL_APP:INFO}
 
 breakcompliance:
   security:
