@@ -333,6 +333,51 @@ function create(tag, opts, children) {
     return node;
 }
 
+// ─────────────────── Admin-role gating ───────────────────
+
+// True only when the session's workspaceRole resolves to a Clockify admin
+// or owner. Anything else (MEMBER, missing claim, unexpected value) returns
+// false — fail-closed, matching the server's RequestValidator.requireAdmin.
+function isAdmin() {
+    const role = String(state.session?.workspaceRole ?? "").toUpperCase();
+    return role === "ADMIN" || role === "OWNER";
+}
+
+// Hide / disable every control that POSTs to an admin-gated endpoint so
+// non-admins don't trigger 401/403 round-trips. Read-only surfaces (findings
+// list, active-template chip, view toggle, date pickers) stay interactive.
+function renderAdminGates() {
+    const admin = isAdmin();
+    const note = document.getElementById("admin-required-note");
+    if (note) note.hidden = admin;
+
+    const gatedButtons = [
+        ["run-btn", "Workspace admin required to run a compliance check"],
+        ["refresh-btn", "Workspace admin required to refresh data"],
+        ["switch-preset-btn", "Workspace admin required to change presets"],
+    ];
+    for (const [id, title] of gatedButtons) {
+        const node = document.getElementById(id);
+        if (!node) continue;
+        if (admin) {
+            node.disabled = false;
+            node.removeAttribute("aria-disabled");
+            // Preserve the markup's original title (only the refresh button
+            // ships with one); for the others we never wrote a title to
+            // begin with, so clearing here is a no-op.
+            if (id === "refresh-btn") node.title = "Re-run the last check";
+            else node.removeAttribute("title");
+        } else {
+            node.disabled = true;
+            node.setAttribute("aria-disabled", "true");
+            node.title = title;
+        }
+    }
+    // The "Reset to preset" affordance on the diverged customized-pill is
+    // suppressed for non-admins inside renderCustomizedPill, which sees the
+    // role check directly — no extra DOM work needed here.
+}
+
 // ─────────────────── Range/state helpers ───────────────────
 
 function computeDateRange() {
@@ -484,6 +529,14 @@ function renderCustomizedPill() {
         pill.textContent = "Matches preset";
         pill.removeAttribute("role");
         pill.onclick = null;
+    } else if (!isAdmin()) {
+        // Non-admins see the informational "Customized" label without the
+        // clickable Reset affordance — the apply endpoint would 403 anyway.
+        pill.hidden = false;
+        pill.className = "customized-pill diverged";
+        pill.textContent = "Customized";
+        pill.removeAttribute("role");
+        pill.onclick = null;
     } else {
         pill.hidden = false;
         pill.className = "customized-pill diverged";
@@ -563,6 +616,7 @@ function renderPresetChooser() {
 }
 
 async function applyPreset(presetKey, options = {}) {
+    if (!isAdmin()) return;
     const activePreset = activePresetFromCatalog();
     const target = (state.presetCatalog ?? []).find(p => p.key === presetKey);
     const activeTemplate = state.session?.activeTemplate;
@@ -1054,6 +1108,7 @@ async function loadInitialData() {
         renderCustomizedPill();
         renderValidationWarnings();
         renderSettingsLink();
+        renderAdminGates();
         renderResults(); // first-paint empty state
     } catch (err) {
         statusNode.hidden = false;
@@ -1077,12 +1132,16 @@ function wireEvents() {
     });
     el("custom-start-date").addEventListener("change", e => { state.customStart = e.target.value; });
     el("custom-end-date").addEventListener("change", e => { state.customEnd = e.target.value; });
-    el("run-btn").addEventListener("click", () => { runCompliance(); });
+    el("run-btn").addEventListener("click", () => {
+        if (!isAdmin()) return;
+        runCompliance();
+    });
     el("cancel-ingest-btn").addEventListener("click", () => { state.cancelIngest = true; });
 
     // Refresh button — re-run the last range, or fall through to the active
     // preset if no run has happened yet.
     el("refresh-btn").addEventListener("click", () => {
+        if (!isAdmin()) return;
         if (state.lastRunRange) {
             state.preset = "custom_range";
             state.customStart = state.lastRunRange.start;
@@ -1100,7 +1159,10 @@ function wireEvents() {
     // Active-template chip → toggle the thresholds popover.
     el("active-template-chip").addEventListener("click", () => toggleActiveTemplateDetails());
     // Switch-preset button → toggle the inline chooser panel.
-    el("switch-preset-btn").addEventListener("click", () => togglePresetChooser());
+    el("switch-preset-btn").addEventListener("click", () => {
+        if (!isAdmin()) return;
+        togglePresetChooser();
+    });
     // Click outside the chip dismisses the popover.
     document.addEventListener("click", e => {
         if (!state.detailsOpen) return;
