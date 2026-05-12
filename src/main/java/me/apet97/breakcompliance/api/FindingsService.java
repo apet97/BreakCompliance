@@ -8,13 +8,11 @@ import me.apet97.breakcompliance.domain.BreakRuleEngine;
 import me.apet97.breakcompliance.domain.BreakRuleEngineInput;
 import me.apet97.breakcompliance.domain.FindingDraft;
 import me.apet97.breakcompliance.persistence.entities.Finding;
-import me.apet97.breakcompliance.persistence.entities.GroupMembership;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
-import me.apet97.breakcompliance.persistence.repositories.GroupMembershipRepository;
 import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.TemplateAssignmentRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
@@ -35,7 +33,6 @@ public class FindingsService {
     private final WorkspaceSettingsRepository settingsRepo;
     private final RuleTemplateRepository templatesRepo;
     private final TemplateAssignmentRepository assignmentsRepo;
-    private final GroupMembershipRepository membershipsRepo;
     private final TimeEntryRepository entriesRepo;
     private final FindingRepository findingsRepo;
     private final BreakRuleEngine engine;
@@ -44,14 +41,12 @@ public class FindingsService {
             WorkspaceSettingsRepository settingsRepo,
             RuleTemplateRepository templatesRepo,
             TemplateAssignmentRepository assignmentsRepo,
-            GroupMembershipRepository membershipsRepo,
             TimeEntryRepository entriesRepo,
             FindingRepository findingsRepo,
             BreakRuleEngine engine) {
         this.settingsRepo = settingsRepo;
         this.templatesRepo = templatesRepo;
         this.assignmentsRepo = assignmentsRepo;
-        this.membershipsRepo = membershipsRepo;
         this.entriesRepo = entriesRepo;
         this.findingsRepo = findingsRepo;
         this.engine = engine;
@@ -66,14 +61,15 @@ public class FindingsService {
         });
         List<RuleTemplate> templates = templatesRepo.findByWorkspaceId(workspaceId);
         List<TemplateAssignment> assignments = assignmentsRepo.findByWorkspaceId(workspaceId);
-        // Group memberships are workspace-scoped; we load all and the engine filters.
         Instant fromInstant = from.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
         Instant toInstant = to.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
         List<TimeEntry> entries = entriesRepo.findByWorkspaceIdAndStartAtBetween(workspaceId, fromInstant, toInstant);
-        List<GroupMembership> memberships = loadAllMemberships(workspaceId);
 
+        // groupMemberships intentionally empty: the synthesised workspace
+        // template is single per workspace and the engine does not consult
+        // memberships. The record field stays for a future per-group policy.
         BreakRuleEngineInput input = new BreakRuleEngineInput(
-                workspaceId, settings, templates, assignments, entries, memberships, from, to);
+                workspaceId, settings, templates, assignments, entries, java.util.List.of(), from, to);
         List<FindingDraft> drafts = engine.evaluate(input);
 
         // Build a userId → userName lookup from the time entries we just
@@ -111,15 +107,5 @@ public class FindingsService {
 
     public List<Finding> list(String workspaceId, LocalDate from, LocalDate to) {
         return findingsRepo.findByWorkspaceIdAndDateBetween(workspaceId, from, to);
-    }
-
-    private List<GroupMembership> loadAllMemberships(String workspaceId) {
-        // Quick non-paginated load; we cap large-workspace fan-out in J6
-        // when the directory ingest endpoint lands. Engine ignores
-        // memberships from other workspaces defensively anyway.
-        return membershipsRepo.findByWorkspaceIdAndGroupId(workspaceId, "")
-                .isEmpty()
-                ? java.util.List.copyOf(membershipsRepo.findByWorkspaceIdAndUserId(workspaceId, ""))
-                : java.util.List.of();
     }
 }

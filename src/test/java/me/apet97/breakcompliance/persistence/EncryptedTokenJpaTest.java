@@ -71,12 +71,12 @@ class EncryptedTokenJpaTest {
     }
 
     @Test
-    void installation_workspaceUniqueAndAddonIdLookup() {
+    void installation_lookupByWorkspaceIdAndCompositeKey() {
         Installation i = newInstallation("ws-2", "addon-A", "tok-A");
         installationRepo.saveAndFlush(i);
 
         assertThat(installationRepo.findByWorkspaceId("ws-2")).isPresent();
-        assertThat(installationRepo.findByAddonId("addon-A")).isPresent();
+        assertThat(installationRepo.findById(new Installation.Pk("ws-2", "addon-A"))).isPresent();
     }
 
     @Test

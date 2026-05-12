@@ -7,6 +7,4 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface InstallationRepository extends JpaRepository<Installation, Installation.Pk> {
 
     Optional<Installation> findByWorkspaceId(String workspaceId);
-
-    Optional<Installation> findByAddonId(String addonId);
 }
