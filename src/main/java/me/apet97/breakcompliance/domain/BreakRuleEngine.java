@@ -46,6 +46,11 @@ public class BreakRuleEngine {
 
     private static final Logger log = LoggerFactory.getLogger(BreakRuleEngine.class);
 
+    // Gap-as-break heuristic ceiling. A gap longer than this between two
+    // consecutive WORK entries is treated as a new shift / long absence,
+    // not a workplace break — so we don't credit it toward break minutes.
+    private static final int MAX_GAP_AS_BREAK_MINUTES = 120;
+
     public List<FindingDraft> evaluate(BreakRuleEngineInput input) {
         List<DayBucket> buckets = bucketEntries(input);
         List<FindingDraft> out = new ArrayList<>();
@@ -251,10 +256,12 @@ public class BreakRuleEngine {
     private EvaluatedSegments evaluateSegments(DayBucket bucket, RuleTemplate template, boolean fallbackEnabled) {
         int workMinutes = 0;
         int qualifyingBreakMinutes = 0;
+        int syntheticBreakMinutes = 0;
         int longestQualifyingBreakMinutes = 0;
         int currentRunWork = 0;
         int maxContinuousWork = 0;
         List<String> entryIds = new ArrayList<>();
+        Instant prevWorkEndAt = null;
 
         for (TimeEntry entry : bucket.entries()) {
             entryIds.add(entry.getSourceEntryId());
@@ -264,7 +271,10 @@ public class BreakRuleEngine {
                 // TIME_OFF / HOLIDAY entries are not work and not breaks —
                 // the user wasn't on the clock. Don't reset the continuous-work
                 // counter either (an IGNORED block that lands mid-day shouldn't
-                // accidentally satisfy a break requirement).
+                // accidentally satisfy a break requirement). Also drop the
+                // prevWorkEnd marker so the gap-as-break heuristic does not
+                // synthesise a break across PTO/holiday windows.
+                prevWorkEndAt = null;
                 continue;
             }
             if (kind == EntryClassifier.Kind.BREAK) {
@@ -278,16 +288,45 @@ public class BreakRuleEngine {
                     }
                     currentRunWork = 0;
                 }
+                // An explicit break already accounts for the elapsed time —
+                // don't synthesise a gap-break across it on the next WORK.
+                prevWorkEndAt = null;
                 continue;
+            }
+            // WORK entry. Before adding it, see if the gap from the previous
+            // WORK entry's end to this entry's start qualifies as a
+            // synthesised break (fallback heuristic).
+            Instant entryStart = entry.getStartAt();
+            if (fallbackEnabled && prevWorkEndAt != null && entryStart != null && !entryStart.isBefore(prevWorkEndAt)) {
+                long gapSeconds = java.time.Duration.between(prevWorkEndAt, entryStart).getSeconds();
+                int gapMinutes = (int) (gapSeconds / 60L);
+                if (gapMinutes >= template.getMinimumValidBreakSegmentMinutes()
+                        && gapMinutes <= MAX_GAP_AS_BREAK_MINUTES) {
+                    qualifyingBreakMinutes += gapMinutes;
+                    syntheticBreakMinutes += gapMinutes;
+                    if (gapMinutes > longestQualifyingBreakMinutes) {
+                        longestQualifyingBreakMinutes = gapMinutes;
+                    }
+                    if (currentRunWork > maxContinuousWork) {
+                        maxContinuousWork = currentRunWork;
+                    }
+                    currentRunWork = 0;
+                }
             }
             workMinutes += minutes;
             currentRunWork += minutes;
+            prevWorkEndAt = entry.getEndAt();
         }
         if (currentRunWork > maxContinuousWork) {
             maxContinuousWork = currentRunWork;
         }
         return new EvaluatedSegments(
-                workMinutes, qualifyingBreakMinutes, longestQualifyingBreakMinutes, maxContinuousWork, entryIds);
+                workMinutes,
+                qualifyingBreakMinutes,
+                longestQualifyingBreakMinutes,
+                maxContinuousWork,
+                syntheticBreakMinutes,
+                entryIds);
     }
 
     private static int durationMinutes(TimeEntry entry) {
@@ -325,6 +364,7 @@ public class BreakRuleEngine {
         Map<String, Object> evidence = new LinkedHashMap<>();
         evidence.put("workMinutes", segments.workMinutes);
         evidence.put("breakMinutes", segments.qualifyingBreakMinutes);
+        evidence.put("syntheticBreakMinutes", segments.syntheticBreakMinutes);
         evidence.put("maxContinuousWorkMinutes", segments.maxContinuousWorkMinutes);
         evidence.put("requiredBreakMinutes", requiredBreakMinutes);
         evidence.put("thresholdMinutes", thresholdMinutes);
@@ -340,6 +380,7 @@ public class BreakRuleEngine {
             int qualifyingBreakMinutes,
             int longestQualifyingBreakMinutes,
             int maxContinuousWorkMinutes,
+            int syntheticBreakMinutes,
             List<String> entryIds) {
     }
 

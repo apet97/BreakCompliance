@@ -223,7 +223,7 @@ public class ClockifyAddonConfig {
                 .allowAdmins()
                 .asCheckbox()
                 .value(Boolean.FALSE)
-                .description("ON: flag long uninterrupted work as MISSING_REQUIRED_BREAK even when there is no explicit BREAK-type time entry on that day. Turn ON when your workspace records breaks as gaps between work entries rather than as dedicated BREAK entries.")
+                .description("ON: detect breaks taken as gaps between work entries. A gap of 5–120 minutes between two consecutive work entries on the same day counts as a qualifying break. Turn ON when your workspace records breaks by stopping the timer rather than logging dedicated BREAK entries.")
                 .build();
 
         ClockifySettingsTab settingsTab = ClockifySettingsTab.builder()

@@ -257,6 +257,215 @@ class BreakRuleEngineTest {
         assertThat(findings).isEmpty();
     }
 
+    // ---------- evidence map regression guards ----------
+
+    @Test
+    void fallbackOn_qualifyingGap_evidenceCarriesSyntheticMinutes() {
+        // 4h work + 30 min gap + 4h work, required break 60 min.
+        // The gap qualifies as a 30-min synthesised break (still below
+        // required 60) ⇒ INSUFFICIENT_BREAK_DURATION fires AND its
+        // evidence map must report syntheticBreakMinutes=30 alongside
+        // breakMinutes=30. Without this assertion a refactor could
+        // silently drop the new evidence key.
+        WorkspaceSettings settings = workspaceSettings(240, 60, 5);
+        settings.setFallbackDetectionEnabled(true);
+        settings.setCustomMinBreakSegmentMinutes(5);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                workEntry("e2", "2026-05-10T13:30:00Z", "2026-05-10T17:30:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        FindingDraft insufficient = findings.stream()
+                .filter(f -> f.code() == FindingCode.INSUFFICIENT_BREAK_DURATION)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected INSUFFICIENT_BREAK_DURATION"));
+        assertThat(insufficient.evidence()).containsEntry("breakMinutes", 30);
+        assertThat(insufficient.evidence()).containsEntry("syntheticBreakMinutes", 30);
+    }
+
+    @Test
+    void fallbackOff_evidenceShowsZeroSynthetic() {
+        // Standard flow with an explicit (sub-floor) BREAK entry, flag OFF.
+        // Evidence must carry syntheticBreakMinutes=0 explicitly — the key
+        // is always present so the sidebar's `?? 0` fallback is belt-and-
+        // braces, not load-bearing.
+        WorkspaceSettings settings = workspaceSettings(240, 30, 5);
+        settings.setCustomMinBreakSegmentMinutes(15);
+        settings.setFallbackDetectionEnabled(false);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                breakEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T13:10:00Z"),
+                workEntry("e3", "2026-05-10T13:10:00Z", "2026-05-10T15:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        FindingDraft missing = findings.stream()
+                .filter(f -> f.code() == FindingCode.MISSING_REQUIRED_BREAK)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected MISSING_REQUIRED_BREAK"));
+        assertThat(missing.evidence()).containsEntry("syntheticBreakMinutes", 0);
+    }
+
+    // ---------- fallbackDetectionEnabled (gap-as-break) ----------
+
+    @Test
+    void fallbackOn_qualifyingGap_countsAsBreak() {
+        // Two 4-hour REGULAR entries separated by a 30-min gap on the same
+        // day. Threshold 240, required 15. With the heuristic ON the 30-min
+        // gap counts as a qualifying break — no MISSING_REQUIRED_BREAK.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setFallbackDetectionEnabled(true);
+        settings.setCustomMinBreakSegmentMinutes(5);
+        settings.setCustomMaxContinuousWorkMinutes(600); // don't fire continuous-work finding
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                workEntry("e2", "2026-05-10T13:30:00Z", "2026-05-10T17:30:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code).doesNotContain(
+                FindingCode.MISSING_REQUIRED_BREAK, FindingCode.INSUFFICIENT_BREAK_DURATION);
+    }
+
+    @Test
+    void fallbackOff_qualifyingGap_doesNotCountAsBreak() {
+        // Same payload as above, flag OFF. Heuristic must NOT fire — gap is
+        // ignored, day fires MISSING_REQUIRED_BREAK (regression guard).
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setFallbackDetectionEnabled(false);
+        settings.setCustomMinBreakSegmentMinutes(5);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                workEntry("e2", "2026-05-10T13:30:00Z", "2026-05-10T17:30:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
+    }
+
+    @Test
+    void fallbackOn_gapBelowMinSegment_ignored() {
+        // 3-min gap, below default 5-min minBreakSegment. Even with flag ON
+        // the gap is too small to qualify, day fails.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setFallbackDetectionEnabled(true);
+        settings.setCustomMinBreakSegmentMinutes(5);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                workEntry("e2", "2026-05-10T13:03:00Z", "2026-05-10T17:03:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
+    }
+
+    @Test
+    void fallbackOn_gapAboveCeiling_ignored() {
+        // 3-hour gap > 120-min ceiling. The user effectively started a new
+        // shift after a long absence — heuristic must NOT credit this.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setFallbackDetectionEnabled(true);
+        settings.setCustomMinBreakSegmentMinutes(5);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),  // 240 min
+                workEntry("e2", "2026-05-10T16:00:00Z", "2026-05-10T20:00:00Z")); // 240 min
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
+    }
+
+    @Test
+    void fallbackOn_gapResetsContinuousWorkCounter() {
+        // 5h + 30-min gap + 3h = 8h work, but no single run exceeds 5h.
+        // maxContinuous = 240; flag ON ⇒ gap resets the run ⇒ no
+        // MAX_CONTINUOUS_WORK_EXCEEDED. Flag OFF ⇒ engine sees one 8h run
+        // (since intermediate gaps are not real BREAK entries) ⇒ fires.
+        WorkspaceSettings on = workspaceSettings(240, 15, 5);
+        on.setFallbackDetectionEnabled(true);
+        on.setCustomMinBreakSegmentMinutes(5);
+        on.setCustomMaxContinuousWorkMinutes(300); // 5h limit
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z"),  // 5h
+                workEntry("e2", "2026-05-10T14:30:00Z", "2026-05-10T17:30:00Z")); // 3h
+
+        List<FindingDraft> findingsOn = engine.evaluate(input(on, entries, "2026-05-10", "2026-05-10"));
+        assertThat(findingsOn).extracting(FindingDraft::code)
+                .doesNotContain(FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED);
+
+        WorkspaceSettings off = workspaceSettings(240, 15, 5);
+        off.setFallbackDetectionEnabled(false);
+        off.setCustomMinBreakSegmentMinutes(5);
+        off.setCustomMaxContinuousWorkMinutes(300);
+
+        List<FindingDraft> findingsOff = engine.evaluate(input(off, entries, "2026-05-10", "2026-05-10"));
+        assertThat(findingsOff).extracting(FindingDraft::code)
+                .contains(FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED);
+    }
+
+    @Test
+    void fallbackOn_californiaRule_longestSegmentWins() {
+        // allowSplitBreaks=false. Two below-floor gaps (4 min each, below
+        // 10-min floor) plus a real 12-min BREAK. With flag ON the gaps are
+        // dropped (below floor), the longest qualifying break is the 12-min
+        // BREAK entry, required is 15 ⇒ INSUFFICIENT_BREAK_DURATION.
+        WorkspaceSettings settings = workspaceSettings(300, 15, 5);
+        settings.setFallbackDetectionEnabled(true);
+        settings.setCustomMinBreakSegmentMinutes(10);
+        settings.setCustomAllowSplitBreaks(false);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T11:00:00Z"),   // 120 min
+                workEntry("e2", "2026-05-10T11:04:00Z", "2026-05-10T13:00:00Z"),   // 116 min (4-min gap)
+                breakEntry("e3", "2026-05-10T13:00:00Z", "2026-05-10T13:12:00Z"),  // 12 min explicit
+                workEntry("e4", "2026-05-10T13:12:00Z", "2026-05-10T15:00:00Z"),   // 108 min
+                workEntry("e5", "2026-05-10T15:04:00Z", "2026-05-10T16:00:00Z")); // 56 min (4-min gap)
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.INSUFFICIENT_BREAK_DURATION);
+    }
+
+    @Test
+    void fallbackOn_timeOffBreaksPrevWorkChain_noSynthesisAcrossPto() {
+        // WORK 9-10, TIME_OFF 10-10:30, WORK 10:30-15:00. The 30-min wall
+        // gap from end-of-work1 to start-of-work2 would qualify if we
+        // naively spanned it. The IGNORED reset ensures we don't credit a
+        // break that the user actually spent on PTO ⇒ day still fires
+        // MISSING_REQUIRED_BREAK because the only "break" is PTO.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setFallbackDetectionEnabled(true);
+        settings.setCustomMinBreakSegmentMinutes(5);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T10:00:00Z"),     // 60 min
+                timeOffEntry("e2", "2026-05-10T10:00:00Z", "2026-05-10T10:30:00Z"),  // 30 min PTO (IGNORED)
+                workEntry("e3", "2026-05-10T10:30:00Z", "2026-05-10T15:00:00Z"));    // 270 min
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
+    }
+
     // helpers
 
     private static WorkspaceSettings workspaceSettings(int workThreshold, int requiredBreak, int grace) {

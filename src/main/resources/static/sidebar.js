@@ -281,6 +281,13 @@ function formatMinutes(minutes) {
     return `${h}h ${m}m`;
 }
 
+function formatBreakWithSynthetic(evidence) {
+    const total = evidence?.breakMinutes ?? 0;
+    const synth = evidence?.syntheticBreakMinutes ?? 0;
+    if (!synth) return formatMinutes(total);
+    return `${formatMinutes(total)} · ${formatMinutes(synth)} detected`;
+}
+
 function formatRelativeTime(date) {
     if (!(date instanceof Date) || isNaN(date.getTime())) return "";
     const diffSec = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
@@ -784,7 +791,7 @@ function renderPivot(container) {
             const worst = pickWorstSeverityFinding(findings);
             const cls = severityClass(worst.severity);
             const { icon, srLabel } = statusIconMeta(worst.severity);
-            const summary = `${formatMinutes(worst.evidence.workMinutes)} · ${formatMinutes(worst.evidence.breakMinutes)}`;
+            const summary = `${formatMinutes(worst.evidence.workMinutes)} · ${formatBreakWithSynthetic(worst.evidence)}`;
             const cell = create("td", { className: `day-cell status-${cls}`, title: worst.message });
             cell.appendChild(create("span", { className: "sr-only", text: `${srLabel}: ` }));
             cell.appendChild(create("span", { className: "status-icon", text: icon }));
@@ -822,7 +829,7 @@ function renderChecklist(container) {
             const worst = pickWorstSeverityFinding(findings);
             const cls = severityClass(worst.severity);
             const { icon, srLabel } = statusIconMeta(worst.severity);
-            const summary = `Work: ${formatMinutes(worst.evidence.workMinutes)} | Break: ${formatMinutes(worst.evidence.breakMinutes)}`;
+            const summary = `Work: ${formatMinutes(worst.evidence.workMinutes)} | Break: ${formatBreakWithSynthetic(worst.evidence)}`;
             const section = create("div", { className: `day-section status-${cls}` });
             const header = create("div", { className: "day-header" });
             header.appendChild(create("span", { className: "sr-only", text: `${srLabel}: ` }));
