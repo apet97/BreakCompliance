@@ -182,6 +182,55 @@ class WebhookFlowTest {
     }
 
     @Test
+    void identicalBodyAcrossWorkspaces_bothProcessed_noCrossTenantDedup() throws Exception {
+        // Seed a second workspace + webhook auth token so we can deliver
+        // the same byte-for-byte body to two tenants. Without workspaceId
+        // in the idempotency key the second delivery would be silently
+        // deduped because sha256(eventType||body) is identical.
+        String ws2 = "ws-wh-two";
+        String addon2 = "addon-wh-002";
+        String storedTok2 = "webhook-secret-002";
+
+        Installation install2 = new Installation();
+        install2.setWorkspaceId(ws2);
+        install2.setAddonId(addon2);
+        install2.setAuthToken(EncryptedToken.of(codec.encrypt("install-tok-2")));
+        install2.setBackendUrl("https://api.clockify.me/api");
+        install2.setStatus(InstallationStatus.ACTIVE);
+        install2.setInstalledAt(Instant.now());
+        install2.setUpdatedAt(Instant.now());
+        installationRepo.saveAndFlush(install2);
+
+        WebhookAuthToken wat2 = new WebhookAuthToken();
+        wat2.setWorkspaceId(ws2);
+        wat2.setAddonId(addon2);
+        wat2.setPath(PATH);
+        wat2.setEventType(EVENT_TYPE);
+        wat2.setAuthToken(EncryptedToken.of(codec.encrypt(storedTok2)));
+        wat2.setCreatedAt(Instant.now());
+        webhookRepo.saveAndFlush(wat2);
+
+        String body = "{\"id\":\"shared-entry-id\"}";
+
+        mockMvc.perform(post(PATH)
+                        .header("Clockify-Signature", forgeSignature(STORED_AUTH_TOKEN, WORKSPACE, ADDON))
+                        .header("Clockify-Webhook-Event-Type", EVENT_TYPE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post(PATH)
+                        .header("Clockify-Signature", forgeSignature(storedTok2, ws2, addon2))
+                        .header("Clockify-Webhook-Event-Type", EVENT_TYPE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNoContent());
+
+        assertThat(signalRepo.findByWorkspaceIdOrderByReceivedAtDesc(WORKSPACE)).hasSize(1);
+        assertThat(signalRepo.findByWorkspaceIdOrderByReceivedAtDesc(ws2)).hasSize(1);
+    }
+
+    @Test
     void tamperedSignature_returns401() throws Exception {
         String sig = forgeSignature(STORED_AUTH_TOKEN, WORKSPACE, ADDON);
         String tampered = sig.substring(0, sig.length() - 4) + "AAAA";

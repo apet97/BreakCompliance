@@ -34,7 +34,7 @@ public class WebhookController {
             throw new IllegalStateException("webhook auth filter did not populate request attributes");
         }
         byte[] rawBody = body == null ? new byte[0] : body;
-        String idempotencyKey = WebhookEventId.compute(eventType, rawBody);
+        String idempotencyKey = WebhookEventId.compute(claims.workspaceId(), eventType, rawBody);
         if (!idempotency.markSeen(idempotencyKey)) {
             log.debug("webhook.duplicate workspace={} event={}", claims.workspaceId(), eventType);
             return ResponseEntity.noContent().build();
