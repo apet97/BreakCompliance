@@ -1,0 +1,38 @@
+# Dependabot keeps Maven deps + GitHub Actions versions current so a
+# CVE in a transitive dependency surfaces as a PR rather than a manual
+# discovery. Weekly cadence prevents flooding the inbox; security
+# patches still arrive immediately via security-only updates.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    groups:
+      # Spring Boot version bumps land cleanly as a single PR (parent
+      # POM + everything it manages) instead of fanning out across
+      # ~30 transitive deps.
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "org.springframework:*"
+      testcontainers:
+        patterns:
+          - "org.testcontainers:*"
+          - "com.redis:testcontainers-redis"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    labels:
+      - dependencies
