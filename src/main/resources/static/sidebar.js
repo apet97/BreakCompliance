@@ -33,10 +33,13 @@ const DATE_PRESETS = {
     last_month: () => monthRange(-1),
 };
 
+// Fallback labels when /api/presets hasn't loaded yet. The catalog is the
+// source of truth — these are only used during the first paint before
+// loadPresetCatalog resolves.
 const PRESET_LABELS = {
-    "custom-basic": "Custom policy",
-    "california-style": "California (IWC meal/rest)",
-    "germany-arbzg-style": "Germany ArbZG §3 + §4",
+    "custom-basic": "Custom (Editable Defaults)",
+    "california-style": "California (IWC Meal & Rest)",
+    "germany-arbzg-style": "Germany (ArbZG §3 & §4)",
 };
 
 const TIMEZONE_LABELS = {
@@ -62,6 +65,9 @@ const state = {
     lastRunRange: null,     // { start, end } — used by the refresh button
     detailsOpen: false,     // active-template details popover visibility
     cancelIngest: false,    // flips true when the user clicks Cancel mid-poll
+    presetCatalog: null,    // [{key,label,description,thresholds:{...}}] from GET /api/presets
+    chooserOpen: false,     // preset-chooser panel visibility
+    chooserBusy: null,      // presetKey currently being applied, or null
 };
 
 // ────────────────────────── Errors ──────────────────────────
@@ -418,13 +424,189 @@ function renderValidationWarnings() {
     node.appendChild(create("p", { className: "settings-warning-foot", text: "Reopen the settings page (⋯ → Settings on the add-on) to fix these, then re-run Check Compliance." }));
 }
 
+// ─────────────────── Preset chooser ───────────────────
+
+// Compare current active-template values against a preset's canonical
+// thresholds. Returns the list of field names that differ — empty list
+// means "matches preset". Null fields on either side are treated as
+// "not set" (which matches itself).
+function fieldsThatDivergeFromPreset(active, preset) {
+    if (!active || !preset?.thresholds) return [];
+    const t = preset.thresholds;
+    const diff = [];
+    const compare = (name, a, b) => { if ((a ?? null) !== (b ?? null)) diff.push(name); };
+    compare("workThresholdMinutes",       active.workThresholdMinutes,       t.workThresholdMinutes);
+    compare("breakThresholdMinutes",      active.breakThresholdMinutes,      t.breakThresholdMinutes);
+    compare("minBreakSegmentMinutes",     active.minBreakSegmentMinutes,     t.minBreakSegmentMinutes);
+    compare("maxContinuousWorkMinutes",   active.maxContinuousWorkMinutes,   t.maxContinuousWorkMinutes);
+    compare("gracePeriodMinutes",         active.gracePeriodMinutes,         t.gracePeriodMinutes);
+    compare("allowSplitBreaks",           active.allowSplitBreaks,           t.allowSplitBreaks);
+    // Preset 2nd-tier columns can be null (custom-basic). DB columns hold
+    // 0 instead. Treat 0 and null as equivalent for "Matches preset".
+    const z = v => (v == null || v === 0) ? null : v;
+    compare("secondWorkThresholdMinutes",  z(active.secondWorkThresholdMinutes),  z(t.secondWorkThresholdMinutes));
+    compare("secondBreakThresholdMinutes", z(active.secondBreakThresholdMinutes), z(t.secondBreakThresholdMinutes));
+    return diff;
+}
+
+async function loadPresetCatalog() {
+    if (state.presetCatalog) return state.presetCatalog;
+    const response = await api("/api/presets");
+    state.presetCatalog = response.presets ?? [];
+    return state.presetCatalog;
+}
+
+function activePresetFromCatalog() {
+    const key = state.session?.appliedPresetKey;
+    if (!key || !state.presetCatalog) return null;
+    return state.presetCatalog.find(p => p.key === key) ?? null;
+}
+
+function renderCustomizedPill() {
+    const pill = el("customized-pill");
+    const activePreset = activePresetFromCatalog();
+    const activeTemplate = state.session?.activeTemplate;
+    if (!activePreset || !activeTemplate) {
+        pill.hidden = true;
+        return;
+    }
+    const divergent = fieldsThatDivergeFromPreset(activeTemplate, activePreset);
+    if (divergent.length === 0) {
+        pill.hidden = false;
+        pill.className = "customized-pill matches";
+        pill.textContent = "Matches preset";
+        pill.removeAttribute("role");
+        pill.onclick = null;
+    } else {
+        pill.hidden = false;
+        pill.className = "customized-pill diverged";
+        pill.textContent = `Customized · Reset to ${activePreset.label}?`;
+        pill.setAttribute("role", "button");
+        pill.onclick = () => applyPreset(activePreset.key, { skipDivergenceConfirm: true });
+    }
+}
+
+async function togglePresetChooser(force) {
+    state.chooserOpen = typeof force === "boolean" ? force : !state.chooserOpen;
+    const panel = el("preset-chooser");
+    const trigger = el("switch-preset-btn");
+    trigger.setAttribute("aria-expanded", state.chooserOpen ? "true" : "false");
+    if (!state.chooserOpen) {
+        panel.hidden = true;
+        return;
+    }
+    panel.hidden = false;
+    try {
+        await loadPresetCatalog();
+    } catch (err) {
+        clearChildren(panel);
+        panel.appendChild(create("p", { className: "muted", text: "Couldn't load presets — try again." }));
+        return;
+    }
+    renderPresetChooser();
+}
+
+function renderPresetChooser() {
+    const panel = el("preset-chooser");
+    if (!state.chooserOpen) { panel.hidden = true; return; }
+    clearChildren(panel);
+    const activeKey = state.session?.appliedPresetKey;
+    const activeTemplate = state.session?.activeTemplate;
+    for (const preset of state.presetCatalog ?? []) {
+        const card = create("div", { className: "preset-card" + (preset.key === activeKey ? " active" : "") });
+        const header = create("div", { className: "preset-card-header" });
+        header.appendChild(create("span", { className: "preset-card-title", text: preset.label }));
+        if (preset.key === activeKey) {
+            const divergent = fieldsThatDivergeFromPreset(activeTemplate, preset);
+            const badge = create("span", {
+                className: "preset-card-badge " + (divergent.length === 0 ? "matches" : "diverged"),
+                text: divergent.length === 0 ? "Active · matches" : `Active · customized (${divergent.length})`,
+            });
+            header.appendChild(badge);
+        }
+        card.appendChild(header);
+
+        const t = preset.thresholds;
+        const summary = create("ul", { className: "preset-card-summary" });
+        summary.appendChild(create("li", { text: `Work threshold: ${formatMinutes(t.workThresholdMinutes)}` }));
+        summary.appendChild(create("li", { text: `Required break: ${formatMinutes(t.breakThresholdMinutes)}` }));
+        summary.appendChild(create("li", { text: `Min segment: ${formatMinutes(t.minBreakSegmentMinutes)}` }));
+        if (t.secondWorkThresholdMinutes) {
+            summary.appendChild(create("li", { text: `2nd tier: ${formatMinutes(t.secondWorkThresholdMinutes)} → ${formatMinutes(t.secondBreakThresholdMinutes)}` }));
+        }
+        summary.appendChild(create("li", { text: `Split breaks: ${t.allowSplitBreaks ? "allowed" : "one block required"}` }));
+        card.appendChild(summary);
+
+        if (preset.description) {
+            card.appendChild(create("p", { className: "preset-card-desc", text: preset.description }));
+        }
+
+        const applyBtn = create("button", {
+            className: "btn-secondary preset-card-apply",
+            text: preset.key === activeKey ? "Re-apply" : "Apply this preset",
+        });
+        applyBtn.type = "button";
+        applyBtn.disabled = state.chooserBusy === preset.key;
+        if (state.chooserBusy === preset.key) applyBtn.textContent = "Applying…";
+        applyBtn.addEventListener("click", () => applyPreset(preset.key));
+        card.appendChild(applyBtn);
+
+        panel.appendChild(card);
+    }
+}
+
+async function applyPreset(presetKey, options = {}) {
+    const activePreset = activePresetFromCatalog();
+    const target = (state.presetCatalog ?? []).find(p => p.key === presetKey);
+    const activeTemplate = state.session?.activeTemplate;
+    if (!target) return;
+
+    // Confirm if applying would overwrite user customizations. Skip the
+    // prompt when the user explicitly chose "Reset to preset" via the pill.
+    if (!options.skipDivergenceConfirm && activePreset && activeTemplate) {
+        const divergent = fieldsThatDivergeFromPreset(activeTemplate, activePreset);
+        if (divergent.length > 0) {
+            const ok = window.confirm(
+                `Applying "${target.label}" will overwrite ${divergent.length} customized field${divergent.length === 1 ? "" : "s"}. Continue?`);
+            if (!ok) return;
+        }
+    }
+
+    state.chooserBusy = presetKey;
+    renderPresetChooser();
+    try {
+        await api("/api/presets/apply", {
+            method: "POST",
+            body: JSON.stringify({ presetKey }),
+        });
+        // Re-fetch the session so the chip + popover + customized pill
+        // reflect the new threshold values.
+        state.session = await api("/api/session");
+        renderActiveTemplate();
+        renderCustomizedPill();
+        renderValidationWarnings();
+        showBanner("ok", `Applied "${target.label}". Reload the Clockify settings page if you want to fine-tune individual fields.`);
+        togglePresetChooser(false);
+    } catch (err) {
+        showBanner("err", err instanceof HttpError
+            ? `Couldn't apply preset: ${err.message}`
+            : "Couldn't apply preset.");
+    } finally {
+        state.chooserBusy = null;
+        renderPresetChooser();
+    }
+}
+
 function renderActiveTemplate() {
     const labelNode = el("active-template-label");
     const chip = el("active-template-chip");
     const details = el("active-template-details");
 
     const presetKey = state.session?.appliedPresetKey ?? "custom-basic";
-    const presetLabel = PRESET_LABELS[presetKey] ?? presetKey;
+    // Prefer the catalog's label so any future preset addition shows up
+    // correctly without a sidebar.js update. Fall back to the static map.
+    const catalogEntry = (state.presetCatalog ?? []).find(p => p.key === presetKey);
+    const presetLabel = catalogEntry?.label ?? PRESET_LABELS[presetKey] ?? presetKey;
     labelNode.textContent = presetLabel;
 
     clearChildren(details);
@@ -834,14 +1016,18 @@ function updateFormFromState() {
 async function loadInitialData() {
     const statusNode = el("session-status");
     try {
-        state.session = await api("/api/session");
-        // Successful auth needs no chrome in the header — keep the node
-        // hidden and let the body of the sidebar tell the story. We were
-        // previously leaking the raw workspaceId here, which is debug
-        // information, not user content.
+        // Parallel: session info + preset catalog. Both are needed before
+        // the active-template chip can render its label and the
+        // Matches/Customized pill can decide which state to show.
+        const [session] = await Promise.all([
+            api("/api/session"),
+            loadPresetCatalog().catch(() => null),
+        ]);
+        state.session = session;
         statusNode.hidden = true;
         statusNode.textContent = "";
         renderActiveTemplate();
+        renderCustomizedPill();
         renderValidationWarnings();
         renderResults(); // first-paint empty state
     } catch (err) {
@@ -881,13 +1067,15 @@ function wireEvents() {
         // Also refresh the session info so the active-template chip picks
         // up any threshold/preset change from the structured-settings page.
         api("/api/session")
-            .then(s => { state.session = s; renderActiveTemplate(); renderValidationWarnings(); })
+            .then(s => { state.session = s; renderActiveTemplate(); renderCustomizedPill(); renderValidationWarnings(); })
             .catch(() => { /* non-fatal — runCompliance will surface its own errors */ });
         runCompliance();
     });
 
     // Active-template chip → toggle the thresholds popover.
     el("active-template-chip").addEventListener("click", () => toggleActiveTemplateDetails());
+    // Switch-preset button → toggle the inline chooser panel.
+    el("switch-preset-btn").addEventListener("click", () => togglePresetChooser());
     // Click outside the chip dismisses the popover.
     document.addEventListener("click", e => {
         if (!state.detailsOpen) return;

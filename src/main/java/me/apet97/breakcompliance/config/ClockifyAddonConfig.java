@@ -119,27 +119,16 @@ public class ClockifyAddonConfig {
         // raw-key complaint by making the keys themselves human-readable.
         // The lifecycle handler maps the inbound label back to the internal
         // slug via {@link RuleTemplatePresets#fromManifestLabel(String)}.
-        // Preset and timezone dropdowns emit the user-visible label as the
-        // stored value — Clockify's structured-settings DSL only accepts
-        // {@code List<String>} for allowedValues, so we sidestep the
-        // raw-key complaint by making the keys themselves human-readable.
-        // The lifecycle handler maps the inbound label back to the internal
-        // slug via {@link RuleTemplatePresets#fromManifestLabel(String)}.
-        // `.required(true)` suppresses Clockify's auto-injected "None"
-        // option — the workspace always has SOME preset active, never
-        // "none".
-        ClockifySetting appliedPreset = ClockifySetting.builder()
-                .id("appliedPresetKey")
-                .name("Load preset values")
-                .allowAdmins()
-                .asDropdownSingle()
-                .value(RuleTemplatePresets.CUSTOM_BASIC.manifestLabel())
-                .allowedValues(RuleTemplatePresets.ALL.stream()
-                        .map(RuleTemplatePresets.Preset::manifestLabel)
-                        .toList())
-                .required(true)
-                .description("Picks a jurisdiction starter. After Save, reload this settings page to see the threshold fields below populate with that preset's recommended values; any field you then edit manually wins. References: California IWC Wage Orders (dir.ca.gov/dlse/faq_mealperiods.htm), Germany ArbZG §3 + §4 (gesetze-im-internet.de/arbzg).")
-                .build();
+        // The preset chooser lives in the sidebar iframe, not here. Reason:
+        // Clockify's native settings UI renders each field independently
+        // and never re-fetches sibling fields after a change, so a
+        // "pick preset → thresholds populate" interaction can't be made to
+        // work without a full page reload. The sidebar handles preset
+        // selection with a real preview + confirm flow against
+        // POST /api/presets/apply. See sidebar.js renderPresetChooser.
+        // We keep tolerating an inbound `appliedPresetKey` in
+        // SETTINGS_UPDATED (defensive parser) — legacy workspaces with
+        // the field cached might still echo it back.
 
         ClockifySetting workThreshold = ClockifySetting.builder()
                 .id("workThresholdMinutes")
@@ -241,7 +230,6 @@ public class ClockifyAddonConfig {
                 .id("breakCompliance")
                 .name("Break Compliance")
                 .settings(List.of(
-                        appliedPreset,
                         workThreshold,
                         breakThreshold,
                         minBreakSegment,

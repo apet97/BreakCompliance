@@ -58,7 +58,7 @@ public class SidebarHtmlController {
                     <h1>Break Compliance</h1>
                     <p id="session-status" class="session-status" aria-live="polite" hidden></p>
                     <div class="active-template-row">
-                      <span class="control-label">Active template</span>
+                      <span class="control-label">Active preset</span>
                       <button
                         id="active-template-chip"
                         class="active-template-chip"
@@ -70,11 +70,20 @@ public class SidebarHtmlController {
                         <span id="active-template-label">—</span>
                         <span class="chip-caret" aria-hidden="true">▾</span>
                       </button>
+                      <span id="customized-pill" class="customized-pill" hidden></span>
+                      <button
+                        id="switch-preset-btn"
+                        class="btn-link"
+                        type="button"
+                        aria-expanded="false"
+                        aria-controls="preset-chooser"
+                      >Switch…</button>
                       <div id="active-template-details" class="active-template-details" role="dialog" aria-label="Active template thresholds" hidden></div>
                     </div>
+                    <div id="preset-chooser" class="preset-chooser" role="region" aria-label="Choose a preset" hidden></div>
                     <details class="settings-hint">
-                      <summary class="settings-hint-summary"><span class="settings-hint-glyph" aria-hidden="true">ⓘ</span> Where do I configure thresholds?</summary>
-                      <p class="settings-hint-body">In Clockify: <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong>. The dropdown there loads a jurisdiction starter; any field you edit afterwards wins.</p>
+                      <summary class="settings-hint-summary"><span class="settings-hint-glyph" aria-hidden="true">ⓘ</span> Where do I fine-tune the thresholds?</summary>
+                      <p class="settings-hint-body">Switching presets here applies the jurisdiction's defaults immediately. To fine-tune individual fields, open <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong> in Clockify; any edits there land on top of the preset.</p>
                     </details>
                     <div class="header-controls">
                       <div class="control-group">

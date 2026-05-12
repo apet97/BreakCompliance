@@ -57,28 +57,37 @@ close a session) — do not just bump the threshold.
 relations must run inside an `@Transactional` boundary; pulling lazy fields
 from a controller method body will throw `LazyInitializationException`.
 
-## Settings model — single editable template, preset-as-loader (§18 / §22 / §24)
+## Settings model — split surface: threshold fields native, preset chooser sidebar (§18 / §22 / §24 / §26)
 
-One native structured-settings tab "Break Compliance" with 11 admin-only fields:
+**Native structured-settings tab "Break Compliance"** — 10 admin-only fields
+for fine-tuning individual thresholds:
 
 | Field | Type | Default |
 |---|---|---|
-| `appliedPresetKey` | DROPDOWN | `custom-basic` — picking it overwrites the 8 thresholds with the preset's values |
 | `workThresholdMinutes` | NUMBER | 240 |
 | `breakThresholdMinutes` | NUMBER | 15 |
 | `minBreakSegmentMinutes` | NUMBER | 5 |
 | `maxContinuousWorkMinutes` | NUMBER | 240 |
 | `gracePeriodMinutes` | NUMBER | 5 |
 | `allowSplitBreaks` | CHECKBOX | true (OFF = California meal-rule) |
-| `secondWorkThresholdMinutes` | NUMBER | 0 (disabled) |
-| `secondBreakThresholdMinutes` | NUMBER | 0 (disabled) |
-| `timezoneStrategy` | DROPDOWN | `ENTRY_TIMEZONE` |
+| `secondWorkThresholdMinutes` | NUMBER | 0 (disabled — placeholder "0 = disabled") |
+| `secondBreakThresholdMinutes` | NUMBER | 0 (disabled — placeholder "0 = disabled") |
+| `timezoneStrategy` | DROPDOWN required | `Use entry's local time zone` |
 | `fallbackDetectionEnabled` | CHECKBOX | false |
 
-**Handler** (`InstallationService.handleSettingsUpdated`):
-1. If incoming `appliedPresetKey` ≠ stored → overwrite all 8 thresholds from
-   `RuleTemplatePresets.{key}.toEntity`.
-2. Apply per-field updates on top — manual edits win when both arrive together.
+**Sidebar preset chooser** owns `appliedPresetKey` (entity column unchanged).
+Reason: Clockify's native settings UI renders each field independently and
+never re-fetches sibling fields after a change, so a "pick preset → thresholds
+populate" interaction in the native tab requires a full page reload to show
+any effect — it confuses users into thinking the dropdown is broken. The
+sidebar exposes the chooser via `POST /api/presets/apply` with a real preview
+of each preset's values, a confirmation when the apply would overwrite custom
+edits, and a "Matches preset / Customized — Reset to <preset>?" indicator.
+
+**Handler** (`InstallationService.handleSettingsUpdated`) still tolerates a
+legacy `appliedPresetKey` entry in inbound SETTINGS_UPDATED (label or slug)
+as a defensive parser — Clockify won't push it now that the field is gone
+from the manifest, but cached installs might.
 
 **Engine**: `BreakRuleEngine.synthesizeWorkspaceTemplate(input)` wraps
 `WorkspaceSettings` into a transient `RuleTemplate` per evaluation. No per-user
@@ -86,9 +95,10 @@ template resolution; the `breakcompliance_rule_templates` +
 `breakcompliance_template_assignments` tables are engine-irrelevant (kept
 additively).
 
-**Sidebar** shows the active preset as a **clickable chip** (§24) with a
-thresholds popover. Configure thresholds at:
-**Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings**.
+**Sidebar** shows the active preset as a **clickable chip** with a thresholds
+popover, a **Matches preset / Customized — Reset?** pill next to it, and a
+**Switch…** button that opens the preset chooser. Fine-tune individual fields
+at: **Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings**.
 
 ## Outbound Clockify call
 
@@ -101,7 +111,7 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 |---|---|
 | Read `backendUrl`/`reportsUrl` from JWT claims — never hardcode. | Dev portal uses `/report/v1/…`; production `reports.api.clockify.me/v1/…`. JWT has the env-correct URL. |
 | `X-Addon-Token` header (not `Authorization`) for outbound. | Clockify rejects `Authorization`. |
-| Settings = native structured-settings only. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
+| Threshold fields = native structured-settings; preset selection = sidebar. | Clockify renders each native field independently and never re-fetches siblings after a change, so a backend-driven cross-field write isn't visible until reload. Sidebar lets us preview, confirm, and apply atomically. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` (§24). | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single-object shapes; unknown shapes drift-log + 200. |
 | Detailed-report response key is `timeentries` (ALL LOWERCASE). | Spec mislabels it. Live API confirmed. |
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` (no `Z`). | Server interprets in user timezone. |

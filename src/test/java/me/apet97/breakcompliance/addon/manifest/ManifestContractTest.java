@@ -109,7 +109,7 @@ class ManifestContractTest {
     }
 
     @Test
-    void manifest_singleTab_listsElevenFieldsInOrder() throws Exception {
+    void manifest_singleTab_listsTenFieldsInOrder() throws Exception {
         MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
 
@@ -118,10 +118,10 @@ class ManifestContractTest {
 
         List<String> ids = new java.util.ArrayList<>();
         tabSettings.forEach(node -> ids.add(node.get("id").asText()));
-        // Order matters — the preset selector is first so admins land on it,
-        // thresholds in evaluation order, then timezone + fallback at the end.
+        // `appliedPresetKey` was moved to the sidebar (POST /api/presets/apply)
+        // because Clockify's per-field rendering breaks any cross-field loader.
+        // Remaining fields stay in evaluation order, then timezone + fallback.
         assertThat(ids).containsExactly(
-                "appliedPresetKey",
                 "workThresholdMinutes",
                 "breakThresholdMinutes",
                 "minBreakSegmentMinutes",
@@ -135,34 +135,11 @@ class ManifestContractTest {
     }
 
     @Test
-    void appliedPresetKey_allowedValuesMatchBuiltInPresetKeys() throws Exception {
+    void timezoneStrategy_isRequiredAndSingleValue() throws Exception {
         MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
 
         JsonNode tabSettings = root.get("settings").get("tabs").get(0).get("settings");
-        JsonNode appliedPreset = null;
-        for (JsonNode node : tabSettings) {
-            if ("appliedPresetKey".equals(node.get("id").asText())) {
-                appliedPreset = node;
-                break;
-            }
-        }
-        assertThat(appliedPreset).isNotNull();
-
-        List<String> allowedValues = new java.util.ArrayList<>();
-        appliedPreset.get("allowedValues").forEach(v -> allowedValues.add(v.asText()));
-        // The manifest dropdown now emits user-readable labels — Clockify's
-        // structured-settings DSL stores the chosen value as-is, so the
-        // labels become the storage key. InstallationService maps back to
-        // the internal slug via RuleTemplatePresets.fromManifestLabel.
-        assertThat(allowedValues).containsExactly(
-                "Custom (Editable Defaults)",
-                "California (IWC Meal & Rest)",
-                "Germany (ArbZG §3 & §4)");
-
-        assertThat(appliedPreset.get("value").asText()).isEqualTo("Custom (Editable Defaults)");
-        assertThat(appliedPreset.get("required").asBoolean()).isTrue();
-
         JsonNode timezoneStrategy = null;
         for (JsonNode node : tabSettings) {
             if ("timezoneStrategy".equals(node.get("id").asText())) {
@@ -175,5 +152,7 @@ class ManifestContractTest {
         timezoneStrategy.get("allowedValues").forEach(v -> tzAllowed.add(v.asText()));
         assertThat(tzAllowed).containsExactly("Use entry's local time zone");
         assertThat(timezoneStrategy.get("value").asText()).isEqualTo("Use entry's local time zone");
+        // required:true suppresses Clockify's auto-injected "None" option.
+        assertThat(timezoneStrategy.get("required").asBoolean()).isTrue();
     }
 }

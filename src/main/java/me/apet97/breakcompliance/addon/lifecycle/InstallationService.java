@@ -151,6 +151,40 @@ public class InstallationService {
     }
 
     /**
+     * Apply a named preset to a workspace's settings: overwrites the eight
+     * threshold columns + records {@code appliedPresetKey}, re-runs
+     * cross-field validation, and saves. Returns the persisted settings
+     * row. Called from the sidebar's preset-chooser endpoint
+     * (POST /api/presets/apply); the lifecycle handler still has its own
+     * path that funnels through {@link #applyPresetToSettings} directly so
+     * a single SETTINGS_UPDATED delivery containing both preset and
+     * per-field edits still merges atomically.
+     *
+     * @throws IllegalArgumentException if the preset key is unknown.
+     * @throws IllegalStateException if the workspace has no settings row
+     *         yet (caller should have triggered an install first).
+     */
+    @Transactional
+    public WorkspaceSettings applyPreset(String workspaceId, String presetKey) {
+        if (!isKnownPreset(presetKey)) {
+            throw new IllegalArgumentException("unknown preset key: " + presetKey);
+        }
+        WorkspaceSettings settings = settingsRepo.findById(workspaceId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "no workspace settings for workspaceId=" + workspaceId));
+        applyPresetToSettings(settings, presetKey);
+        settings.setAppliedPresetKey(presetKey);
+        settings.setValidationWarnings(serializeWarnings(SettingsWarning.validate(settings)));
+        settings.setUpdatedAt(Instant.now());
+        log.info("preset.applied workspace={} preset={}", workspaceId, presetKey);
+        return settingsRepo.save(settings);
+    }
+
+    private static boolean isKnownPreset(String key) {
+        return RuleTemplatePresets.ALL.stream().anyMatch(p -> p.key().equals(key));
+    }
+
+    /**
      * Overwrite the threshold columns on {@code settings} with the values
      * from the named preset (one of {@code RuleTemplatePresets.ALL}). No-op
      * when the preset key is unknown — caller must validate upstream.
