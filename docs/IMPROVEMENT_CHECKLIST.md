@@ -19,19 +19,14 @@ next pass).
 
 ## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
 
-**Shipped in this sweep (18 of 33 items):**
-P5.6, P5.1, P5.5, P3.4, P4.4, P4.5, P6.3, P1.5, P1.6 (UTC strategy added),
-P2.4 (already in code, verified), P2.5, P2.2, P2.8, P4.3, P1.4 (evidence
-only — no bucketing change), P2.6, P6.2, P3.3.
-
-**Still deferred — sidebar feature work needing design polish:**
-P2.7 (a11y audit).
+**Shipped in this sweep (22 of 33 items):**
+P1.3, P1.4 (evidence only), P1.5, P1.6 (UTC strategy added), P2.2,
+P2.4 (verified), P2.5, P2.6, P2.7 (focus rings + aria-label),
+P2.8, P2.9, P3.3, P3.4, P4.3, P4.4, P4.5, P4.6 (metric only), P5.1, P5.5,
+P5.6, P6.2, P6.3.
 
 **Still deferred — code refactors that touch every caller:**
 P5.3 (i18n), P5.4 (typed DTO).
-
-**Still deferred — needs Flyway migration + manifest field + dev re-install:**
-P1.3 (approval-state filter), P2.9 (severity tuning).
 
 **Still deferred — each requires a new HTTP client + entity + repository
 + service + tests (~500 LOC each):**
@@ -39,7 +34,8 @@ P1.1 (holidays), P1.2 (time-off), P2.1 (user filter), P2.3 (user-name
 reconcile), P6.1 (DSAR export).
 
 **Still deferred — engine work that touches the bucketing contract:**
-P4.6 (rate-limit visibility — needs a workspace banner protocol).
+P1.4 night-shift attribution setting (the bucketing change itself; the
+evidence flag is already shipped).
 
 **Live-blocked — requires a Clockify dev install + manual screenshot capture
 or 30-day production metric history:**
