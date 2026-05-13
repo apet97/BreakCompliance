@@ -186,6 +186,14 @@ src/main/java/me/apet97/breakcompliance/
                   PresetController serves GET /api/presets + POST /api/presets/apply for
                   the sidebar-driven preset chooser (native settings only holds the 10
                   per-field thresholds).
+                  IngestRunController also exposes GET /api/ingest/runs/latest (most recent
+                  COMPLETED run for the workspace, or 204) — drives the sidebar's
+                  "Last checked Xm ago" + "Pending refresh" staleness indicators (P2 #2).
+                  FindingsController also exposes GET /api/findings/export?format=csv
+                  (RFC 4180 attachment, P2 #3) and POST /api/findings/{id}/review
+                  (admin-gated OPEN/ACKNOWLEDGED/OVERRIDDEN upsert with optional note,
+                  P2 #4). GET /api/findings now embeds `review: {...} | null` inline
+                  per row so the sidebar paints chip state without a second round-trip.
   clockify/       ClockifyApi (shared RestClient, SSRF guard, 429/5xx retries)
                   + DetailedReportFetcher (accepts both `timeentries` and `timeEntries`
                   response keys) + ClockifyRateLimiter
