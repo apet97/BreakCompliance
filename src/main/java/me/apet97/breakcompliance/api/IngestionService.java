@@ -68,6 +68,10 @@ public class IngestionService {
     private final MeterRegistry meters;
     private final Timer runDuration;
     private final me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository workspaceSettings;
+    private final me.apet97.breakcompliance.clockify.HolidayFetcher holidayFetcher;
+    private final me.apet97.breakcompliance.clockify.TimeOffFetcher timeOffFetcher;
+    private final me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository holidayRepo;
+    private final me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository timeOffRepo;
 
     public IngestionService(
             InstallationRepository installationRepo,
@@ -78,7 +82,11 @@ public class IngestionService {
             PlatformTransactionManager txManager,
             @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor,
             MeterRegistry meters,
-            me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository workspaceSettings) {
+            me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository workspaceSettings,
+            me.apet97.breakcompliance.clockify.HolidayFetcher holidayFetcher,
+            me.apet97.breakcompliance.clockify.TimeOffFetcher timeOffFetcher,
+            me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository holidayRepo,
+            me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository timeOffRepo) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
@@ -88,6 +96,10 @@ public class IngestionService {
         this.ingestExecutor = ingestExecutor;
         this.meters = meters;
         this.workspaceSettings = workspaceSettings;
+        this.holidayFetcher = holidayFetcher;
+        this.timeOffFetcher = timeOffFetcher;
+        this.holidayRepo = holidayRepo;
+        this.timeOffRepo = timeOffRepo;
         this.runDuration = Timer.builder(MetricsConfig.INGEST_RUN_DURATION)
                 .description("Total time spent in IngestionService.executeRun")
                 .register(meters);
@@ -133,7 +145,16 @@ public class IngestionService {
             return failed;
         }
 
-        return tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+        IngestionRun completed = tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+        // P1.1 / P1.2 — refresh suppression cache after a successful sync
+        // ingest, mirroring the async path. Best-effort.
+        try {
+            refreshSuppressionForWindow(workspaceId, prepared.token(), from, to);
+        } catch (RuntimeException e) {
+            log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+        }
+        return completed;
     }
 
     /**
@@ -260,6 +281,75 @@ public class IngestionService {
                     .increment();
             sample.stop(runDuration);
             log.warn("ingestion.async.failed.finalize workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
+            return;
+        }
+
+        // P1.1 / P1.2 — best-effort suppression refresh. Failure here
+        // doesn't fail the run (we'd already finalized successfully); the
+        // worst case is "no suppression on this range" which matches
+        // pre-P1.1 behaviour exactly.
+        try {
+            refreshSuppressionForWindow(workspaceId, token, from, to);
+        } catch (RuntimeException e) {
+            log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Fetch + upsert holidays + approved time-off for {@code [from, to]}.
+     * The backend URL is read from the installation row (holidays + time-off
+     * live on {@code api.clockify.me}, not the reports host). Idempotent —
+     * upsert keys are stable so re-running for the same range overwrites
+     * cleanly.
+     */
+    private void refreshSuppressionForWindow(
+            String workspaceId, String token, LocalDate from, LocalDate to) {
+        Installation install = installationRepo.findByWorkspaceId(workspaceId).orElse(null);
+        if (install == null || install.getBackendUrl() == null || install.getBackendUrl().isBlank()) {
+            return;
+        }
+        String backendUrl = install.getBackendUrl();
+        java.time.Instant now = java.time.Instant.now();
+
+        // Holidays — apply per (sourceId, date, userId-or-null).
+        List<me.apet97.breakcompliance.clockify.HolidayFetcher.HolidayRow> holidays =
+                holidayFetcher.fetch(workspaceId, backendUrl, token, from, to);
+        if (!holidays.isEmpty()) {
+            tx.executeWithoutResult(status -> {
+                for (var row : holidays) {
+                    me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday h =
+                            new me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday();
+                    h.setWorkspaceId(workspaceId);
+                    h.setSourceId(row.sourceId());
+                    h.setDate(row.date());
+                    h.setAppliesToUserId(row.appliesToUserId());
+                    h.setName(row.name());
+                    h.setIngestedAt(now);
+                    holidayRepo.save(h);
+                }
+            });
+        }
+
+        // Approved time-off requests. Stored verbatim — engine derives the
+        // covered date set from start/end at evaluation time.
+        List<me.apet97.breakcompliance.clockify.TimeOffFetcher.TimeOffRow> timeOff =
+                timeOffFetcher.fetchApproved(workspaceId, backendUrl, token, from, to);
+        if (!timeOff.isEmpty()) {
+            tx.executeWithoutResult(status -> {
+                for (var row : timeOff) {
+                    me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff t =
+                            new me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff();
+                    t.setWorkspaceId(workspaceId);
+                    t.setSourceId(row.sourceId());
+                    t.setUserId(row.userId());
+                    t.setStartAt(row.startAt());
+                    t.setEndAt(row.endAt());
+                    t.setStatus(row.status());
+                    t.setIngestedAt(now);
+                    timeOffRepo.save(t);
+                }
+            });
         }
     }
 

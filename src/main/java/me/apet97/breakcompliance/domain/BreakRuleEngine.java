@@ -238,6 +238,12 @@ public class BreakRuleEngine {
         // call; the set is small (most workspaces leave it empty) and
         // membership checks are O(1).
         java.util.Set<String> exemptUserIds = input.settings().exemptUserIdSet();
+        // P1.1 / P1.2 — suppression sets from the input. Workspace-wide
+        // holidays skip everyone's bucket for that date; per-user
+        // suppressed dates skip only the matching user.
+        java.util.Set<LocalDate> wsHolidays = input.workspaceWideHolidayDates();
+        java.util.Map<String, java.util.Set<LocalDate>> perUserSuppressed =
+                input.userSpecificSuppressedDates();
         for (TimeEntry entry : input.entries()) {
             if (!Objects.equals(entry.getWorkspaceId(), input.workspaceId())) {
                 continue;
@@ -268,6 +274,13 @@ public class BreakRuleEngine {
             if (date.isBefore(input.dateRangeStart()) || date.isAfter(input.dateRangeEnd())) {
                 continue;
             }
+            // P1.1 / P1.2 — bucket is suppressed entirely. Workspace-wide
+            // holiday or per-user holiday/time-off → engine emits no
+            // findings for this user-day regardless of how many work
+            // entries exist on it.
+            if (wsHolidays.contains(date)) continue;
+            java.util.Set<LocalDate> userSuppressed = perUserSuppressed.get(entry.getUserId());
+            if (userSuppressed != null && userSuppressed.contains(date)) continue;
             if (entry.getEndAt() == null) {
                 runningByUserDate
                         .computeIfAbsent(entry.getUserId(), k -> new HashMap<>())

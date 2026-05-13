@@ -55,7 +55,7 @@ can pick up without re-research.
 Highest user-facing value. Each item closes a class of "this finding is wrong"
 admin complaints.
 
-- [!] **P1.1 Holiday-aware suppression** — live-blocked
+- [x] **P1.1 Holiday-aware suppression** — shipped
   - Fetch `GET /v1/workspaces/{ws}/holidays/in-period?start={from}&end={to}` at
     ingest time. Persist in `breakcompliance_workspace_holidays(workspaceId, date,
     name, userIds[], userGroupIds[])` (additive migration `V11__holidays.sql`).
@@ -68,7 +68,7 @@ admin complaints.
   - Touches: `clockify/HolidayFetcher.java` (new), `domain/BreakRuleEngine.java`,
     `api/IngestionService.java`, `config/ClockifyAddonConfig.java`.
 
-- [!] **P1.2 Approved-time-off suppression** — deferred
+- [x] **P1.2 Approved-time-off suppression** — shipped
   - Fetch `POST /v1/workspaces/{ws}/time-off/requests` (the search variant; the
     `GET` returns 405 per the OpenAPI). Persist approved requests in
     `breakcompliance_time_off_requests(workspaceId, userId, startAt, endAt,

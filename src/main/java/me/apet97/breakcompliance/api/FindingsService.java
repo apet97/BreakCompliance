@@ -12,11 +12,15 @@ import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
 import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.TemplateAssignmentRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +40,8 @@ public class FindingsService {
     private final TimeEntryRepository entriesRepo;
     private final FindingRepository findingsRepo;
     private final BreakRuleEngine engine;
+    private final WorkspaceHolidayRepository holidayRepo;
+    private final WorkspaceTimeOffRepository timeOffRepo;
 
     public FindingsService(
             WorkspaceSettingsRepository settingsRepo,
@@ -43,13 +49,17 @@ public class FindingsService {
             TemplateAssignmentRepository assignmentsRepo,
             TimeEntryRepository entriesRepo,
             FindingRepository findingsRepo,
-            BreakRuleEngine engine) {
+            BreakRuleEngine engine,
+            WorkspaceHolidayRepository holidayRepo,
+            WorkspaceTimeOffRepository timeOffRepo) {
         this.settingsRepo = settingsRepo;
         this.templatesRepo = templatesRepo;
         this.assignmentsRepo = assignmentsRepo;
         this.entriesRepo = entriesRepo;
         this.findingsRepo = findingsRepo;
         this.engine = engine;
+        this.holidayRepo = holidayRepo;
+        this.timeOffRepo = timeOffRepo;
     }
 
     @Transactional
@@ -65,11 +75,42 @@ public class FindingsService {
         Instant toInstant = to.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
         List<TimeEntry> entries = entriesRepo.findByWorkspaceIdAndStartAtBetween(workspaceId, fromInstant, toInstant);
 
+        // P1.1 / P1.2 — pull cached holidays + approved time-off and build
+        // the suppression sets the engine consumes. Workspace-wide
+        // holidays apply to every user's bucket for that date; per-user
+        // holidays + every approved time-off window only apply to the
+        // matching user.
+        java.util.Set<LocalDate> workspaceWide = new java.util.HashSet<>();
+        java.util.Map<String, java.util.Set<LocalDate>> perUser = new java.util.HashMap<>();
+        for (WorkspaceHoliday h : holidayRepo.findByWorkspaceIdAndDateBetween(workspaceId, from, to)) {
+            if (h.getAppliesToUserId() == null) {
+                workspaceWide.add(h.getDate());
+            } else {
+                perUser.computeIfAbsent(h.getAppliesToUserId(), k -> new java.util.HashSet<>())
+                        .add(h.getDate());
+            }
+        }
+        for (WorkspaceTimeOff t : timeOffRepo
+                .findByWorkspaceIdAndStartAtLessThanAndEndAtGreaterThanEqual(
+                        workspaceId, toInstant, fromInstant)) {
+            // Expand the (start, end) span into a set of LocalDates in UTC.
+            // Engine bucketing already handles per-entry timezones; we use
+            // UTC here as a safe baseline that matches Clockify's storage.
+            LocalDate dStart = t.getStartAt().atZone(java.time.ZoneOffset.UTC).toLocalDate();
+            LocalDate dEnd = t.getEndAt().atZone(java.time.ZoneOffset.UTC).toLocalDate();
+            java.util.Set<LocalDate> dates = perUser.computeIfAbsent(
+                    t.getUserId(), k -> new java.util.HashSet<>());
+            for (LocalDate d = dStart; !d.isAfter(dEnd); d = d.plusDays(1)) {
+                dates.add(d);
+            }
+        }
+
         // groupMemberships intentionally empty: the synthesised workspace
         // template is single per workspace and the engine does not consult
         // memberships. The record field stays for a future per-group policy.
         BreakRuleEngineInput input = new BreakRuleEngineInput(
-                workspaceId, settings, templates, assignments, entries, java.util.List.of(), from, to);
+                workspaceId, settings, templates, assignments, entries, java.util.List.of(),
+                from, to, workspaceWide, perUser);
         List<FindingDraft> drafts = engine.evaluate(input);
 
         // Build a userId → userName lookup from the time entries we just
