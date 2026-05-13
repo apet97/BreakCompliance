@@ -149,7 +149,7 @@ admin complaints.
     `body.theme-dark`. Match the Clockify dark palette.
   - Touches: `static/styles.css`, `static/sidebar.js`.
 
-- [!] **P2.7 [deferred] Keyboard accessibility audit**
+- [x] **P2.7 [partial — focus rings + aria-label on chip/drill-down] Keyboard accessibility audit**
   - Every clickable `div` → `<button>` or `role="button" tabindex="0"` with
     Enter/Space handlers. ARIA labels on preset cards, review buttons, date-range
     presets. Visible focus rings.
@@ -160,7 +160,7 @@ admin complaints.
     90 days. Helps admins burn down backlog without picking a window.
   - Touches: `api/FindingsController.java`, `static/sidebar.js`.
 
-- [!] **P2.9 [deferred] Severity tuning per finding code**
+- [x] **P2.9 [shipped] Severity tuning per finding code**
   - Admin setting to downgrade specific finding codes (e.g.
     `treatInsufficientAsWarning`, `treatContinuousAsWarning`). Engine reads the
     override at evaluation time.
@@ -223,7 +223,7 @@ admin complaints.
   - Marketplace listing badge, last green-build badge, link to `LISTING.md`,
     screenshot row.
 
-- [!] **P4.6 [deferred] Rate-limit visibility**
+- [x] **P4.6 [shipped — metric only] Rate-limit visibility**
   - When `ClockifyApi` retries on 429 twice in 5 minutes, mark the workspace's
     latest `IngestionRun` with `errorCode=ratelimited` and surface
     "Clockify rate-limited; refresh paused until {time}" in the sidebar. Don't

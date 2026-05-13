@@ -744,10 +744,13 @@ function renderActiveTemplate() {
 
     // P2.5 — one-line summary on chip hover, so admins don't have to click
     // the chip to glance at the current rule.
+    // P2.7 — also mirror onto aria-label so screen-reader users get the
+    // same context (CSS ::after pseudo-content is invisible to AT).
     const splitNote = active.allowSplitBreaks ? "split allowed" : "single block required";
     const segmentNote = `${active.minBreakSegmentMinutes ?? 0}m segments OK`;
-    chip.setAttribute("data-preview",
-        `≥${active.workThresholdMinutes ?? 0}m work → ≥${active.breakThresholdMinutes ?? 0}m break (${segmentNote}, ${splitNote})`);
+    const preview = `≥${active.workThresholdMinutes ?? 0}m work → ≥${active.breakThresholdMinutes ?? 0}m break (${segmentNote}, ${splitNote})`;
+    chip.setAttribute("data-preview", preview);
+    chip.setAttribute("aria-label", `Active preset: ${presetLabel}. ${preview}. Click to see full thresholds.`);
 
     const rows = [
         ["Work threshold", formatMinutes(active.workThresholdMinutes)],
@@ -1171,6 +1174,10 @@ function renderChecklist(container) {
                     });
                     drillBtn.type = "button";
                     drillBtn.setAttribute("aria-expanded", "false");
+                    // P2.7 — screen-reader friendly label so the button
+                    // announces its target clearly.
+                    drillBtn.setAttribute("aria-label",
+                        `Show ${entryIds.length} contributing time-entry id${entryIds.length === 1 ? "" : "s"} for this finding`);
                     const drillBody = create("div", { className: "rule-drill-body" });
                     drillBody.hidden = true;
                     if (entryIds.length > 0) {

@@ -51,11 +51,17 @@ public class ClockifyApi {
     private final RestClient restClient;
     private final ClockifyRateLimiter rateLimiter;
     private final ObjectMapper objectMapper;
+    private final io.micrometer.core.instrument.MeterRegistry meters;
 
-    public ClockifyApi(RestClient clockifyRestClient, ClockifyRateLimiter rateLimiter, ObjectMapper objectMapper) {
+    public ClockifyApi(
+            RestClient clockifyRestClient,
+            ClockifyRateLimiter rateLimiter,
+            ObjectMapper objectMapper,
+            io.micrometer.core.instrument.MeterRegistry meters) {
         this.restClient = clockifyRestClient;
         this.rateLimiter = rateLimiter;
         this.objectMapper = objectMapper;
+        this.meters = meters;
     }
 
     public <T> T get(String workspaceId, String baseUrl, String addonToken, String path, Class<T> type) {
@@ -121,6 +127,13 @@ public class ClockifyApi {
             try {
                 return attempt.invoke(retries);
             } catch (HttpClientErrorException.TooManyRequests e) {
+                // P4.6 — surface rate-limit incidents as a global counter
+                // so observability dashboards can alert on sustained 429s
+                // (a sign the per-workspace rate limit needs tuning or
+                // someone's sharing an API key across workloads). No
+                // workspace tag — high-cardinality labels blow up the
+                // Prometheus registry on a multi-tenant install.
+                meters.counter("breakcompliance.clockify.api.429").increment();
                 if (rateLimitRetries >= MAX_429_RETRIES) {
                     throw new ClockifyApiException(
                             "Clockify 429 after " + MAX_429_RETRIES + " retries",
@@ -243,6 +256,7 @@ public class ClockifyApi {
     private interface Attempt<T> {
         T invoke(int attempt);
     }
+
 
     /** Static convenience for callers that only need HTTP-status classification. */
     public static boolean isRetriable(HttpStatusCode status) {

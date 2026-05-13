@@ -1023,3 +1023,17 @@ select:focus, input:focus {
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
+
+/* P2.7 — minimum-bar focus rings. Sidebar already uses semantic <button>
+   elements; adding a consistent ring across all interactive controls so
+   keyboard navigation is visible against both themes. */
+.btn-link:focus-visible,
+.btn-primary:focus-visible,
+.btn-icon:focus-visible,
+.rule-review-btn:focus-visible,
+.rule-drill-btn:focus-visible,
+.preset-card:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

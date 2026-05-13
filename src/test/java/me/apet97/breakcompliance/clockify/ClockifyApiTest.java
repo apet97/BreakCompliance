@@ -55,7 +55,9 @@ class ClockifyApiTest {
         factory.setConnectTimeout(2000);
         factory.setReadTimeout(2000);
         RestClient client = RestClient.builder().requestFactory(factory).build();
-        api = new ClockifyApi(client, new InMemoryRateLimiter(), new ObjectMapper());
+        api = new ClockifyApi(
+                client, new InMemoryRateLimiter(), new ObjectMapper(),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
     @Test
