@@ -92,6 +92,21 @@ public class ClockifyAddonConfig {
                 .path("/webhook/time-entry-deleted")
                 .build());
 
+        // P3.1 — approved / rejected / withdrawn time-off events invalidate
+        // the suppression cache. SDK exposes these events natively.
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeOffRequestApproved()
+                .path("/webhook/time-off-approved")
+                .build());
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeOffRequestRejected()
+                .path("/webhook/time-off-rejected")
+                .build());
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeOffRequestWithdrawn()
+                .path("/webhook/time-off-withdrawn")
+                .build());
+
         manifest.getComponents().add(ClockifyComponent.builder()
                 .sidebar()
                 .allowAdmins()

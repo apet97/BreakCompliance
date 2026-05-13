@@ -44,6 +44,25 @@ public class WebhookController {
 
     @PostMapping(value = {"/new-time-entry", "/time-entry-updated", "/time-entry-deleted"}, consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> timeEntryWebhook(HttpServletRequest request, @RequestBody(required = false) byte[] body) {
+        return handleWebhook(request, body, this::extractDateHint);
+    }
+
+    /**
+     * P3.1 — approved / rejected / withdrawn time-off events invalidate
+     * the suppression cache. We don't need anything from the payload
+     * beyond the affected period — the consumer's next re-ingest will
+     * re-fetch the workspace's APPROVED requests for the window covering
+     * the event date. Path-based fan-out mirrors the time-entry handler.
+     */
+    @PostMapping(
+            value = {"/time-off-approved", "/time-off-rejected", "/time-off-withdrawn"},
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Void> timeOffWebhook(HttpServletRequest request, @RequestBody(required = false) byte[] body) {
+        return handleWebhook(request, body, this::extractTimeOffDateHint);
+    }
+
+    private ResponseEntity<Void> handleWebhook(
+            HttpServletRequest request, byte[] body, java.util.function.Function<byte[], String> dateHint) {
         NormalizedClaims claims = (NormalizedClaims) request.getAttribute(RequestAttributes.NORMALIZED_CLAIMS);
         String eventType = (String) request.getAttribute("breakcompliance.webhook-event-type");
         if (claims == null || eventType == null) {
@@ -57,9 +76,38 @@ public class WebhookController {
             return ResponseEntity.noContent().build();
         }
         meters.counter(MetricsConfig.WEBHOOK_RECEIVED, "event", eventType).increment();
-        String dateHint = extractDateHint(rawBody);
-        signals.recordWebhookSignal(claims.workspaceId(), eventType, dateHint);
+        signals.recordWebhookSignal(claims.workspaceId(), eventType, dateHint.apply(rawBody));
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Time-off payloads carry {@code timeOffPeriod.start} (ISO instant).
+     * Falls back to null on any parse failure — the consumer's
+     * fallback-window covers us.
+     */
+    private String extractTimeOffDateHint(byte[] rawBody) {
+        if (rawBody == null || rawBody.length == 0) return null;
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(rawBody);
+        } catch (Exception ignored) {
+            return null;
+        }
+        if (root == null || !root.isObject()) return null;
+        JsonNode start = root.path("timeOffPeriod").path("start");
+        if (start.isMissingNode() || !start.isTextual()) return null;
+        try {
+            return OffsetDateTime.parse(start.asText())
+                    .withOffsetSameInstant(ZoneOffset.UTC)
+                    .toLocalDate()
+                    .toString();
+        } catch (DateTimeParseException ignored) {
+            try {
+                return LocalDate.parse(start.asText()).toString();
+            } catch (DateTimeParseException stillBad) {
+                return null;
+            }
+        }
     }
 
     /**

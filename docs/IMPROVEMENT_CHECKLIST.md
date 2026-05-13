@@ -19,12 +19,12 @@ next pass).
 
 ## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
 
-**Shipped in this sweep (28 of 33 items):**
+**Shipped in this sweep (29 of 33 items):**
 P1.1, P1.2, P1.3, P1.4 (evidence + setting), P1.5, P1.6 (UTC strategy
 added), P2.1 (backend filter + sidebar dropdown), P2.2, P2.3, P2.4
 (verified), P2.5, P2.6, P2.7 (focus rings + aria-label), P2.8, P2.9,
-P3.3, P3.4, P4.3, P4.4, P4.5, P4.6 (metric only), P5.1, P5.5, P5.6,
-P6.1, P6.2, P6.3.
+P3.1 (approved/rejected/withdrawn time-off webhooks), P3.3, P3.4, P4.3,
+P4.4, P4.5, P4.6 (metric only), P5.1, P5.5, P5.6, P6.1, P6.2, P6.3.
 
 **Still deferred — code refactors that touch every caller:**
 P5.3 (i18n), P5.4 (typed DTO).
@@ -160,7 +160,7 @@ admin complaints.
 
 ## P3 — Webhook coverage & refresh accuracy
 
-- [!] **P3.1 [probe-blocked] Subscribe to time-off webhooks**
+- [x] **P3.1 [shipped] Subscribe to time-off webhooks**
   - If Clockify exposes `TIME_OFF_REQUEST_APPROVED` / `TIME_OFF_REQUEST_REJECTED`
     (verify against `docs/clockify-marketplace/build/webhooks.md` + live probe),
     add them to the manifest so approvals invalidate affected day buckets.
