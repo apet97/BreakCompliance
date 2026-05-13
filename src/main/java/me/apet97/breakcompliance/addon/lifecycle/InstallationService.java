@@ -463,8 +463,45 @@ public class InstallationService {
                 settings.setCustomRefreshDebounceSeconds(parsed);
                 yield true;
             }
+            // P1.3 — toggle approvalState=APPROVED on the detailed-report
+            // fetcher so the engine only sees approved entries.
+            case "excludeUnsubmittedEntries" -> {
+                if (value instanceof Boolean b) {
+                    settings.setExcludeUnsubmittedEntries(b);
+                    yield true;
+                }
+                yield false;
+            }
+            // P2.9 — per finding-code severity override. Engine validates
+            // against the Severity enum at evaluation time; we still
+            // sanity-check here so a typo doesn't land in the DB.
+            case "severityOverrideMissingBreak" -> applySeverityOverride(
+                    value, settings::setSeverityOverrideMissingBreak);
+            case "severityOverrideInsufficientBreak" -> applySeverityOverride(
+                    value, settings::setSeverityOverrideInsufficientBreak);
+            case "severityOverrideMaxContinuous" -> applySeverityOverride(
+                    value, settings::setSeverityOverrideMaxContinuous);
             default -> false;
         };
+    }
+
+    private static boolean applySeverityOverride(Object value, java.util.function.Consumer<String> setter) {
+        if (value == null) {
+            setter.accept(null);
+            return true;
+        }
+        if (!(value instanceof String s)) return false;
+        String trimmed = s.trim();
+        if (trimmed.isEmpty()) {
+            setter.accept(null);
+            return true;
+        }
+        String upper = trimmed.toUpperCase();
+        if (!"VIOLATION".equals(upper) && !"WARNING".equals(upper) && !"INFO".equals(upper)) {
+            return false;
+        }
+        setter.accept(upper);
+        return true;
     }
 
     private static boolean setNullableMinutes(Object value, java.util.function.Consumer<Integer> setter) {

@@ -105,6 +105,29 @@ public class WorkspaceSettings {
     @Column(name = "custom_refresh_debounce_seconds")
     private Integer customRefreshDebounceSeconds;
 
+    /**
+     * P1.3 — when true, the detailed-report fetcher sends
+     * {@code approvalState: "APPROVED"} so unsubmitted work-in-progress
+     * entries don't trigger findings. Off by default to keep the previous
+     * "see everything" behaviour.
+     */
+    @Column(name = "exclude_unsubmitted_entries", nullable = false)
+    private boolean excludeUnsubmittedEntries = false;
+
+    /**
+     * P2.9 — per-finding-code severity overrides. Null / blank = keep the
+     * engine's default (VIOLATION). Stored as the {@link Severity} enum
+     * name; invalid values fall back to the default in the engine.
+     */
+    @Column(name = "severity_override_missing_break")
+    private String severityOverrideMissingBreak;
+
+    @Column(name = "severity_override_insufficient_break")
+    private String severityOverrideInsufficientBreak;
+
+    @Column(name = "severity_override_max_continuous")
+    private String severityOverrideMaxContinuous;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

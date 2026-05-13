@@ -67,6 +67,7 @@ public class IngestionService {
     private final Executor ingestExecutor;
     private final MeterRegistry meters;
     private final Timer runDuration;
+    private final me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository workspaceSettings;
 
     public IngestionService(
             InstallationRepository installationRepo,
@@ -76,7 +77,8 @@ public class IngestionService {
             TokenCodec codec,
             PlatformTransactionManager txManager,
             @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor,
-            MeterRegistry meters) {
+            MeterRegistry meters,
+            me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository workspaceSettings) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
@@ -85,6 +87,7 @@ public class IngestionService {
         this.tx = new TransactionTemplate(txManager);
         this.ingestExecutor = ingestExecutor;
         this.meters = meters;
+        this.workspaceSettings = workspaceSettings;
         this.runDuration = Timer.builder(MetricsConfig.INGEST_RUN_DURATION)
                 .description("Total time spent in IngestionService.executeRun")
                 .register(meters);
@@ -94,13 +97,29 @@ public class IngestionService {
         return ingest(workspaceId, from, to, null);
     }
 
+    // P1.3 — best-effort lookup so a transient DB error during fetch
+    // doesn't break the ingest. Defaults to "fetch everything" (false),
+    // matching the historical behaviour.
+    private boolean isExcludeUnsubmittedEnabled(String workspaceId) {
+        try {
+            return workspaceSettings.findById(workspaceId)
+                    .map(me.apet97.breakcompliance.persistence.entities.WorkspaceSettings::isExcludeUnsubmittedEntries)
+                    .orElse(false);
+        } catch (RuntimeException e) {
+            log.debug("ingest.exclude-unsubmitted.lookup-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
         PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
         Objects.requireNonNull(prepared, "prepareRun returned null");
 
         List<Map<String, Object>> entries;
         try {
-            entries = fetcher.fetch(workspaceId, prepared.reportsUrl(), prepared.token(), from, to);
+            entries = fetcher.fetch(workspaceId, prepared.reportsUrl(), prepared.token(), from, to,
+                    isExcludeUnsubmittedEnabled(workspaceId));
         } catch (ClockifyApiException e) {
             tx.execute(status -> markRunFailed(workspaceId, prepared.runId(), "ClockifyApi:" + e.statusCode()));
             log.warn("ingestion.failed.clockify workspace={} status={}", workspaceId, e.statusCode());
@@ -212,7 +231,8 @@ public class IngestionService {
         Timer.Sample sample = Timer.start(meters);
         List<Map<String, Object>> entries;
         try {
-            entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to);
+            entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to,
+                    isExcludeUnsubmittedEnabled(workspaceId));
         } catch (ClockifyApiException e) {
             tx.execute(status -> markRunFailed(workspaceId, runId, "ClockifyApi:" + e.statusCode()));
             meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", "ClockifyApi:" + e.statusCode())

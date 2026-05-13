@@ -71,6 +71,16 @@ public class BreakRuleEngine {
             ActiveRequirement active = pickActiveRequirement(template, segments.workMinutes);
             int effectiveBreakMinutes = pickEffectiveBreakMinutes(template, segments);
 
+            // P2.9 — admin-configurable severity per finding code. Defaults
+            // to VIOLATION (the historical engine output); blank / invalid
+            // overrides fall back to VIOLATION too.
+            Severity missingSev = resolveSeverity(
+                    input.settings().getSeverityOverrideMissingBreak(), Severity.VIOLATION);
+            Severity insufficientSev = resolveSeverity(
+                    input.settings().getSeverityOverrideInsufficientBreak(), Severity.VIOLATION);
+            Severity continuousSev = resolveSeverity(
+                    input.settings().getSeverityOverrideMaxContinuous(), Severity.VIOLATION);
+
             if (active != null) {
                 Map<String, Object> evidence = buildEvidence(segments, active.thresholdMinutes, active.requiredBreakMinutes);
                 if (effectiveBreakMinutes <= 0) {
@@ -79,7 +89,7 @@ public class BreakRuleEngine {
                             bucket.userId(),
                             bucket.date(),
                             template.getId(),
-                            Severity.VIOLATION,
+                            missingSev,
                             FindingCode.MISSING_REQUIRED_BREAK,
                             "Worked " + segments.workMinutes + " minutes (threshold " + active.thresholdMinutes
                                     + ") with no qualifying break.",
@@ -90,7 +100,7 @@ public class BreakRuleEngine {
                             bucket.userId(),
                             bucket.date(),
                             template.getId(),
-                            Severity.VIOLATION,
+                            insufficientSev,
                             FindingCode.INSUFFICIENT_BREAK_DURATION,
                             "Qualifying break minutes " + effectiveBreakMinutes + " below required "
                                     + active.requiredBreakMinutes + ".",
@@ -110,7 +120,7 @@ public class BreakRuleEngine {
                         bucket.userId(),
                         bucket.date(),
                         template.getId(),
-                        Severity.VIOLATION,
+                        continuousSev,
                         FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED,
                         "Continuous work " + segments.maxContinuousWorkMinutes + " minutes exceeds maximum "
                                 + template.getMaxContinuousWorkMinutesBeforeBreak() + ".",
@@ -178,6 +188,22 @@ public class BreakRuleEngine {
         t.setCreatedAt(now);
         t.setUpdatedAt(now);
         return t;
+    }
+
+    /**
+     * P2.9 — parse the persisted severity override string into a
+     * {@link Severity} enum value, returning {@code fallback} when the
+     * stored value is null, blank, or doesn't match an enum member.
+     * The lifecycle handler validates input at the boundary; this is the
+     * inner safety net so an out-of-band DB edit can't crash the engine.
+     */
+    private static Severity resolveSeverity(String override, Severity fallback) {
+        if (override == null || override.isBlank()) return fallback;
+        try {
+            return Severity.valueOf(override.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
     }
 
     private static int positiveOr(Integer custom, int fallback) {

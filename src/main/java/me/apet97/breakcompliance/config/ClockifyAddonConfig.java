@@ -250,6 +250,49 @@ public class ClockifyAddonConfig {
                 .description("Optional. How long the addon waits after a Clockify webhook before refreshing findings — bursts of edits coalesce into one re-ingest within this window. Heavy workspaces benefit from longer windows; quiet ones from shorter.")
                 .build();
 
+        // P1.3 — scope the detailed-report fetch to APPROVED entries only.
+        // OFF by default so the engine still sees work-in-progress entries.
+        ClockifySetting excludeUnsubmitted = ClockifySetting.builder()
+                .id("excludeUnsubmittedEntries")
+                .name("Only evaluate approved entries")
+                .allowAdmins()
+                .asCheckbox()
+                .value(Boolean.FALSE)
+                .description("ON: only entries already approved in Clockify count toward break compliance. Work still being edited won't trigger findings. Recommended for workspaces with mandatory approval workflows.")
+                .build();
+
+        // P2.9 — severity overrides per finding code. Empty = engine default
+        // (VIOLATION). Letting a workspace downgrade to WARNING / INFO is
+        // useful when admins want softer signals during a rollout.
+        List<String> severityValues = List.of("VIOLATION", "WARNING", "INFO");
+        ClockifySetting severityMissing = ClockifySetting.builder()
+                .id("severityOverrideMissingBreak")
+                .name("Severity — missing break")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("VIOLATION")
+                .allowedValues(severityValues)
+                .description("How severe a missing-required-break finding is. Downgrade to WARNING or INFO if you want softer signals during a rollout.")
+                .build();
+        ClockifySetting severityInsufficient = ClockifySetting.builder()
+                .id("severityOverrideInsufficientBreak")
+                .name("Severity — insufficient break")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("VIOLATION")
+                .allowedValues(severityValues)
+                .description("Severity used when a user took some break but below the required total.")
+                .build();
+        ClockifySetting severityContinuous = ClockifySetting.builder()
+                .id("severityOverrideMaxContinuous")
+                .name("Severity — max continuous work")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("VIOLATION")
+                .allowedValues(severityValues)
+                .description("Severity used when a user exceeded the max-continuous-work limit without a qualifying break.")
+                .build();
+
         ClockifySettingsTab settingsTab = ClockifySettingsTab.builder()
                 .id("breakCompliance")
                 .name("Break Compliance")
@@ -265,7 +308,11 @@ public class ClockifyAddonConfig {
                         timezoneStrategy,
                         fallbackDetection,
                         exemptUsers,
-                        refreshDebounce))
+                        refreshDebounce,
+                        excludeUnsubmitted,
+                        severityMissing,
+                        severityInsufficient,
+                        severityContinuous))
                 .build();
 
         return ClockifySettings.builder()
