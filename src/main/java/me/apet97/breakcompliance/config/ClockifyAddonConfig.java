@@ -293,6 +293,20 @@ public class ClockifyAddonConfig {
                 .description("Severity used when a user exceeded the max-continuous-work limit without a qualifying break.")
                 .build();
 
+        // P1.4 — overnight-shift bucketing. "Start day" matches the
+        // historical default; "End day" attributes a shift to the day it
+        // ended, useful for night-shift workflows where the bulk of the
+        // work was done after midnight.
+        ClockifySetting nightShiftAttribution = ClockifySetting.builder()
+                .id("nightShiftAttribution")
+                .name("Overnight shift bucketing")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("start-day")
+                .allowedValues(List.of("start-day", "end-day"))
+                .description("How to attribute time entries whose start and end span a calendar midnight. start-day = whole shift counted on the day it began (default). end-day = whole shift counted on the day it ended.")
+                .build();
+
         ClockifySettingsTab settingsTab = ClockifySettingsTab.builder()
                 .id("breakCompliance")
                 .name("Break Compliance")
@@ -312,7 +326,8 @@ public class ClockifyAddonConfig {
                         excludeUnsubmitted,
                         severityMissing,
                         severityInsufficient,
-                        severityContinuous))
+                        severityContinuous,
+                        nightShiftAttribution))
                 .build();
 
         return ClockifySettings.builder()

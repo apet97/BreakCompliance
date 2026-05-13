@@ -128,6 +128,16 @@ public class WorkspaceSettings {
     @Column(name = "severity_override_max_continuous")
     private String severityOverrideMaxContinuous;
 
+    /**
+     * P1.4 — bucketing strategy for entries that straddle a UTC midnight.
+     * Accepted values: {@code "start-day"} (compiled default — entry
+     * attributed to startAt's calendar day) and {@code "end-day"} (entry
+     * attributed to endAt's calendar day). Null = use the compiled
+     * default.
+     */
+    @Column(name = "night_shift_attribution")
+    private String nightShiftAttribution;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

@@ -19,22 +19,17 @@ next pass).
 
 ## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
 
-**Shipped in this sweep (26 of 33 items):**
-P1.1, P1.2, P1.3, P1.4 (evidence only), P1.5, P1.6 (UTC strategy added),
-P2.1 (backend filter; sidebar will derive from loaded findings), P2.2,
-P2.4 (verified), P2.5, P2.6, P2.7 (focus rings + aria-label),
-P2.8, P2.9, P3.3, P3.4, P4.3, P4.4, P4.5, P4.6 (metric only), P5.1, P5.5,
-P5.6, P6.1, P6.2, P6.3.
+**Shipped in this sweep (27 of 33 items):**
+P1.1, P1.2, P1.3, P1.4 (evidence + setting), P1.5, P1.6 (UTC strategy
+added), P2.1 (backend filter), P2.2, P2.4 (verified), P2.5, P2.6,
+P2.7 (focus rings + aria-label), P2.8, P2.9, P3.3, P3.4, P4.3, P4.4,
+P4.5, P4.6 (metric only), P5.1, P5.5, P5.6, P6.1, P6.2, P6.3.
 
 **Still deferred — code refactors that touch every caller:**
 P5.3 (i18n), P5.4 (typed DTO).
 
 **Still deferred — needs a user-directory fetcher first:**
 P2.3 (user-name reconcile).
-
-**Still deferred — engine work that touches the bucketing contract:**
-P1.4 night-shift attribution setting (the bucketing change itself; the
-evidence flag is already shipped).
 
 **Live-blocked — requires a Clockify dev install + manual screenshot capture
 or 30-day production metric history:**
@@ -82,7 +77,7 @@ admin complaints.
     flagging entries the user is still editing.
   - Touches: `clockify/DetailedReportFetcher.java`, manifest field.
 
-- [!] **P1.4 Overnight-shift bucketing** — deferred
+- [x] **P1.4 Overnight-shift bucketing** — shipped (setting + engine + manifest field; evidence flag shipped earlier)
   - Current `bucketEntries` splits midnight-crossing entries into two day
     buckets → false MISSING_REQUIRED_BREAK on the night half.
   - Add setting `nightShiftAttribution` (DROPDOWN: `local-day` / `start-day` /

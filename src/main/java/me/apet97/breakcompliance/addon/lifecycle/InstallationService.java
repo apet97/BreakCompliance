@@ -481,6 +481,23 @@ public class InstallationService {
                     value, settings::setSeverityOverrideInsufficientBreak);
             case "severityOverrideMaxContinuous" -> applySeverityOverride(
                     value, settings::setSeverityOverrideMaxContinuous);
+            // P1.4 — overnight-shift bucketing. Engine treats "end-day"
+            // specially; anything else (null / blank / unknown value)
+            // falls back to the historical start-day attribution.
+            case "nightShiftAttribution" -> {
+                if (value == null || (value instanceof String s && s.isBlank())) {
+                    settings.setNightShiftAttribution(null);
+                    yield true;
+                }
+                if (value instanceof String s) {
+                    String v = s.trim().toLowerCase();
+                    if ("start-day".equals(v) || "end-day".equals(v)) {
+                        settings.setNightShiftAttribution(v);
+                        yield true;
+                    }
+                }
+                yield false;
+            }
             default -> false;
         };
     }

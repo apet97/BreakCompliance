@@ -270,7 +270,16 @@ public class BreakRuleEngine {
                     }
                 }
             }
-            LocalDate date = entry.getStartAt().atZone(zoneId).toLocalDate();
+            // P1.4 — choose attribution day for entries crossing midnight.
+            // "end-day" reads from endAt (when set); everything else falls
+            // through to the historical start-day behaviour.
+            LocalDate date;
+            String nightAttr = input.settings().getNightShiftAttribution();
+            if ("end-day".equalsIgnoreCase(nightAttr) && entry.getEndAt() != null) {
+                date = entry.getEndAt().atZone(zoneId).toLocalDate();
+            } else {
+                date = entry.getStartAt().atZone(zoneId).toLocalDate();
+            }
             if (date.isBefore(input.dateRangeStart()) || date.isAfter(input.dateRangeEnd())) {
                 continue;
             }
