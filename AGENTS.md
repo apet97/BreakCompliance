@@ -245,3 +245,44 @@ synthetic > 0.
     cases in `DetailedReportFetcherTest`, dateHint case in
     `RefreshSignalServiceTest`; `ClockifyRateLimiterTest.overBudget…`
     de-flaked with a bucket-boundary alignment).
+- **§28** — P2 product polish (0.2.0; plan at
+  `~/.claude/plans/all-you-re-picking-up-zesty-moth.md`). Six commits
+  on main:
+  - **Non-admin sidebar gating**: Check Compliance / Refresh /
+    Switch-preset disabled with "Workspace admin required" tooltip
+    when `state.session.workspaceRole` isn't ADMIN/OWNER; no 403
+    round-trips. Diverged customized-pill drops its Reset affordance
+    for non-admins.
+  - **Staleness indicators**: new `GET /api/ingest/runs/latest` (204
+    when no COMPLETED run) seeds `state.lastRunAt` on sidebar load;
+    amber "Pending refresh · webhook Xm ago" pill rendered when any
+    PENDING/CLAIMED `refresh_signals` row has `receivedAt` newer
+    than the latest completed run's `completedAt`. Repository gains
+    `findFirstByWorkspaceIdAndStatusOrderByCompletedAtDesc`.
+  - **CSV export**: new `GET /api/findings/export?format=csv` —
+    RFC 4180 attachment, columns `date,userId,userName,severity,
+    code,message,workMinutes,breakMinutes,syntheticBreakMinutes,
+    templateId,createdAt`. Sidebar download via blob + a tag with
+    `download` attribute.
+  - **Finding review UX**: new admin-gated
+    `POST /api/findings/{id}/review` upserts
+    `breakcompliance_finding_reviews` (table + enum already shipped
+    in V1; controller was inert). `GET /api/findings` now embeds
+    `review: {status, note, updatedAt} | null` per row. Sidebar
+    Checklist cycles a finding through OPEN → ACK → OVERRIDE via
+    per-row button with optional `window.prompt` audit note.
+    `FindingsService.exists(workspaceId, findingId)` is the
+    workspace-scoped guard.
+  - **Locale-aware date labels**: `NormalizedClaims.userTimeZone`
+    (canonical claim + legacy `userTimezone` / `tz` aliases) flows
+    to the sidebar; pivot weekday + M/D labels rendered via
+    `Intl.DateTimeFormat` (anchored at 12:00 UTC to avoid DST
+    midnight shifts).
+  - **Docs**: `docs/WHAT_COUNTS_AS_A_BREAK.md` — admin-facing
+    explainer of WORK/BREAK/IGNORED classification, the
+    gap-as-break heuristic, the `minBreakSegmentMinutes` floor,
+    and the hardcoded `MAX_GAP_AS_BREAK_MINUTES = 120` ceiling.
+  - **Test count**: 296 green (+3 `IngestRunControllerTest`,
+    +5 `FindingsControllerTest` review cases, +4
+    `FindingsControllerTest` CSV cases, +3 `ClaimsNormalizerTest`
+    userTimeZone, +2 `SessionControllerTest` userTimeZone).
