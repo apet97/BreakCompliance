@@ -153,6 +153,32 @@
     <build>
         <plugins>
             <plugin>
+                <!--
+                  Fail-fast with a readable error when someone builds under
+                  JDK ≠ 21. Without this, system Maven on a JDK 25 machine
+                  fails deep inside Lombok with an opaque stack trace. See
+                  CLAUDE.md "Build + test" section.
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-java-21</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                    <message>Break Compliance requires JDK 21 (Lombok 1.18.x is incompatible with JDK 22+). Run with JAVA_HOME pointed at a JDK 21 install.</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
