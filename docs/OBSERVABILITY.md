@@ -39,7 +39,7 @@ lowercase convention. Tags are listed under each entry.
 
 | Metric | Type | Tags | Meaning |
 |---|---|---|---|
-| `breakcompliance.webhook.received` | counter | `event` | Authenticated webhook deliveries (NEW / UPDATED / DELETED). |
+| `breakcompliance.webhook.received` | counter | `event` | Authenticated webhook deliveries. Event values: `NEW_TIME_ENTRY`, `TIME_ENTRY_UPDATED`, `TIME_ENTRY_DELETED`, plus P3.1: `TIME_OFF_REQUEST_APPROVED`, `TIME_OFF_REQUEST_REJECTED`, `TIME_OFF_REQUEST_WITHDRAWN`. |
 | `breakcompliance.webhook.duplicate` | counter | `event` | Webhook deliveries skipped by Redis SETNX dedupe. A sustained spike means Clockify is retrying — investigate response latency. |
 | `breakcompliance.refresh.signals.processed` | counter | `outcome` | Refresh-signal outcomes: `dispatched`, `coalesced`, `no_installation`, `inactive`, `failed`. |
 | `breakcompliance.ingest.run.duration` | timer | — | End-to-end ingest-run duration. Successes only; failed runs go to `breakcompliance.ingest.run.failed`. |

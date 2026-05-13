@@ -324,43 +324,46 @@ public class IngestionService {
         String backendUrl = install.getBackendUrl();
         java.time.Instant now = java.time.Instant.now();
 
-        // Holidays — apply per (sourceId, date, userId-or-null).
+        // Holidays — delete-then-upsert per window. Without the delete, a
+        // holiday removed in Clockify would keep suppressing its date
+        // until a manual wipe.
         List<HolidayFetcher.HolidayRow> holidays =
                 holidayFetcher.fetch(workspaceId, backendUrl, token, from, to);
-        if (!holidays.isEmpty()) {
-            tx.executeWithoutResult(status -> {
-                for (var row : holidays) {
-                    WorkspaceHoliday h = new WorkspaceHoliday();
-                    h.setWorkspaceId(workspaceId);
-                    h.setSourceId(row.sourceId());
-                    h.setDate(row.date());
-                    h.setAppliesToUserId(row.appliesToUserId());
-                    h.setName(row.name());
-                    h.setIngestedAt(now);
-                    holidayRepo.save(h);
-                }
-            });
-        }
+        tx.executeWithoutResult(status -> {
+            holidayRepo.deleteByWorkspaceIdAndDateBetween(workspaceId, from, to);
+            for (var row : holidays) {
+                WorkspaceHoliday h = new WorkspaceHoliday();
+                h.setWorkspaceId(workspaceId);
+                h.setSourceId(row.sourceId());
+                h.setDate(row.date());
+                h.setAppliesToUserId(row.appliesToUserId());
+                h.setName(row.name());
+                h.setIngestedAt(now);
+                holidayRepo.save(h);
+            }
+        });
 
-        // Approved time-off requests. Stored verbatim — engine derives the
-        // covered date set from start/end at evaluation time.
+        // Approved time-off — same replace-on-refetch story. A withdrawn
+        // / rejected request stops suppressing on the next refresh.
+        Instant windowStart = from.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        Instant windowEnd = to.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
         List<TimeOffFetcher.TimeOffRow> timeOff =
                 timeOffFetcher.fetchApproved(workspaceId, backendUrl, token, from, to);
-        if (!timeOff.isEmpty()) {
-            tx.executeWithoutResult(status -> {
-                for (var row : timeOff) {
-                    WorkspaceTimeOff t = new WorkspaceTimeOff();
-                    t.setWorkspaceId(workspaceId);
-                    t.setSourceId(row.sourceId());
-                    t.setUserId(row.userId());
-                    t.setStartAt(row.startAt());
-                    t.setEndAt(row.endAt());
-                    t.setStatus(row.status());
-                    t.setIngestedAt(now);
-                    timeOffRepo.save(t);
-                }
-            });
-        }
+        tx.executeWithoutResult(status -> {
+            timeOffRepo.deleteByWorkspaceIdAndStartAtLessThanAndEndAtGreaterThanEqual(
+                    workspaceId, windowEnd, windowStart);
+            for (var row : timeOff) {
+                WorkspaceTimeOff t = new WorkspaceTimeOff();
+                t.setWorkspaceId(workspaceId);
+                t.setSourceId(row.sourceId());
+                t.setUserId(row.userId());
+                t.setStartAt(row.startAt());
+                t.setEndAt(row.endAt());
+                t.setStatus(row.status());
+                t.setIngestedAt(now);
+                timeOffRepo.save(t);
+            }
+        });
 
         // P2.3 — refresh stale userName columns. Single transaction over
         // the whole directory; the repo's bulk UPDATE is a no-op for
