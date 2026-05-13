@@ -18,6 +18,18 @@ _Last updated: 2026-05-13._
 | `breakcompliance_refresh_signals` | Until uninstall | Signals flow `PENDING → CLAIMED → CONSUMED` (or `COALESCED`/`FAILED`) as the active consumer drains them; wiped on `DELETED`. |
 | `breakcompliance_group_memberships` | Replaced per ingest | Snapshot rewrite by `(workspace_id, group_id, user_id)`; wiped on `DELETED`. |
 | `breakcompliance_audit_logs` | Until uninstall | Cleared by `WorkspaceDataDeletionService` on `DELETED` alongside the rest of the workspace's app data. Verified live on 2026-05-13: 0 rows for the uninstalled test workspace across all 12 workspace-scoped tables (see `docs/LIVE_VALIDATION.md` §6). |
+| `breakcompliance_workspace_holidays` (P1.1) | Replaced per ingest window | Upsert by `(workspace_id, source_id, date, applies_to_user_id)` on the next overlapping ingest. Cleared on `DELETED` via `WorkspaceDataDeletionService`. |
+| `breakcompliance_workspace_time_off` (P1.2) | Replaced per ingest window | Upsert by `(workspace_id, source_id)` on the next overlapping ingest. Cleared on `DELETED` via `WorkspaceDataDeletionService`. |
+
+## DSAR (right of access) export — P6.1
+
+Admins can fetch a JSON bundle of every row referencing a specific user via
+`GET /api/dsar/{userId}` (workspace-scoped via the JWT, admin-gated). The
+response includes time entries, findings, holiday assignments, and approved
+time-off requests for that user — enough to satisfy GDPR Art. 15 / Art. 20
+without writing a custom query. Response is served with a
+`Content-Disposition: attachment; filename="dsar-…json"` header so
+operators can hand the user the file directly.
 
 ## Lifecycle-driven cleanup
 

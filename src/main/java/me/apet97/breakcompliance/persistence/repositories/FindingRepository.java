@@ -11,6 +11,9 @@ public interface FindingRepository extends JpaRepository<Finding, Finding.Pk> {
 
     List<Finding> findByWorkspaceIdAndDateBetween(String workspaceId, LocalDate from, LocalDate to);
 
+    // P6.1 — DSAR aggregation: every finding ever produced for a user.
+    List<Finding> findByWorkspaceIdAndUserId(String workspaceId, String userId);
+
     @Modifying
     @Transactional
     long deleteByWorkspaceIdAndDateBetween(String workspaceId, LocalDate from, LocalDate to);

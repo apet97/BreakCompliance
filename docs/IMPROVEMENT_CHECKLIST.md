@@ -19,19 +19,18 @@ next pass).
 
 ## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
 
-**Shipped in this sweep (22 of 33 items):**
-P1.3, P1.4 (evidence only), P1.5, P1.6 (UTC strategy added), P2.2,
+**Shipped in this sweep (26 of 33 items):**
+P1.1, P1.2, P1.3, P1.4 (evidence only), P1.5, P1.6 (UTC strategy added),
+P2.1 (backend filter; sidebar will derive from loaded findings), P2.2,
 P2.4 (verified), P2.5, P2.6, P2.7 (focus rings + aria-label),
 P2.8, P2.9, P3.3, P3.4, P4.3, P4.4, P4.5, P4.6 (metric only), P5.1, P5.5,
-P5.6, P6.2, P6.3.
+P5.6, P6.1, P6.2, P6.3.
 
 **Still deferred — code refactors that touch every caller:**
 P5.3 (i18n), P5.4 (typed DTO).
 
-**Still deferred — each requires a new HTTP client + entity + repository
-+ service + tests (~500 LOC each):**
-P1.1 (holidays), P1.2 (time-off), P2.1 (user filter), P2.3 (user-name
-reconcile), P6.1 (DSAR export).
+**Still deferred — needs a user-directory fetcher first:**
+P2.3 (user-name reconcile).
 
 **Still deferred — engine work that touches the bucketing contract:**
 P1.4 night-shift attribution setting (the bucketing change itself; the
@@ -108,7 +107,7 @@ admin complaints.
 
 ## P2 — Sidebar UX & admin productivity
 
-- [!] **P2.1 [deferred] User filter (server-side)**
+- [x] **P2.1 [shipped — backend filter; sidebar UI derives from loaded findings] User filter (server-side)**
   - `?userIds=a,b,c` on `GET /api/findings` and `/api/findings/export`.
   - Sidebar multi-select populated from `GET /v1/workspaces/{ws}/users?status=
     ACTIVE&page-size=200` (USER_READ scope already granted). 1-hour in-memory
@@ -269,7 +268,7 @@ admin complaints.
 
 ## P6 — Privacy & data-rights polish
 
-- [!] **P6.1 [deferred] DSAR (data-subject access request) export**
+- [x] **P6.1 [shipped] DSAR (data-subject access request) export**
   - `GET /api/dsar/{userId}` (admin-gated) returns a JSON bundle of every row
     referencing that userId. Document in `DATA_RETENTION.md`.
   - Touches: `api/DsarController.java` (new), `docs/DATA_RETENTION.md`.

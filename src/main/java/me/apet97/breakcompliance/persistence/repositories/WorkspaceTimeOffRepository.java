@@ -13,4 +13,7 @@ public interface WorkspaceTimeOffRepository extends JpaRepository<WorkspaceTimeO
      */
     List<WorkspaceTimeOff> findByWorkspaceIdAndStartAtLessThanAndEndAtGreaterThanEqual(
             String workspaceId, Instant rangeEnd, Instant rangeStart);
+
+    // P6.1 — user-scoped time-off rows for DSAR export.
+    List<WorkspaceTimeOff> findByWorkspaceIdAndUserId(String workspaceId, String userId);
 }

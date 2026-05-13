@@ -9,4 +9,7 @@ public interface WorkspaceHolidayRepository extends JpaRepository<WorkspaceHolid
 
     List<WorkspaceHoliday> findByWorkspaceIdAndDateBetween(
             String workspaceId, LocalDate from, LocalDate to);
+
+    // P6.1 — user-scoped holiday rows for DSAR export.
+    List<WorkspaceHoliday> findByWorkspaceIdAndAppliesToUserId(String workspaceId, String userId);
 }

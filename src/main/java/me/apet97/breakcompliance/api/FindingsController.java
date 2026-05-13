@@ -66,7 +66,8 @@ public class FindingsController {
             HttpServletRequest request,
             @RequestParam("dateRangeStart") String fromIso,
             @RequestParam("dateRangeEnd") String toIso,
-            @RequestParam(value = "openOnly", required = false, defaultValue = "false") boolean openOnly) {
+            @RequestParam(value = "openOnly", required = false, defaultValue = "false") boolean openOnly,
+            @RequestParam(value = "userIds", required = false) String userIdsCsv) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
@@ -87,10 +88,29 @@ public class FindingsController {
                     })
                     .toList();
         }
+        // P2.1 — server-side userIds filter: comma-separated allowlist.
+        // Blank / missing param means "all users." Filter runs after openOnly
+        // so the two compose without surprise.
+        java.util.Set<String> userIdAllowlist = parseUserIds(userIdsCsv);
+        if (!userIdAllowlist.isEmpty()) {
+            findings = findings.stream()
+                    .filter(f -> userIdAllowlist.contains(f.getUserId()))
+                    .toList();
+        }
         List<Map<String, Object>> body = findings.stream()
                 .map(f -> toJsonShape(f, reviewsById.get(f.getId())))
                 .toList();
         return ResponseEntity.ok(Map.of("findings", body));
+    }
+
+    private static java.util.Set<String> parseUserIds(String csv) {
+        if (csv == null || csv.isBlank()) return java.util.Set.of();
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String part : csv.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) out.add(trimmed);
+        }
+        return out;
     }
 
     /**
@@ -111,7 +131,8 @@ public class FindingsController {
             HttpServletRequest request,
             @RequestParam("dateRangeStart") String fromIso,
             @RequestParam("dateRangeEnd") String toIso,
-            @RequestParam(value = "format", required = false, defaultValue = "csv") String format) {
+            @RequestParam(value = "format", required = false, defaultValue = "csv") String format,
+            @RequestParam(value = "userIds", required = false) String userIdsCsv) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
@@ -125,6 +146,14 @@ public class FindingsController {
         LocalDate from = range.from();
         LocalDate to = range.to();
         List<Finding> findings = findingsService.list(claims.workspaceId(), from, to);
+        // P2.1 — same userIds filter as the JSON list endpoint so the
+        // exported CSV matches the rendered page.
+        java.util.Set<String> userIdAllowlist = parseUserIds(userIdsCsv);
+        if (!userIdAllowlist.isEmpty()) {
+            findings = findings.stream()
+                    .filter(f -> userIdAllowlist.contains(f.getUserId()))
+                    .toList();
+        }
         String csv = toCsv(findings);
         String filename = "break-compliance-" + claims.workspaceId() + "-" + from + "-" + to + ".csv";
         return ResponseEntity.ok()
