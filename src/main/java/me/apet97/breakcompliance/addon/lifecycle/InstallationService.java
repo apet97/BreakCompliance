@@ -428,6 +428,41 @@ public class InstallationService {
             }
             case "secondWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondWorkThresholdMinutes);
             case "secondBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondBreakThresholdMinutes);
+            // P6.2 — comma / whitespace separated list of user ids the engine
+            // should skip. Stored verbatim; the entity exposes a parsed set.
+            case "exemptUserIds" -> {
+                if (value == null || (value instanceof String s && s.isBlank())) {
+                    settings.setExemptUserIds(null);
+                    yield true;
+                }
+                if (value instanceof String s) {
+                    settings.setExemptUserIds(s.trim());
+                    yield true;
+                }
+                yield false;
+            }
+            // P3.3 — workspace override for the refresh-signal debounce.
+            // Range 5..300 enforced here so a typoed value just keeps the
+            // application default rather than mis-tuning the consumer.
+            case "refreshDebounceSeconds" -> {
+                if (value == null) {
+                    settings.setCustomRefreshDebounceSeconds(null);
+                    yield true;
+                }
+                Integer parsed = null;
+                if (value instanceof Number n) parsed = n.intValue();
+                else if (value instanceof String s && !s.isBlank()) {
+                    try { parsed = Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) { yield false; }
+                }
+                if (parsed == null) yield false;
+                if (parsed == 0) {
+                    settings.setCustomRefreshDebounceSeconds(null);
+                    yield true;
+                }
+                if (parsed < 5 || parsed > 300) yield false;
+                settings.setCustomRefreshDebounceSeconds(parsed);
+                yield true;
+            }
             default -> false;
         };
     }

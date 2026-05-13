@@ -208,11 +208,18 @@ public class BreakRuleEngine {
         // Surfaced via evidence so the admin sees "this user has an open
         // timer; refresh in N minutes" instead of mystery-clean days.
         Map<String, Map<LocalDate, Integer>> runningByUserDate = new HashMap<>();
+        // P6.2 — workspace-scoped exemption list. Loaded once per evaluate()
+        // call; the set is small (most workspaces leave it empty) and
+        // membership checks are O(1).
+        java.util.Set<String> exemptUserIds = input.settings().exemptUserIdSet();
         for (TimeEntry entry : input.entries()) {
             if (!Objects.equals(entry.getWorkspaceId(), input.workspaceId())) {
                 continue;
             }
             if (entry.getUserId() == null || entry.getUserId().isEmpty()) {
+                continue;
+            }
+            if (exemptUserIds.contains(entry.getUserId())) {
                 continue;
             }
             if (entry.getStartAt() == null) {

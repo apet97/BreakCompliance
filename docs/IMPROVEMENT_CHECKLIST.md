@@ -19,28 +19,27 @@ next pass).
 
 ## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
 
-**Shipped in this sweep (12 items):**
+**Shipped in this sweep (18 of 33 items):**
 P5.6, P5.1, P5.5, P3.4, P4.4, P4.5, P6.3, P1.5, P1.6 (UTC strategy added),
-P2.4 (already in code, verified), P2.5, P2.2.
+P2.4 (already in code, verified), P2.5, P2.2, P2.8, P4.3, P1.4 (evidence
+only — no bucketing change), P2.6, P6.2, P3.3.
 
-**Deferred — each requires a Flyway migration + manifest field +
-re-install verification in the dev workspace, which is out of scope for a
-single offline sweep:**
-P1.3, P3.3, P2.9, P6.2.
+**Still deferred — sidebar feature work needing design polish:**
+P2.7 (a11y audit).
 
-**Deferred — each requires a new HTTP client + entity + repository + service
-+ tests (~500 LOC each):**
-P1.1, P1.2, P2.1, P2.3, P4.3, P6.1.
-
-**Deferred — sidebar feature work that needs design + dark-palette decisions:**
-P2.6 (dark theme), P2.7 (a11y audit), P2.8 (all-open view).
-
-**Deferred — engine work that touches the bucketing contract:**
-P1.4 (overnight shifts), P4.6 (rate-limit visibility — needs a workspace
-banner protocol).
-
-**Deferred — code refactors that touch every caller:**
+**Still deferred — code refactors that touch every caller:**
 P5.3 (i18n), P5.4 (typed DTO).
+
+**Still deferred — needs Flyway migration + manifest field + dev re-install:**
+P1.3 (approval-state filter), P2.9 (severity tuning).
+
+**Still deferred — each requires a new HTTP client + entity + repository
++ service + tests (~500 LOC each):**
+P1.1 (holidays), P1.2 (time-off), P2.1 (user filter), P2.3 (user-name
+reconcile), P6.1 (DSAR export).
+
+**Still deferred — engine work that touches the bucketing contract:**
+P4.6 (rate-limit visibility — needs a workspace banner protocol).
 
 **Live-blocked — requires a Clockify dev install + manual screenshot capture
 or 30-day production metric history:**
@@ -145,7 +144,7 @@ admin complaints.
     requiring a click.
   - Touches: `static/sidebar.js`, `static/styles.css`.
 
-- [!] **P2.6 [deferred] Dark theme support**
+- [x] **P2.6 [shipped] Dark theme support**
   - Detect Clockify theme via the `theme` postMessage event; toggle
     `body.theme-dark`. Match the Clockify dark palette.
   - Touches: `static/styles.css`, `static/sidebar.js`.
@@ -156,7 +155,7 @@ admin complaints.
     presets. Visible focus rings.
   - Touches: `static/sidebar.js`, `static/styles.css`.
 
-- [!] **P2.8 [deferred] "All open findings" view**
+- [x] **P2.8 [shipped] "All open findings" view**
   - New date-range preset `all_open` returning OPEN findings across the last
     90 days. Helps admins burn down backlog without picking a window.
   - Touches: `api/FindingsController.java`, `static/sidebar.js`.
@@ -185,7 +184,7 @@ admin complaints.
   - Same pattern. If unavailable, document a 24h re-fetch cadence in
     `RefreshSignalConsumer`.
 
-- [!] **P3.3 [deferred] Refresh debounce as a workspace setting**
+- [x] **P3.3 [shipped] Refresh debounce as a workspace setting**
   - Expose `refreshDebounceSeconds` (NUMBER, default 20, range 5–300). Today
     it's a startup property only.
   - Touches: `addon/webhook/RefreshSignalConsumer.java`, manifest field.
@@ -209,7 +208,7 @@ admin complaints.
     seeded dev workspace (re-seed per CLAUDE.md test-data section) and append as
     `LIVE_VALIDATION.md` §10.
 
-- [!] **P4.3 [deferred] Admin-action audit log UI**
+- [x] **P4.3 [shipped] Admin-action audit log UI**
   - Backend audit-log rows exist (preset apply, finding review); no UI surface.
     Add `GET /api/audit?dateRangeStart=&dateRangeEnd=` (admin-gated) and a
     collapsible sidebar panel.
@@ -279,7 +278,7 @@ admin complaints.
     referencing that userId. Document in `DATA_RETENTION.md`.
   - Touches: `api/DsarController.java` (new), `docs/DATA_RETENTION.md`.
 
-- [!] **P6.2 [deferred] Per-user exemption list**
+- [x] **P6.2 [shipped] Per-user exemption list**
   - Workspace setting `exemptUserIds`. Engine skips exempt users entirely. For
     execs / contractors not subject to break policy.
   - Touches: `persistence/entities/WorkspaceSettings.java`,

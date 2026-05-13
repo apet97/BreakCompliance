@@ -83,9 +83,46 @@ public class WorkspaceSettings {
     @Column(name = "validation_warnings", columnDefinition = "TEXT")
     private String validationWarnings;
 
+    /**
+     * P6.2 — comma-separated user ids that the engine should skip
+     * entirely. Useful for execs / contractors whose schedules don't
+     * follow workspace break policy. Stored as TEXT to avoid a join table
+     * for a field most workspaces leave empty. The setter is lenient
+     * around whitespace; {@link #exemptUserIdSet()} returns the parsed
+     * set for engine consumption.
+     */
+    @Column(name = "exempt_user_ids", columnDefinition = "TEXT")
+    private String exemptUserIds;
+
+    /**
+     * P3.3 — workspace-level override for the refresh-signal consumer's
+     * debounce window. Null = use the application default
+     * ({@code breakcompliance.refresh.debounce-ms}). Range 5–300 seconds
+     * enforced by the manifest field bounds; values outside that range
+     * are ignored by {@link RefreshDebounceResolver} and the warning is
+     * surfaced via {@code SettingsWarning}.
+     */
+    @Column(name = "custom_refresh_debounce_seconds")
+    private Integer customRefreshDebounceSeconds;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /**
+     * Convenience: parse {@link #exemptUserIds} into a normalised set of
+     * trimmed, non-blank ids. Returns an empty set when null or empty so
+     * callers can iterate without a null-check.
+     */
+    public java.util.Set<String> exemptUserIdSet() {
+        if (exemptUserIds == null || exemptUserIds.isBlank()) return java.util.Set.of();
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String part : exemptUserIds.split("[,\\s]+")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) out.add(trimmed);
+        }
+        return out;
+    }
 }

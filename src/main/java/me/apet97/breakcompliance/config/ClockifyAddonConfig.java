@@ -225,6 +225,31 @@ public class ClockifyAddonConfig {
                 .description("ON: detect breaks taken as gaps between work entries. A gap of 5–120 minutes between two consecutive work entries on the same day counts as a qualifying break. Turn ON when your workspace records breaks by stopping the timer rather than logging dedicated BREAK entries.")
                 .build();
 
+        // P6.2 — user ids whose schedules shouldn't trigger findings (execs /
+        // contractors). Comma- or whitespace-separated. Leave blank to evaluate
+        // every user.
+        ClockifySetting exemptUsers = ClockifySetting.builder()
+                .id("exemptUserIds")
+                .name("Exempt user ids")
+                .allowAdmins()
+                .asTxt()
+                .value("")
+                .placeholder("Comma-separated Clockify user ids")
+                .description("Optional. User ids listed here are skipped during evaluation — useful for execs, contractors, or anyone whose schedule isn't subject to the workspace's break policy.")
+                .build();
+
+        // P3.3 — workspace override for the refresh-signal debounce window
+        // (5–300 s). 0 / blank keeps the application default (20s).
+        ClockifySetting refreshDebounce = ClockifySetting.builder()
+                .id("refreshDebounceSeconds")
+                .name("Refresh debounce (seconds)")
+                .allowAdmins()
+                .asNumber()
+                .value(0)
+                .placeholder("0 = use default (20s); accepted range 5–300")
+                .description("Optional. How long the addon waits after a Clockify webhook before refreshing findings — bursts of edits coalesce into one re-ingest within this window. Heavy workspaces benefit from longer windows; quiet ones from shorter.")
+                .build();
+
         ClockifySettingsTab settingsTab = ClockifySettingsTab.builder()
                 .id("breakCompliance")
                 .name("Break Compliance")
@@ -238,7 +263,9 @@ public class ClockifyAddonConfig {
                         secondWork,
                         secondBreak,
                         timezoneStrategy,
-                        fallbackDetection))
+                        fallbackDetection,
+                        exemptUsers,
+                        refreshDebounce))
                 .build();
 
         return ClockifySettings.builder()
