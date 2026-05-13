@@ -78,8 +78,10 @@ public class TimeOffFetcher {
                     ? textOrNull(statusNode, "statusType")
                     : textOrNull(req, "status");
             if (status == null || !"APPROVED".equalsIgnoreCase(status)) continue;
-            // timeOffPeriod.start / .end carry ISO-instant strings.
-            JsonNode period = req.path("timeOffPeriod");
+            // Live shape (probe 2026-05-13): timeOffPeriod.period.{start,end}.
+            // The OpenAPI loosely typed timeOffPeriod as `object` so the
+            // nested .period level is documented only by example.
+            JsonNode period = req.path("timeOffPeriod").path("period");
             Instant startAt = parseInstant(textOrNull(period, "start"));
             Instant endAt = parseInstant(textOrNull(period, "end"));
             if (startAt == null || endAt == null) continue;

@@ -35,12 +35,19 @@ public class HolidayFetcher {
     /**
      * @return list of (date, userId-or-null, name, sourceId) tuples
      *         covering every day in {@code [from, to]}.
+     *
+     *         <p>Uses {@code GET /workspaces/{ws}/holidays} (full list) and
+     *         filters by date client-side. The {@code /in-period} variant
+     *         requires an {@code assigned-to} ObjectId param even though
+     *         OpenAPI marks it optional (live probe 2026-05-13). The
+     *         plain endpoint returns the same data without the per-user
+     *         filter and lets us serve workspace-wide + user-specific
+     *         holidays from one call.
      */
     public List<HolidayRow> fetch(
             String workspaceId, String backendUrl, String addonToken, LocalDate from, LocalDate to) {
         List<HolidayRow> out = new ArrayList<>();
-        String path = "/v1/workspaces/" + workspaceId
-                + "/holidays/in-period?start=" + from + "&end=" + to;
+        String path = "/v1/workspaces/" + workspaceId + "/holidays";
         String raw;
         try {
             raw = api.get(workspaceId, backendUrl, addonToken, path, String.class);
@@ -66,9 +73,13 @@ public class HolidayFetcher {
             LocalDate endDate = parseDate(textOrNull(period, "endDate"));
             if (startDate == null) continue;
             if (endDate == null) endDate = startDate;
-            // The Clockify API returns endDate inclusive; iterate every day.
+            // Trim the (startDate, endDate) span to the requested window
+            // before iterating, so we don't emit rows outside [from, to].
+            LocalDate effStart = startDate.isBefore(from) ? from : startDate;
+            LocalDate effEnd = endDate.isAfter(to) ? to : endDate;
+            if (effStart.isAfter(effEnd)) continue;
             List<String> userIds = collectUserIds(holiday);
-            for (LocalDate d = startDate; !d.isAfter(endDate); d = d.plusDays(1)) {
+            for (LocalDate d = effStart; !d.isAfter(effEnd); d = d.plusDays(1)) {
                 if (userIds.isEmpty()) {
                     // Workspace-wide holiday — record as appliesToUserId=null.
                     out.add(new HolidayRow(sourceId, d, null, name));
