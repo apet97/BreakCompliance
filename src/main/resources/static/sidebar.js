@@ -78,6 +78,7 @@ const state = {
     chooserOpen: false,     // preset-chooser panel visibility
     chooserBusy: null,      // presetKey currently being applied, or null
     pendingRefreshAt: null, // Date — newest PENDING/CLAIMED signal after lastRunAt, or null
+    userFilter: null,        // P2.1 — selected userId in the filter dropdown, or null
 };
 
 // ────────────────────────── Errors ──────────────────────────
@@ -859,6 +860,7 @@ function renderResults() {
     const container = el("results-container");
     clearChildren(container);
     renderExportButton();
+    renderUserFilter();
     if (state.findings.length === 0) {
         if (state.lastRun) {
             // Successful run, just no violations — celebrate the empty list.
@@ -876,6 +878,37 @@ function renderResults() {
     }
     if (state.view === "pivot") renderPivot(container);
     else renderChecklist(container);
+}
+
+// P2.1 — populate the user-filter dropdown from the userIds currently in
+// state.findings. Hidden when there are no findings or only one user.
+// Client-side filter via state.userFilter; downstream renderers respect it.
+function renderUserFilter() {
+    const sel = document.getElementById("user-filter-select");
+    if (!sel) return;
+    const byUserId = new Map();
+    for (const f of state.findings) {
+        if (!f.userId) continue;
+        if (!byUserId.has(f.userId)) {
+            byUserId.set(f.userId, displayUserName(state.findings.filter(x => x.userId === f.userId), f.userId));
+        }
+    }
+    if (byUserId.size < 2) {
+        sel.hidden = true;
+        state.userFilter = null;
+        return;
+    }
+    sel.hidden = false;
+    clearChildren(sel);
+    const all = create("option", { text: `All users (${byUserId.size})` });
+    all.value = "";
+    sel.appendChild(all);
+    for (const [userId, name] of [...byUserId.entries()].sort((a, b) => a[1].localeCompare(b[1]))) {
+        const opt = create("option", { text: name });
+        opt.value = userId;
+        sel.appendChild(opt);
+    }
+    sel.value = state.userFilter ?? "";
 }
 
 // Picks the best display name for a user from any of their findings.
@@ -936,9 +969,17 @@ function statusIconMeta(severity) {
     return { icon: "✗", srLabel: "Violation" };
 }
 
+function visibleFindings() {
+    // P2.1 — apply the user-filter dropdown selection. Empty / null
+    // selection = no filter; show everyone.
+    if (!state.userFilter) return state.findings;
+    return state.findings.filter(f => f.userId === state.userFilter);
+}
+
 function renderPivot(container) {
+    const findingsView = visibleFindings();
     const byUser = new Map();
-    for (const f of state.findings) {
+    for (const f of findingsView) {
         if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
         const byDate = byUser.get(f.userId);
         if (!byDate.has(f.date)) byDate.set(f.date, []);
@@ -1092,8 +1133,9 @@ async function cycleReview(findingId, currentStatus) {
 }
 
 function renderChecklist(container) {
+    const findingsView = visibleFindings();
     const byUser = new Map();
-    for (const f of state.findings) {
+    for (const f of findingsView) {
         if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
         const byDate = byUser.get(f.userId);
         if (!byDate.has(f.date)) byDate.set(f.date, []);
@@ -1556,6 +1598,15 @@ function wireEvents() {
     for (const radio of document.querySelectorAll('input[name="view-toggle"]')) {
         radio.addEventListener("change", () => {
             state.view = radio.value;
+            renderResults();
+        });
+    }
+
+    // P2.1 — sidebar user-filter dropdown.
+    const userSelect = document.getElementById("user-filter-select");
+    if (userSelect) {
+        userSelect.addEventListener("change", () => {
+            state.userFilter = userSelect.value || null;
             renderResults();
         });
     }

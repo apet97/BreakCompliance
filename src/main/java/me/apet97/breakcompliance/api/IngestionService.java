@@ -72,6 +72,7 @@ public class IngestionService {
     private final me.apet97.breakcompliance.clockify.TimeOffFetcher timeOffFetcher;
     private final me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository holidayRepo;
     private final me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository timeOffRepo;
+    private final me.apet97.breakcompliance.clockify.UserDirectoryFetcher userDirectoryFetcher;
 
     public IngestionService(
             InstallationRepository installationRepo,
@@ -86,7 +87,8 @@ public class IngestionService {
             me.apet97.breakcompliance.clockify.HolidayFetcher holidayFetcher,
             me.apet97.breakcompliance.clockify.TimeOffFetcher timeOffFetcher,
             me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository holidayRepo,
-            me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository timeOffRepo) {
+            me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository timeOffRepo,
+            me.apet97.breakcompliance.clockify.UserDirectoryFetcher userDirectoryFetcher) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
@@ -100,6 +102,7 @@ public class IngestionService {
         this.timeOffFetcher = timeOffFetcher;
         this.holidayRepo = holidayRepo;
         this.timeOffRepo = timeOffRepo;
+        this.userDirectoryFetcher = userDirectoryFetcher;
         this.runDuration = Timer.builder(MetricsConfig.INGEST_RUN_DURATION)
                 .description("Total time spent in IngestionService.executeRun")
                 .register(meters);
@@ -350,6 +353,21 @@ public class IngestionService {
                     timeOffRepo.save(t);
                 }
             });
+        }
+
+        // P2.3 — refresh stale userName columns. Best-effort: one call,
+        // bulk update per changed id. Avoids "John Owner" lingering after
+        // a user changed their name in Clockify.
+        try {
+            java.util.Map<String, String> directory =
+                    userDirectoryFetcher.fetchActive(workspaceId, backendUrl, token);
+            for (java.util.Map.Entry<String, String> e : directory.entrySet()) {
+                tx.executeWithoutResult(status ->
+                        timeEntryRepo.updateUserNameForUser(workspaceId, e.getKey(), e.getValue()));
+            }
+        } catch (RuntimeException e) {
+            log.info("ingestion.userdir.reconcile-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
         }
     }
 

@@ -19,17 +19,15 @@ next pass).
 
 ## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
 
-**Shipped in this sweep (27 of 33 items):**
+**Shipped in this sweep (28 of 33 items):**
 P1.1, P1.2, P1.3, P1.4 (evidence + setting), P1.5, P1.6 (UTC strategy
-added), P2.1 (backend filter), P2.2, P2.4 (verified), P2.5, P2.6,
-P2.7 (focus rings + aria-label), P2.8, P2.9, P3.3, P3.4, P4.3, P4.4,
-P4.5, P4.6 (metric only), P5.1, P5.5, P5.6, P6.1, P6.2, P6.3.
+added), P2.1 (backend filter + sidebar dropdown), P2.2, P2.3, P2.4
+(verified), P2.5, P2.6, P2.7 (focus rings + aria-label), P2.8, P2.9,
+P3.3, P3.4, P4.3, P4.4, P4.5, P4.6 (metric only), P5.1, P5.5, P5.6,
+P6.1, P6.2, P6.3.
 
 **Still deferred — code refactors that touch every caller:**
 P5.3 (i18n), P5.4 (typed DTO).
-
-**Still deferred — needs a user-directory fetcher first:**
-P2.3 (user-name reconcile).
 
 **Live-blocked — requires a Clockify dev install + manual screenshot capture
 or 30-day production metric history:**
@@ -116,7 +114,7 @@ admin complaints.
     endpoint required.
   - Touches: `static/sidebar.js`, `static/styles.css`.
 
-- [!] **P2.3 [deferred] User-directory refresh on stale name**
+- [x] **P2.3 [shipped] User-directory refresh on stale name**
   - When a `userName` ingested >7d ago doesn't match live `/v1/workspaces/{ws}/
     users`, refresh cached entry-table `userName` columns.
   - Touches: `api/IngestionService.java`, new

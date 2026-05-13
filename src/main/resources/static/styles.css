@@ -1037,3 +1037,20 @@ select:focus, input:focus {
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+/* P2.1 — user-filter dropdown beside the view toggle. */
+.user-filter-select {
+  margin-left: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-family);
+  max-width: 200px;
+}
+.user-filter-select:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
