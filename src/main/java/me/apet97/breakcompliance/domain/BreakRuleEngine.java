@@ -203,6 +203,11 @@ public class BreakRuleEngine {
      */
     private List<DayBucket> bucketEntries(BreakRuleEngineInput input) {
         Map<String, TreeMap<LocalDate, List<TimeEntry>>> byUser = new HashMap<>();
+        // Count entries that have a startAt but no endAt — i.e. a still-running
+        // timer that we can't evaluate yet but shouldn't pretend isn't there.
+        // Surfaced via evidence so the admin sees "this user has an open
+        // timer; refresh in N minutes" instead of mystery-clean days.
+        Map<String, Map<LocalDate, Integer>> runningByUserDate = new HashMap<>();
         for (TimeEntry entry : input.entries()) {
             if (!Objects.equals(entry.getWorkspaceId(), input.workspaceId())) {
                 continue;
@@ -210,8 +215,8 @@ public class BreakRuleEngine {
             if (entry.getUserId() == null || entry.getUserId().isEmpty()) {
                 continue;
             }
-            if (entry.getEndAt() == null || entry.getStartAt() == null) {
-                continue; // running or malformed
+            if (entry.getStartAt() == null) {
+                continue; // malformed
             }
             ZoneId zoneId = ZoneOffset.UTC;
             if (input.settings().getTimezoneStrategy() == TimezoneStrategy.ENTRY_TIMEZONE) {
@@ -230,6 +235,12 @@ public class BreakRuleEngine {
             if (date.isBefore(input.dateRangeStart()) || date.isAfter(input.dateRangeEnd())) {
                 continue;
             }
+            if (entry.getEndAt() == null) {
+                runningByUserDate
+                        .computeIfAbsent(entry.getUserId(), k -> new HashMap<>())
+                        .merge(date, 1, Integer::sum);
+                continue;
+            }
             byUser
                     .computeIfAbsent(entry.getUserId(), k -> new TreeMap<>())
                     .computeIfAbsent(date, k -> new ArrayList<>())
@@ -244,9 +255,16 @@ public class BreakRuleEngine {
                 sorted.sort(Comparator
                         .comparing(TimeEntry::getStartAt)
                         .thenComparing(TimeEntry::getSourceEntryId));
-                buckets.add(new DayBucket(userId, dayEntry.getKey(), sorted));
+                int running = runningByUserDate
+                        .getOrDefault(userId, Map.of())
+                        .getOrDefault(dayEntry.getKey(), 0);
+                buckets.add(new DayBucket(userId, dayEntry.getKey(), sorted, running));
             }
         }
+        // A bucket with ONLY running entries fires no rules; skip creating
+        // it so we don't add evaluation cost for empty-of-finalised-entries
+        // buckets. The runningEntriesSkipped count is still attached when a
+        // bucket has other (finalised) entries on the same day.
         buckets.sort(Comparator
                 .comparing(DayBucket::date)
                 .thenComparing(DayBucket::userId));
@@ -326,7 +344,8 @@ public class BreakRuleEngine {
                 longestQualifyingBreakMinutes,
                 maxContinuousWork,
                 syntheticBreakMinutes,
-                entryIds);
+                entryIds,
+                bucket.runningEntriesSkipped());
     }
 
     private static int durationMinutes(TimeEntry entry) {
@@ -369,10 +388,16 @@ public class BreakRuleEngine {
         evidence.put("requiredBreakMinutes", requiredBreakMinutes);
         evidence.put("thresholdMinutes", thresholdMinutes);
         evidence.put("entryIds", segments.entryIds);
+        // Skipped running timers — sidebar renders a footnote when > 0 so
+        // admins know to refresh once the timer is stopped.
+        if (segments.runningEntriesSkipped > 0) {
+            evidence.put("runningEntriesSkipped", segments.runningEntriesSkipped);
+        }
         return evidence;
     }
 
-    private record DayBucket(String userId, LocalDate date, List<TimeEntry> entries) {
+    private record DayBucket(
+            String userId, LocalDate date, List<TimeEntry> entries, int runningEntriesSkipped) {
     }
 
     private record EvaluatedSegments(
@@ -381,7 +406,8 @@ public class BreakRuleEngine {
             int longestQualifyingBreakMinutes,
             int maxContinuousWorkMinutes,
             int syntheticBreakMinutes,
-            List<String> entryIds) {
+            List<String> entryIds,
+            int runningEntriesSkipped) {
     }
 
     private record ActiveRequirement(int thresholdMinutes, int requiredBreakMinutes) {

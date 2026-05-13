@@ -729,8 +729,16 @@ function renderActiveTemplate() {
     const active = state.session?.activeTemplate;
     if (!active) {
         details.appendChild(create("p", { className: "muted", text: "Thresholds not configured yet — open the settings page in Clockify." }));
+        chip.removeAttribute("data-preview");
         return;
     }
+
+    // P2.5 — one-line summary on chip hover, so admins don't have to click
+    // the chip to glance at the current rule.
+    const splitNote = active.allowSplitBreaks ? "split allowed" : "single block required";
+    const segmentNote = `${active.minBreakSegmentMinutes ?? 0}m segments OK`;
+    chip.setAttribute("data-preview",
+        `≥${active.workThresholdMinutes ?? 0}m work → ≥${active.breakThresholdMinutes ?? 0}m break (${segmentNote}, ${splitNote})`);
 
     const rows = [
         ["Work threshold", formatMinutes(active.workThresholdMinutes)],
@@ -1138,6 +1146,47 @@ function renderChecklist(container) {
                     cycleReview(f.id, reviewStatus);
                 });
                 li.appendChild(reviewBtn);
+
+                // P2.2 — drill-down: surface entryIds + runningEntriesSkipped
+                // already in the evidence payload. No new endpoint needed.
+                const entryIds = Array.isArray(f.evidence?.entryIds) ? f.evidence.entryIds : [];
+                const runningSkipped = Number(f.evidence?.runningEntriesSkipped) || 0;
+                if (entryIds.length > 0 || runningSkipped > 0) {
+                    const drillBtn = create("button", {
+                        className: "btn-link rule-drill-btn",
+                        text: `▾ ${entryIds.length} ${entryIds.length === 1 ? "entry" : "entries"}`
+                            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : ""),
+                        title: "Show contributing time-entry ids",
+                    });
+                    drillBtn.type = "button";
+                    drillBtn.setAttribute("aria-expanded", "false");
+                    const drillBody = create("div", { className: "rule-drill-body" });
+                    drillBody.hidden = true;
+                    if (entryIds.length > 0) {
+                        const idList = create("ul", { className: "rule-drill-ids" });
+                        for (const id of entryIds) {
+                            idList.appendChild(create("li", { className: "rule-drill-id", text: id }));
+                        }
+                        drillBody.appendChild(idList);
+                    }
+                    if (runningSkipped > 0) {
+                        drillBody.appendChild(create("p", {
+                            className: "rule-drill-note",
+                            // P1.5 — admins refresh after the user stops the timer.
+                            text: `${runningSkipped} running timer${runningSkipped === 1 ? "" : "s"} skipped — refresh once the user stops the entry to include it in the evaluation.`,
+                        }));
+                    }
+                    drillBtn.addEventListener("click", () => {
+                        const open = drillBody.hidden;
+                        drillBody.hidden = !open;
+                        drillBtn.setAttribute("aria-expanded", open ? "true" : "false");
+                        drillBtn.firstChild.nodeValue = (open ? "▴ " : "▾ ")
+                            + `${entryIds.length} ${entryIds.length === 1 ? "entry" : "entries"}`
+                            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : "");
+                    });
+                    li.appendChild(drillBtn);
+                    li.appendChild(drillBody);
+                }
                 items.appendChild(li);
             }
             section.appendChild(items);

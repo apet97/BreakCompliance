@@ -961,3 +961,65 @@ select:focus, input:focus {
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
+
+/* P2.2 — drill-down expander shown on every finding row. Reveals
+   evidence.entryIds and the P1.5 runningEntriesSkipped footnote. */
+.rule-drill-btn {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-variant-numeric: tabular-nums;
+}
+.rule-drill-btn:hover {
+  color: var(--text-primary);
+}
+.rule-drill-body {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  font-size: 11px;
+}
+.rule-drill-ids {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+.rule-drill-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+.rule-drill-note {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* P2.5 — threshold preview popover. Shown on chip hover; hidden by default. */
+.active-template-chip {
+  position: relative;
+}
+.active-template-chip[data-preview]:hover::after {
+  content: attr(data-preview);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}

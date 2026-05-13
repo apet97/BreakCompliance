@@ -13,7 +13,45 @@ Scoping rules (from `AGENTS.md` + `CLAUDE.md`, non-negotiable):
 - Flyway migrations are additive only.
 - Manifest changes require re-install in the dev workspace before shipping.
 
-Status legend: `[ ]` not started · `[~]` in progress · `[x]` shipped.
+Status legend: `[ ]` not started · `[~]` in progress · `[x]` shipped · `[!]`
+deferred (live-blocked or requires multi-file plumbing — tracked here for the
+next pass).
+
+## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
+
+**Shipped in this sweep (12 items):**
+P5.6, P5.1, P5.5, P3.4, P4.4, P4.5, P6.3, P1.5, P1.6 (UTC strategy added),
+P2.4 (already in code, verified), P2.5, P2.2.
+
+**Deferred — each requires a Flyway migration + manifest field +
+re-install verification in the dev workspace, which is out of scope for a
+single offline sweep:**
+P1.3, P3.3, P2.9, P6.2.
+
+**Deferred — each requires a new HTTP client + entity + repository + service
++ tests (~500 LOC each):**
+P1.1, P1.2, P2.1, P2.3, P4.3, P6.1.
+
+**Deferred — sidebar feature work that needs design + dark-palette decisions:**
+P2.6 (dark theme), P2.7 (a11y audit), P2.8 (all-open view).
+
+**Deferred — engine work that touches the bucketing contract:**
+P1.4 (overnight shifts), P4.6 (rate-limit visibility — needs a workspace
+banner protocol).
+
+**Deferred — code refactors that touch every caller:**
+P5.3 (i18n), P5.4 (typed DTO).
+
+**Live-blocked — requires a Clockify dev install + manual screenshot capture
+or 30-day production metric history:**
+P4.1, P4.2, P5.2.
+
+**Probe-blocked — requires confirming Clockify webhook event types via live
+manifest install:**
+P3.1, P3.2.
+
+Each deferred item retains its original detailed entry below so the next pass
+can pick up without re-research.
 
 ---
 
@@ -22,7 +60,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` shipped.
 Highest user-facing value. Each item closes a class of "this finding is wrong"
 admin complaints.
 
-- [ ] **P1.1 Holiday-aware suppression**
+- [!] **P1.1 Holiday-aware suppression** — live-blocked
   - Fetch `GET /v1/workspaces/{ws}/holidays/in-period?start={from}&end={to}` at
     ingest time. Persist in `breakcompliance_workspace_holidays(workspaceId, date,
     name, userIds[], userGroupIds[])` (additive migration `V11__holidays.sql`).
@@ -35,7 +73,7 @@ admin complaints.
   - Touches: `clockify/HolidayFetcher.java` (new), `domain/BreakRuleEngine.java`,
     `api/IngestionService.java`, `config/ClockifyAddonConfig.java`.
 
-- [ ] **P1.2 Approved-time-off suppression**
+- [!] **P1.2 Approved-time-off suppression** — deferred
   - Fetch `POST /v1/workspaces/{ws}/time-off/requests` (the search variant; the
     `GET` returns 405 per the OpenAPI). Persist approved requests in
     `breakcompliance_time_off_requests(workspaceId, userId, startAt, endAt,
@@ -44,25 +82,25 @@ admin complaints.
   - Touches: `clockify/TimeOffFetcher.java` (new), `domain/BreakRuleEngine.java`,
     `api/IngestionService.java`.
 
-- [ ] **P1.3 Approval-state filter on detailed report**
+- [!] **P1.3 Approval-state filter on detailed report** — deferred (needs new setting + migration)
   - New admin setting `excludeUnsubmittedEntries` (CHECKBOX, default false). When
     true, send `"approvalState": "APPROVED"` in the detailed-report body. Avoids
     flagging entries the user is still editing.
   - Touches: `clockify/DetailedReportFetcher.java`, manifest field.
 
-- [ ] **P1.4 Overnight-shift bucketing**
+- [!] **P1.4 Overnight-shift bucketing** — deferred
   - Current `bucketEntries` splits midnight-crossing entries into two day
     buckets → false MISSING_REQUIRED_BREAK on the night half.
   - Add setting `nightShiftAttribution` (DROPDOWN: `local-day` / `start-day` /
     `end-day`). `start-day` recommended default.
   - Touches: `domain/BreakRuleEngine.java`, new `BreakRuleEngineTest` cases.
 
-- [ ] **P1.5 Running-entry visibility**
+- [x] **P1.5 Running-entry visibility** — shipped
   - Engine skips entries with no `endAt` silently. Surface as
     `evidence.runningEntriesSkipped`; sidebar shows a footnote on the user row.
   - Touches: `domain/BreakRuleEngine.java`, `static/sidebar.js`.
 
-- [ ] **P1.6 Real `TimezoneStrategy` alternatives**
+- [x] **P1.6 Real `TimezoneStrategy` alternatives** — shipped UTC value (WORKSPACE_TIMEZONE deferred — requires `/v1/user` fetch)
   - Enum currently has one value (`ENTRY_TIMEZONE`); the dropdown adds friction
     without offering a real choice.
   - Add `WORKSPACE_TIMEZONE` (read once from `/v1/user`'s
@@ -75,7 +113,7 @@ admin complaints.
 
 ## P2 — Sidebar UX & admin productivity
 
-- [ ] **P2.1 User filter (server-side)**
+- [!] **P2.1 [deferred] User filter (server-side)**
   - `?userIds=a,b,c` on `GET /api/findings` and `/api/findings/export`.
   - Sidebar multi-select populated from `GET /v1/workspaces/{ws}/users?status=
     ACTIVE&page-size=200` (USER_READ scope already granted). 1-hour in-memory
@@ -83,47 +121,47 @@ admin complaints.
   - Touches: `api/FindingsController.java`,
     `clockify/UserDirectoryFetcher.java` (new), `static/sidebar.js`.
 
-- [ ] **P2.2 Per-finding drill-down**
+- [x] **P2.2 [shipped] Per-finding drill-down**
   - Click a finding row → expand to show contributing time-entry IDs +
     descriptions. `evidence.entryIds` already populated by the engine; no new
     endpoint required.
   - Touches: `static/sidebar.js`, `static/styles.css`.
 
-- [ ] **P2.3 User-directory refresh on stale name**
+- [!] **P2.3 [deferred] User-directory refresh on stale name**
   - When a `userName` ingested >7d ago doesn't match live `/v1/workspaces/{ws}/
     users`, refresh cached entry-table `userName` columns.
   - Touches: `api/IngestionService.java`, new
     `api/UserNameReconciler.java`.
 
-- [ ] **P2.4 Empty-state copy**
+- [x] **P2.4 [verified — already in code] Empty-state copy**
   - `[]` findings + `runs/latest` is COMPLETED ⇒ "No findings — every shift in
     this range complies with your active preset (X)." replacing the current blank
     panel.
   - Touches: `static/sidebar.js` (results renderer).
 
-- [ ] **P2.5 Threshold preview on hover**
+- [x] **P2.5 [shipped] Threshold preview on hover**
   - Active-preset chip hover surfaces a one-line summary
     ("≥240m work → ≥15m break (5m segments OK, split allowed)") without
     requiring a click.
   - Touches: `static/sidebar.js`, `static/styles.css`.
 
-- [ ] **P2.6 Dark theme support**
+- [!] **P2.6 [deferred] Dark theme support**
   - Detect Clockify theme via the `theme` postMessage event; toggle
     `body.theme-dark`. Match the Clockify dark palette.
   - Touches: `static/styles.css`, `static/sidebar.js`.
 
-- [ ] **P2.7 Keyboard accessibility audit**
+- [!] **P2.7 [deferred] Keyboard accessibility audit**
   - Every clickable `div` → `<button>` or `role="button" tabindex="0"` with
     Enter/Space handlers. ARIA labels on preset cards, review buttons, date-range
     presets. Visible focus rings.
   - Touches: `static/sidebar.js`, `static/styles.css`.
 
-- [ ] **P2.8 "All open findings" view**
+- [!] **P2.8 [deferred] "All open findings" view**
   - New date-range preset `all_open` returning OPEN findings across the last
     90 days. Helps admins burn down backlog without picking a window.
   - Touches: `api/FindingsController.java`, `static/sidebar.js`.
 
-- [ ] **P2.9 Severity tuning per finding code**
+- [!] **P2.9 [deferred] Severity tuning per finding code**
   - Admin setting to downgrade specific finding codes (e.g.
     `treatInsufficientAsWarning`, `treatContinuousAsWarning`). Engine reads the
     override at evaluation time.
@@ -135,7 +173,7 @@ admin complaints.
 
 ## P3 — Webhook coverage & refresh accuracy
 
-- [ ] **P3.1 Subscribe to time-off webhooks**
+- [!] **P3.1 [probe-blocked] Subscribe to time-off webhooks**
   - If Clockify exposes `TIME_OFF_REQUEST_APPROVED` / `TIME_OFF_REQUEST_REJECTED`
     (verify against `docs/clockify-marketplace/build/webhooks.md` + live probe),
     add them to the manifest so approvals invalidate affected day buckets.
@@ -143,16 +181,16 @@ admin complaints.
     `addon/webhook/WebhookController.java`,
     `addon/webhook/RefreshSignalService.java`.
 
-- [ ] **P3.2 Subscribe to holiday create/update events**
+- [!] **P3.2 [probe-blocked] Subscribe to holiday create/update events**
   - Same pattern. If unavailable, document a 24h re-fetch cadence in
     `RefreshSignalConsumer`.
 
-- [ ] **P3.3 Refresh debounce as a workspace setting**
+- [!] **P3.3 [deferred] Refresh debounce as a workspace setting**
   - Expose `refreshDebounceSeconds` (NUMBER, default 20, range 5–300). Today
     it's a startup property only.
   - Touches: `addon/webhook/RefreshSignalConsumer.java`, manifest field.
 
-- [ ] **P3.4 Coalesce window cap audit**
+- [x] **P3.4 [shipped — warn-log added] Coalesce window cap audit**
   - `MAX_COALESCE_WINDOW_DAYS = 30`. Load-test 1000 webhooks/hour; log + bound
     rather than silently capping.
   - Touches: `addon/webhook/RefreshSignalConsumer.java`.
@@ -161,32 +199,32 @@ admin complaints.
 
 ## P4 — Marketplace polish (already-documented follow-ups)
 
-- [ ] **P4.1 Sidebar + settings screenshots**
+- [!] **P4.1 [live-blocked] Sidebar + settings screenshots**
   - `LISTING.md` marks both as pending. Capture (a) sidebar with preset chooser
     open + a sample finding; (b) Workspace Settings → Add-ons → Break Compliance
     → Settings showing all ten fields. Store under `docs/screenshots/`.
 
-- [ ] **P4.2 Engine finding-output JSON capture**
+- [!] **P4.2 [live-blocked] Engine finding-output JSON capture**
   - Capture a real `GET /api/findings` response from production against the
     seeded dev workspace (re-seed per CLAUDE.md test-data section) and append as
     `LIVE_VALIDATION.md` §10.
 
-- [ ] **P4.3 Admin-action audit log UI**
+- [!] **P4.3 [deferred] Admin-action audit log UI**
   - Backend audit-log rows exist (preset apply, finding review); no UI surface.
     Add `GET /api/audit?dateRangeStart=&dateRangeEnd=` (admin-gated) and a
     collapsible sidebar panel.
   - Touches: `api/AuditController.java` (new), `static/sidebar.js`.
 
-- [ ] **P4.4 Observability docs**
+- [x] **P4.4 [shipped] Observability docs**
   - Add `docs/OBSERVABILITY.md`: actuator endpoint, recommended Grafana
     dashboard JSON, alert thresholds for `clockify_api_429_total`,
     `ingestion_run_failed_total`, `webhook_idempotency_hits_total`.
 
-- [ ] **P4.5 README polish**
+- [x] **P4.5 [shipped] README polish**
   - Marketplace listing badge, last green-build badge, link to `LISTING.md`,
     screenshot row.
 
-- [ ] **P4.6 Rate-limit visibility**
+- [!] **P4.6 [deferred] Rate-limit visibility**
   - When `ClockifyApi` retries on 429 twice in 5 minutes, mark the workspace's
     latest `IngestionRun` with `errorCode=ratelimited` and surface
     "Clockify rate-limited; refresh paused until {time}" in the sidebar. Don't
@@ -197,37 +235,37 @@ admin complaints.
 
 ## P5 — Tech debt & cleanup
 
-- [ ] **P5.1 Dead-template tables**
+- [x] **P5.1 [shipped] Dead-template tables**
   - `breakcompliance_rule_templates` + `breakcompliance_template_assignments` are
     documented as "engine-irrelevant (kept additively)". Either:
     (a) Add a `// engine-irrelevant — see CLAUDE.md` comment on the entity
         classes so the next reader doesn't waste time investigating, or
     (b) Wire them into P2.9 (per-template severity overrides) as a real use.
 
-- [ ] **P5.2 Sunset the defensive `appliedPresetKey` lifecycle parser**
+- [!] **P5.2 [live-blocked] Sunset the defensive `appliedPresetKey` lifecycle parser**
   - Track via metric `lifecycle_applied_preset_key_received_total`. Once it
     stays at 0 for 30 consecutive days, delete the parser branch + the matching
     CLAUDE.md note.
   - Touches: `addon/lifecycle/InstallationService.java`,
     `config/MetricsConfig.java`.
 
-- [ ] **P5.3 i18n scaffolding**
+- [!] **P5.3 [deferred] i18n scaffolding**
   - Route finding messages through Spring `MessageSource`; ship
     `messages_en.properties` only for now. Sidebar copy moves to
     `static/i18n/en.json`. Future locales drop in without code changes.
   - Touches: `domain/BreakRuleEngine.java`, new resource bundle.
 
-- [ ] **P5.4 Typed detailed-report DTO**
+- [!] **P5.4 [deferred] Typed detailed-report DTO**
   - `IngestionService` round-trips entries via `mapper.convertValue(entry,
     Map.class)`. Replace with a typed `DetailedReportEntry` record (from the
     addon-sdk if available, otherwise local).
 
-- [ ] **P5.5 Last-Page-absent regression test**
+- [x] **P5.5 [shipped] Last-Page-absent regression test**
   - Add a Testcontainers / mock test exercising a regional response with no
     `Last-Page` header — verifies the secondary `< PAGE_SIZE` stop still works.
   - Touches: `clockify/DetailedReportFetcherTest.java`.
 
-- [ ] **P5.6 Maven enforcer for JDK 21**
+- [x] **P5.6 [shipped] Maven enforcer for JDK 21**
   - Today a non-21 JDK fails with an opaque Lombok stack trace. Maven enforcer
     rule `requireJavaVersion[21,22)` with a clear message saves hours.
   - Touches: `pom.xml`.
@@ -236,18 +274,18 @@ admin complaints.
 
 ## P6 — Privacy & data-rights polish
 
-- [ ] **P6.1 DSAR (data-subject access request) export**
+- [!] **P6.1 [deferred] DSAR (data-subject access request) export**
   - `GET /api/dsar/{userId}` (admin-gated) returns a JSON bundle of every row
     referencing that userId. Document in `DATA_RETENTION.md`.
   - Touches: `api/DsarController.java` (new), `docs/DATA_RETENTION.md`.
 
-- [ ] **P6.2 Per-user exemption list**
+- [!] **P6.2 [deferred] Per-user exemption list**
   - Workspace setting `exemptUserIds`. Engine skips exempt users entirely. For
     execs / contractors not subject to break policy.
   - Touches: `persistence/entities/WorkspaceSettings.java`,
     `domain/BreakRuleEngine.java`, manifest field.
 
-- [ ] **P6.3 Logback redaction audit**
+- [x] **P6.3 [shipped] Logback redaction audit**
   - Re-verify `logback-spring.xml` redacts `authToken`, `X-Addon-Token`,
     `Clockify-Signature`, `email`, and any new field added by the P1.1 / P1.2
     fetchers. Unit-test redaction on synthetic log lines.
