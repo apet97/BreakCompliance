@@ -200,6 +200,63 @@ class DetailedReportFetcherTest {
         assertThat(entries.get(0)).containsEntry("_id", "live-1");
     }
 
+    @Test
+    void stopsOnLastPageHeader() {
+        // Regional / canonical builds return `Last-Page: true` to signal
+        // the final page even when it's exactly PAGE_SIZE long. Honour it
+        // so we don't burn a wasted round-trip on a full final page.
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.add("Last-Page", "true");
+        String body = "{\"timeentries\": [" + nEntries(200) + "], \"totals\": []}";
+        org.springframework.http.ResponseEntity<String> response =
+                new org.springframework.http.ResponseEntity<>(body, headers, org.springframework.http.HttpStatus.OK);
+        Mockito.when(api.postWithHeaders(any(), any(), any(), any(), any(), eq(String.class)))
+                .thenReturn(response);
+
+        List<Map<String, Object>> entries = fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
+
+        assertThat(entries).hasSize(200);
+        Mockito.verify(api, Mockito.times(1)).postWithHeaders(any(), any(), any(), any(), any(), eq(String.class));
+    }
+
+    @Test
+    void fallsBackToSizeStopWhenLastPageHeaderMissing() {
+        // Some legacy / regional builds omit `Last-Page` entirely. The
+        // secondary "entries.size() < PAGE_SIZE" stop must still work, or the
+        // fetcher would loop until MAX_PAGES and waste 500 round trips.
+        org.springframework.http.HttpHeaders noHeader = new org.springframework.http.HttpHeaders();
+        org.springframework.http.ResponseEntity<String> page1 =
+                new org.springframework.http.ResponseEntity<>(
+                        "{\"timeentries\": [" + nEntries(200) + "], \"totals\": []}",
+                        noHeader,
+                        org.springframework.http.HttpStatus.OK);
+        org.springframework.http.ResponseEntity<String> page2 =
+                new org.springframework.http.ResponseEntity<>(
+                        "{\"timeentries\": [" + nEntries(50) + "], \"totals\": []}",
+                        noHeader,
+                        org.springframework.http.HttpStatus.OK);
+        Mockito.when(api.postWithHeaders(any(), any(), any(), any(), any(), eq(String.class)))
+                .thenReturn(page1, page2);
+
+        List<Map<String, Object>> entries = fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
+
+        assertThat(entries).hasSize(250);
+        Mockito.verify(api, Mockito.times(2)).postWithHeaders(any(), any(), any(), any(), any(), eq(String.class));
+    }
+
+    private static String nEntries(int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            if (i > 0) sb.append(',');
+            sb.append("{\"_id\":\"e").append(i).append("\",\"userId\":\"u1\"}");
+        }
+        return sb.toString();
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> captureRequestBody() {
         ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);

@@ -1,6 +1,19 @@
 # Break Compliance
 
+[![Build](https://github.com/apet97/BreakCompliance/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/apet97/BreakCompliance/actions/workflows/ci.yml)
+[![Listing copy](https://img.shields.io/badge/marketplace-listing-blue)](docs/LISTING.md)
+[![Privacy](https://img.shields.io/badge/docs-privacy-lightgrey)](docs/PRIVACY.md)
+[![Security](https://img.shields.io/badge/docs-security-lightgrey)](docs/SECURITY.md)
+
 Clockify marketplace add-on that reviews whether workspace users took required break time. Java 21 / Spring Boot 3.3 on the native [Clockify addon-java-sdk](https://github.com/clockify/addon-java-sdk), backed by PostgreSQL (durable tenant state) and Redis (webhook idempotency + per-workspace rate limiting). Designed for broad public-marketplace installation across many workspaces.
+
+**Read-only.** No write scopes. The addon never creates, edits, or deletes time entries, never posts to Clockify, never messages users. See `docs/PRIVACY.md`.
+
+## Improvement backlog
+
+Active backlog of engine / UX / marketplace polish items is tracked in
+[`docs/IMPROVEMENT_CHECKLIST.md`](docs/IMPROVEMENT_CHECKLIST.md). Items are
+grouped P1–P6 by user-facing impact.
 
 ## Prerequisites
 
@@ -81,3 +94,6 @@ GitHub Actions runs `mvn verify` on every push to `main` and every PR. No repo s
 
 - `/actuator/health` — Railway healthcheck probe.
 - `/actuator/prometheus` — `breakcompliance_webhook_received{event}`, `_webhook_duplicate{event}`, `_refresh_signals_processed{outcome}`, `_ingest_run_duration` (Timer), `_ingest_entries_processed`, `_ingest_run_failed{reason}` plus the standard JVM + Tomcat + Hikari + Spring scheduled-task series. Narrow access via reverse-proxy / IP allowlist before exposing externally.
+
+Recommended scrape config + alert rules + Grafana dashboard layout in
+[`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).

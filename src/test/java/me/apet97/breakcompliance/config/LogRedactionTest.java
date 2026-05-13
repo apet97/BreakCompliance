@@ -84,4 +84,28 @@ class LogRedactionTest {
 
         assertThat(redactedBoth).isEqualTo(input);
     }
+
+    /**
+     * Synthetic production-shaped log lines, covering each redaction target
+     * in a realistic shape. Catches drift if anyone adds a new
+     * println-style log line that bypasses the pattern.
+     */
+    @Test
+    void realisticLogLines_redactKnownSecrets() {
+        String[] lines = new String[] {
+            "INFO  m.a.b.addon.lifecycle.InstallationService - lifecycle.installed authToken=ABCDEFGHIJKLMNOPQRST.dot/+= ok",
+            "DEBUG m.a.b.clockify.ClockifyApi - outbound POST /v1/workspaces/ws-1/reports/detailed X-Addon-Token: ABCDEFGHIJKLMNOPQRST",
+            "WARN  m.a.b.addon.webhook.WebhookAuthFilter - signature-mismatch Clockify-Signature: eyJhbGciOiJSUzI1NiIs.eyJ3b3Jrc3BhY2VJZCI6IndzIn0.sigsigsigsig",
+            "INFO  m.a.b.addon.auth.LifecycleAuthFilter - X-Addon-Lifecycle-Token: eyJhbGciOiJSUzI1NiJ9.eyJpYXQiOjEyM30.sigsigsigsig",
+        };
+        for (String line : lines) {
+            String afterJwt = JWT_TRIPLET.matcher(line).replaceAll("<REDACTED-JWT>");
+            String redacted = AUTH_FRAGMENT.matcher(afterJwt).replaceAll("$1$2<REDACTED>");
+
+            assertThat(redacted)
+                    .as("line was: %s", line)
+                    .doesNotContain("ABCDEFGHIJKLMNOPQRST")
+                    .doesNotContain("sigsigsigsig");
+        }
+    }
 }

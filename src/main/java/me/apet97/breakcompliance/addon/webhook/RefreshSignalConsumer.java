@@ -276,7 +276,18 @@ public class RefreshSignalConsumer {
         }
         LocalDate to = latest;
         // Cap the span: earliest can't be more than maxWindowDays before to.
+        // A single ancient backfill hint shouldn't drag a 365-day fetch.
         LocalDate minFrom = to.minusDays(maxWindowDays);
+        if (earliest.isBefore(minFrom)) {
+            log.warn(
+                    "refresh.consumer.window-capped earliest={} latest={} cappedFrom={} maxDays={} "
+                            + "— a hint older than the cap was dropped; if this fires repeatedly the workspace "
+                            + "is backfilling outside the supported window.",
+                    earliest,
+                    latest,
+                    minFrom,
+                    maxWindowDays);
+        }
         LocalDate from = earliest.isBefore(minFrom) ? minFrom : earliest;
         return new DateRange(from, to);
     }
