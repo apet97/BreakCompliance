@@ -11,6 +11,9 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
+import me.apet97.breakcompliance.clockify.HolidayFetcher;
+import me.apet97.breakcompliance.clockify.TimeOffFetcher;
+import me.apet97.breakcompliance.clockify.UserDirectoryFetcher;
 import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.config.MetricsConfig;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
@@ -19,9 +22,15 @@ import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
 import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -67,12 +76,12 @@ public class IngestionService {
     private final Executor ingestExecutor;
     private final MeterRegistry meters;
     private final Timer runDuration;
-    private final me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository workspaceSettings;
-    private final me.apet97.breakcompliance.clockify.HolidayFetcher holidayFetcher;
-    private final me.apet97.breakcompliance.clockify.TimeOffFetcher timeOffFetcher;
-    private final me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository holidayRepo;
-    private final me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository timeOffRepo;
-    private final me.apet97.breakcompliance.clockify.UserDirectoryFetcher userDirectoryFetcher;
+    private final WorkspaceSettingsRepository workspaceSettings;
+    private final HolidayFetcher holidayFetcher;
+    private final TimeOffFetcher timeOffFetcher;
+    private final WorkspaceHolidayRepository holidayRepo;
+    private final WorkspaceTimeOffRepository timeOffRepo;
+    private final UserDirectoryFetcher userDirectoryFetcher;
 
     public IngestionService(
             InstallationRepository installationRepo,
@@ -83,12 +92,12 @@ public class IngestionService {
             PlatformTransactionManager txManager,
             @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor,
             MeterRegistry meters,
-            me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository workspaceSettings,
-            me.apet97.breakcompliance.clockify.HolidayFetcher holidayFetcher,
-            me.apet97.breakcompliance.clockify.TimeOffFetcher timeOffFetcher,
-            me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository holidayRepo,
-            me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository timeOffRepo,
-            me.apet97.breakcompliance.clockify.UserDirectoryFetcher userDirectoryFetcher) {
+            WorkspaceSettingsRepository workspaceSettings,
+            HolidayFetcher holidayFetcher,
+            TimeOffFetcher timeOffFetcher,
+            WorkspaceHolidayRepository holidayRepo,
+            WorkspaceTimeOffRepository timeOffRepo,
+            UserDirectoryFetcher userDirectoryFetcher) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
@@ -118,7 +127,7 @@ public class IngestionService {
     private boolean isExcludeUnsubmittedEnabled(String workspaceId) {
         try {
             return workspaceSettings.findById(workspaceId)
-                    .map(me.apet97.breakcompliance.persistence.entities.WorkspaceSettings::isExcludeUnsubmittedEntries)
+                    .map(WorkspaceSettings::isExcludeUnsubmittedEntries)
                     .orElse(false);
         } catch (RuntimeException e) {
             log.debug("ingest.exclude-unsubmitted.lookup-failed workspace={} reason={}",
@@ -316,13 +325,12 @@ public class IngestionService {
         java.time.Instant now = java.time.Instant.now();
 
         // Holidays — apply per (sourceId, date, userId-or-null).
-        List<me.apet97.breakcompliance.clockify.HolidayFetcher.HolidayRow> holidays =
+        List<HolidayFetcher.HolidayRow> holidays =
                 holidayFetcher.fetch(workspaceId, backendUrl, token, from, to);
         if (!holidays.isEmpty()) {
             tx.executeWithoutResult(status -> {
                 for (var row : holidays) {
-                    me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday h =
-                            new me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday();
+                    WorkspaceHoliday h = new WorkspaceHoliday();
                     h.setWorkspaceId(workspaceId);
                     h.setSourceId(row.sourceId());
                     h.setDate(row.date());
@@ -336,13 +344,12 @@ public class IngestionService {
 
         // Approved time-off requests. Stored verbatim — engine derives the
         // covered date set from start/end at evaluation time.
-        List<me.apet97.breakcompliance.clockify.TimeOffFetcher.TimeOffRow> timeOff =
+        List<TimeOffFetcher.TimeOffRow> timeOff =
                 timeOffFetcher.fetchApproved(workspaceId, backendUrl, token, from, to);
         if (!timeOff.isEmpty()) {
             tx.executeWithoutResult(status -> {
                 for (var row : timeOff) {
-                    me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff t =
-                            new me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff();
+                    WorkspaceTimeOff t = new WorkspaceTimeOff();
                     t.setWorkspaceId(workspaceId);
                     t.setSourceId(row.sourceId());
                     t.setUserId(row.userId());
@@ -355,15 +362,19 @@ public class IngestionService {
             });
         }
 
-        // P2.3 — refresh stale userName columns. Best-effort: one call,
-        // bulk update per changed id. Avoids "John Owner" lingering after
-        // a user changed their name in Clockify.
+        // P2.3 — refresh stale userName columns. Single transaction over
+        // the whole directory; the repo's bulk UPDATE is a no-op for
+        // rows whose name already matches. Avoids "John Owner" lingering
+        // after a user renames in Clockify.
         try {
-            java.util.Map<String, String> directory =
+            Map<String, String> directory =
                     userDirectoryFetcher.fetchActive(workspaceId, backendUrl, token);
-            for (java.util.Map.Entry<String, String> e : directory.entrySet()) {
-                tx.executeWithoutResult(status ->
-                        timeEntryRepo.updateUserNameForUser(workspaceId, e.getKey(), e.getValue()));
+            if (!directory.isEmpty()) {
+                tx.executeWithoutResult(status -> {
+                    for (var e : directory.entrySet()) {
+                        timeEntryRepo.updateUserNameForUser(workspaceId, e.getKey(), e.getValue());
+                    }
+                });
             }
         } catch (RuntimeException e) {
             log.info("ingestion.userdir.reconcile-failed workspace={} reason={}",

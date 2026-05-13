@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
@@ -237,13 +238,12 @@ public class BreakRuleEngine {
         // P6.2 — workspace-scoped exemption list. Loaded once per evaluate()
         // call; the set is small (most workspaces leave it empty) and
         // membership checks are O(1).
-        java.util.Set<String> exemptUserIds = input.settings().exemptUserIdSet();
+        Set<String> exemptUserIds = input.settings().exemptUserIdSet();
         // P1.1 / P1.2 — suppression sets from the input. Workspace-wide
         // holidays skip everyone's bucket for that date; per-user
         // suppressed dates skip only the matching user.
-        java.util.Set<LocalDate> wsHolidays = input.workspaceWideHolidayDates();
-        java.util.Map<String, java.util.Set<LocalDate>> perUserSuppressed =
-                input.userSpecificSuppressedDates();
+        Set<LocalDate> wsHolidays = input.workspaceWideHolidayDates();
+        Map<String, Set<LocalDate>> perUserSuppressed = input.userSpecificSuppressedDates();
         for (TimeEntry entry : input.entries()) {
             if (!Objects.equals(entry.getWorkspaceId(), input.workspaceId())) {
                 continue;
@@ -288,7 +288,7 @@ public class BreakRuleEngine {
             // findings for this user-day regardless of how many work
             // entries exist on it.
             if (wsHolidays.contains(date)) continue;
-            java.util.Set<LocalDate> userSuppressed = perUserSuppressed.get(entry.getUserId());
+            Set<LocalDate> userSuppressed = perUserSuppressed.get(entry.getUserId());
             if (userSuppressed != null && userSuppressed.contains(date)) continue;
             if (entry.getEndAt() == null) {
                 runningByUserDate

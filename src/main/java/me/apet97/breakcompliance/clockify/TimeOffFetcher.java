@@ -70,7 +70,13 @@ public class TimeOffFetcher {
             if (sourceId == null) continue;
             String userId = textOrNull(req, "userId");
             if (userId == null) continue;
-            String status = textOrNull(req, "status");
+            // Status comes back as a nested object { statusType, note }
+            // per the live schema; flat-string is a defensive fallback for
+            // any older shape Clockify might still emit.
+            JsonNode statusNode = req.path("status");
+            String status = statusNode.isObject()
+                    ? textOrNull(statusNode, "statusType")
+                    : textOrNull(req, "status");
             if (status == null || !"APPROVED".equalsIgnoreCase(status)) continue;
             // timeOffPeriod.start / .end carry ISO-instant strings.
             JsonNode period = req.path("timeOffPeriod");

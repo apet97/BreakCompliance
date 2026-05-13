@@ -886,11 +886,17 @@ function renderResults() {
 function renderUserFilter() {
     const sel = document.getElementById("user-filter-select");
     if (!sel) return;
+    // Single pass: prefer the first non-blank userName per user, else
+    // fall through to the raw id. Avoids the O(N×U) filter-per-user trap.
     const byUserId = new Map();
     for (const f of state.findings) {
         if (!f.userId) continue;
-        if (!byUserId.has(f.userId)) {
-            byUserId.set(f.userId, displayUserName(state.findings.filter(x => x.userId === f.userId), f.userId));
+        const existing = byUserId.get(f.userId);
+        const name = f.userName && f.userName.trim();
+        if (existing == null) {
+            byUserId.set(f.userId, name || f.userId);
+        } else if (existing === f.userId && name) {
+            byUserId.set(f.userId, name);
         }
     }
     if (byUserId.size < 2) {

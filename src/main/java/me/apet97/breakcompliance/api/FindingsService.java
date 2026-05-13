@@ -2,7 +2,12 @@ package me.apet97.breakcompliance.api;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import me.apet97.breakcompliance.domain.BreakRuleEngine;
 import me.apet97.breakcompliance.domain.BreakRuleEngineInput;
@@ -71,8 +76,8 @@ public class FindingsService {
         });
         List<RuleTemplate> templates = templatesRepo.findByWorkspaceId(workspaceId);
         List<TemplateAssignment> assignments = assignmentsRepo.findByWorkspaceId(workspaceId);
-        Instant fromInstant = from.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-        Instant toInstant = to.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        Instant fromInstant = from.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         List<TimeEntry> entries = entriesRepo.findByWorkspaceIdAndStartAtBetween(workspaceId, fromInstant, toInstant);
 
         // P1.1 / P1.2 — pull cached holidays + approved time-off and build
@@ -80,13 +85,13 @@ public class FindingsService {
         // holidays apply to every user's bucket for that date; per-user
         // holidays + every approved time-off window only apply to the
         // matching user.
-        java.util.Set<LocalDate> workspaceWide = new java.util.HashSet<>();
-        java.util.Map<String, java.util.Set<LocalDate>> perUser = new java.util.HashMap<>();
+        Set<LocalDate> workspaceWide = new HashSet<>();
+        Map<String, Set<LocalDate>> perUser = new HashMap<>();
         for (WorkspaceHoliday h : holidayRepo.findByWorkspaceIdAndDateBetween(workspaceId, from, to)) {
             if (h.getAppliesToUserId() == null) {
                 workspaceWide.add(h.getDate());
             } else {
-                perUser.computeIfAbsent(h.getAppliesToUserId(), k -> new java.util.HashSet<>())
+                perUser.computeIfAbsent(h.getAppliesToUserId(), k -> new HashSet<>())
                         .add(h.getDate());
             }
         }
@@ -96,10 +101,9 @@ public class FindingsService {
             // Expand the (start, end) span into a set of LocalDates in UTC.
             // Engine bucketing already handles per-entry timezones; we use
             // UTC here as a safe baseline that matches Clockify's storage.
-            LocalDate dStart = t.getStartAt().atZone(java.time.ZoneOffset.UTC).toLocalDate();
-            LocalDate dEnd = t.getEndAt().atZone(java.time.ZoneOffset.UTC).toLocalDate();
-            java.util.Set<LocalDate> dates = perUser.computeIfAbsent(
-                    t.getUserId(), k -> new java.util.HashSet<>());
+            LocalDate dStart = t.getStartAt().atZone(ZoneOffset.UTC).toLocalDate();
+            LocalDate dEnd = t.getEndAt().atZone(ZoneOffset.UTC).toLocalDate();
+            Set<LocalDate> dates = perUser.computeIfAbsent(t.getUserId(), k -> new HashSet<>());
             for (LocalDate d = dStart; !d.isAfter(dEnd); d = d.plusDays(1)) {
                 dates.add(d);
             }
@@ -109,7 +113,7 @@ public class FindingsService {
         // template is single per workspace and the engine does not consult
         // memberships. The record field stays for a future per-group policy.
         BreakRuleEngineInput input = new BreakRuleEngineInput(
-                workspaceId, settings, templates, assignments, entries, java.util.List.of(),
+                workspaceId, settings, templates, assignments, entries, List.of(),
                 from, to, workspaceWide, perUser);
         List<FindingDraft> drafts = engine.evaluate(input);
 
@@ -117,7 +121,7 @@ public class FindingsService {
         // pulled (the engine doesn't carry names; we attach them here so
         // findings render human-readable in the sidebar). Last-write-wins
         // when an entry's name is blank vs. set; sticky to non-blank.
-        java.util.Map<String, String> userNameByUserId = new java.util.HashMap<>();
+        Map<String, String> userNameByUserId = new HashMap<>();
         for (TimeEntry e : entries) {
             if (e.getUserId() == null || e.getUserName() == null || e.getUserName().isBlank()) continue;
             userNameByUserId.putIfAbsent(e.getUserId(), e.getUserName());
