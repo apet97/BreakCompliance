@@ -108,6 +108,7 @@ public class SidebarHtmlController {
                           <option value="last_week">Last Week</option>
                           <option value="last_2_weeks">Last 2 Weeks</option>
                           <option value="last_month">Last Month</option>
+                          <option value="all_open">All Open (last 90 days)</option>
                           <option value="custom_range">Custom Range</option>
                         </select>
                       </div>

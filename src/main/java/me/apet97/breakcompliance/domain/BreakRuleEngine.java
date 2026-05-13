@@ -278,12 +278,22 @@ public class BreakRuleEngine {
         int longestQualifyingBreakMinutes = 0;
         int currentRunWork = 0;
         int maxContinuousWork = 0;
+        // P1.4 — count entries whose duration straddles a calendar
+        // midnight in UTC. We don't change the start-day bucketing
+        // contract here, just surface the fact so admins know "this
+        // looks high because a night shift rolled into the morning."
+        int overnightShifts = 0;
         List<String> entryIds = new ArrayList<>();
         Instant prevWorkEndAt = null;
 
         for (TimeEntry entry : bucket.entries()) {
             entryIds.add(entry.getSourceEntryId());
             int minutes = durationMinutes(entry);
+            if (entry.getStartAt() != null && entry.getEndAt() != null
+                    && !entry.getStartAt().atZone(ZoneOffset.UTC).toLocalDate()
+                            .equals(entry.getEndAt().atZone(ZoneOffset.UTC).toLocalDate())) {
+                overnightShifts++;
+            }
             EntryClassifier.Kind kind = EntryClassifier.classify(entry, fallbackEnabled);
             if (kind == EntryClassifier.Kind.IGNORED) {
                 // TIME_OFF / HOLIDAY entries are not work and not breaks —
@@ -345,7 +355,8 @@ public class BreakRuleEngine {
                 maxContinuousWork,
                 syntheticBreakMinutes,
                 entryIds,
-                bucket.runningEntriesSkipped());
+                bucket.runningEntriesSkipped(),
+                overnightShifts);
     }
 
     private static int durationMinutes(TimeEntry entry) {
@@ -393,6 +404,13 @@ public class BreakRuleEngine {
         if (segments.runningEntriesSkipped > 0) {
             evidence.put("runningEntriesSkipped", segments.runningEntriesSkipped);
         }
+        // P1.4 — flag when one or more entries on this day crossed a UTC
+        // midnight. The engine still buckets to the start-day; this just
+        // tells the sidebar "the work-minutes here include the tail of an
+        // overnight shift, double-check before acting on the finding."
+        if (segments.overnightShifts > 0) {
+            evidence.put("overnightShifts", segments.overnightShifts);
+        }
         return evidence;
     }
 
@@ -407,7 +425,8 @@ public class BreakRuleEngine {
             int maxContinuousWorkMinutes,
             int syntheticBreakMinutes,
             List<String> entryIds,
-            int runningEntriesSkipped) {
+            int runningEntriesSkipped,
+            int overnightShifts) {
     }
 
     private record ActiveRequirement(int thresholdMinutes, int requiredBreakMinutes) {

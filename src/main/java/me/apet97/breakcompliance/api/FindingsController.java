@@ -33,10 +33,13 @@ public class FindingsController {
 
     private final FindingsService findingsService;
     private final FindingReviewRepository reviewRepo;
+    private final AuditService audit;
 
-    public FindingsController(FindingsService findingsService, FindingReviewRepository reviewRepo) {
+    public FindingsController(
+            FindingsService findingsService, FindingReviewRepository reviewRepo, AuditService audit) {
         this.findingsService = findingsService;
         this.reviewRepo = reviewRepo;
+        this.audit = audit;
     }
 
     @PostMapping(value = "/evaluate", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -62,7 +65,8 @@ public class FindingsController {
     public ResponseEntity<Map<String, Object>> list(
             HttpServletRequest request,
             @RequestParam("dateRangeStart") String fromIso,
-            @RequestParam("dateRangeEnd") String toIso) {
+            @RequestParam("dateRangeEnd") String toIso,
+            @RequestParam(value = "openOnly", required = false, defaultValue = "false") boolean openOnly) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
@@ -72,6 +76,17 @@ public class FindingsController {
         LocalDate to = range.to();
         List<Finding> findings = findingsService.list(claims.workspaceId(), from, to);
         Map<String, FindingReview> reviewsById = loadReviewsFor(claims.workspaceId(), findings);
+        // P2.8 — "All open findings" workflow filters out anything an admin
+        // already acknowledged or overrode. A finding with no review row
+        // is implicitly OPEN; explicit OPEN review rows count too.
+        if (openOnly) {
+            findings = findings.stream()
+                    .filter(f -> {
+                        FindingReview r = reviewsById.get(f.getId());
+                        return r == null || r.getStatus() == ReviewStatus.OPEN;
+                    })
+                    .toList();
+        }
         List<Map<String, Object>> body = findings.stream()
                 .map(f -> toJsonShape(f, reviewsById.get(f.getId())))
                 .toList();
@@ -163,6 +178,18 @@ public class FindingsController {
         }
         review.setUpdatedAt(Instant.now());
         reviewRepo.saveAndFlush(review);
+        // P4.3 — record the admin's review action so the audit endpoint
+        // can render a history. Actor is the JWT's user id; details are
+        // bounded to status + whether a note exists (don't echo PII).
+        audit.record(
+                claims.workspaceId(),
+                claims.userId(),
+                "FINDING_REVIEW",
+                "Finding",
+                findingId,
+                Map.of(
+                        "status", status.name(),
+                        "hasNote", review.getNote() != null && !review.getNote().isBlank()));
         return ResponseEntity.ok(toReviewShape(review));
     }
 

@@ -31,6 +31,15 @@ const DATE_PRESETS = {
     last_week: () => weekRange(-1),
     last_2_weeks: () => weekRange(-2, 0),
     last_month: () => monthRange(-1),
+    // P2.8 — "All open" sweeps the last 90 days and asks the backend to
+    // hide anything already acknowledged or overridden. Useful for
+    // burning down the backlog without picking a window manually.
+    all_open: () => {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 90);
+        return { start: isoDate(start), end: isoDate(end), openOnly: true };
+    },
 };
 
 // Fallback labels when /api/presets hasn't loaded yet. The catalog is the
@@ -1148,10 +1157,12 @@ function renderChecklist(container) {
                 li.appendChild(reviewBtn);
 
                 // P2.2 — drill-down: surface entryIds + runningEntriesSkipped
-                // already in the evidence payload. No new endpoint needed.
+                // + overnightShifts already in the evidence payload. No new
+                // endpoint needed.
                 const entryIds = Array.isArray(f.evidence?.entryIds) ? f.evidence.entryIds : [];
                 const runningSkipped = Number(f.evidence?.runningEntriesSkipped) || 0;
-                if (entryIds.length > 0 || runningSkipped > 0) {
+                const overnightShifts = Number(f.evidence?.overnightShifts) || 0;
+                if (entryIds.length > 0 || runningSkipped > 0 || overnightShifts > 0) {
                     const drillBtn = create("button", {
                         className: "btn-link rule-drill-btn",
                         text: `▾ ${entryIds.length} ${entryIds.length === 1 ? "entry" : "entries"}`
@@ -1174,6 +1185,15 @@ function renderChecklist(container) {
                             className: "rule-drill-note",
                             // P1.5 — admins refresh after the user stops the timer.
                             text: `${runningSkipped} running timer${runningSkipped === 1 ? "" : "s"} skipped — refresh once the user stops the entry to include it in the evaluation.`,
+                        }));
+                    }
+                    if (overnightShifts > 0) {
+                        drillBody.appendChild(create("p", {
+                            className: "rule-drill-note",
+                            // P1.4 — flag that the work-minutes here include
+                            // the tail of an overnight shift, so admins can
+                            // double-check before acting.
+                            text: `${overnightShifts} entr${overnightShifts === 1 ? "y" : "ies"} crossed midnight — the full shift is attributed to the start-day; review before acting.`,
                         }));
                     }
                     drillBtn.addEventListener("click", () => {
@@ -1246,11 +1266,47 @@ function describeIngestFailure(errorCode) {
     return `Ingestion failed (${errorCode}). The run was recorded so an admin can audit it from Settings.`;
 }
 
+// P2.8 — read-only fetch path for the "All open" preset. Reuses the
+// findings list endpoint with openOnly=true; no ingest, no evaluate.
+async function loadOpenFindings(range) {
+    setLoading(true);
+    setLoadingMessage(`Loading open findings ${range.start} → ${range.end}…`);
+    let listResult;
+    try {
+        listResult = await api("/api/findings", {
+            query: { dateRangeStart: range.start, dateRangeEnd: range.end, openOnly: "true" },
+        });
+    } catch (err) {
+        setLoading(false);
+        showBanner("err", err instanceof HttpError
+            ? `Loading open findings failed: ${err.message}`
+            : "Loading open findings failed.");
+        return;
+    }
+    state.findings = listResult.findings;
+    state.lastRunRange = { start: range.start, end: range.end };
+    setLoading(false);
+    renderResults();
+    if (state.findings.length === 0) {
+        showBanner("ok", `No open findings in the last 90 days.`);
+    } else {
+        showBanner("warn",
+            `${state.findings.length} open finding(s) — acknowledge or override to clear the backlog.`);
+    }
+}
+
 async function runCompliance() {
     showBanner("hidden");
     const range = computeDateRange();
     if ("error" in range) {
         showBanner("err", range.error);
+        return;
+    }
+    // P2.8 — "All open" preset is a read-only backlog view. Skip the
+    // 90-day re-ingest + re-evaluate (expensive + unwanted) and just
+    // refresh the rendered list from persisted findings.
+    if (range.openOnly) {
+        await loadOpenFindings(range);
         return;
     }
     setRunButtonState(true);
@@ -1328,9 +1384,11 @@ async function runCompliance() {
 
     let listResult;
     try {
-        listResult = await api("/api/findings", {
-            query: { dateRangeStart: range.start, dateRangeEnd: range.end },
-        });
+        const query = { dateRangeStart: range.start, dateRangeEnd: range.end };
+        // P2.8 — "All open" preset asks the backend to hide already-handled
+        // findings so the list paints the actual remaining backlog.
+        if (range.openOnly) query.openOnly = "true";
+        listResult = await api("/api/findings", { query });
     } catch (err) {
         setLoading(false);
         setRunButtonState(false);
@@ -1557,6 +1615,14 @@ function initAuthAndMessenger() {
             addonToken = urlToken;
             stripAuthTokenFromUrl();
         }
+    });
+
+    // P2.6 — Clockify dispatches THEME_CHANGED when the user toggles light
+    // ↔ dark in their own UI. Mirror the change live instead of waiting
+    // for an iframe reload.
+    messenger.on("THEME_CHANGED", (payload) => {
+        const next = String(payload?.theme ?? payload ?? "").toUpperCase();
+        if (next === "DARK" || next === "LIGHT") applyTheme(next);
     });
 
     setInterval(() => {
