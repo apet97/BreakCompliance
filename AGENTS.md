@@ -136,10 +136,21 @@ synthetic > 0.
   `docs/api-calls.md`).
 - **No outbound from `INACTIVE` installations.** `IngestionService` is the single guard;
   new outbound paths must consult `Installation.status` before reading the token.
-- **No new outbound scope without scrutiny.** The Detailed Report already supplies
-  `userName`, `userEmail`, `type` (REGULAR/BREAK/HOLIDAY/TIME_OFF), and
-  `timeInterval.timeZone`. Don't add `/v1/users`, `/v1/time-off`, or `/v1/holidays`
-  endpoints — same data, +1 scope cost per call.
+- **No `_WRITE` scopes, ever.** The mission is read-only. Adding any scope that
+  lets the addon mutate workspace state breaks the marketplace listing
+  commitment in `docs/PRIVACY.md`.
+- **Read-only fetches that close documented false-positive gaps are OK.**
+  The Detailed Report is the source of truth for break evaluation. Three
+  supplementary read calls — `GET /v1/workspaces/{ws}/holidays` (P1.1),
+  `POST /v1/workspaces/{ws}/time-off/requests` (P1.2),
+  `GET /v1/workspaces/{ws}/users` (P2.3) — exist because workspaces that
+  don't auto-create `type=HOLIDAY` / `type=TIME_OFF` time entries would
+  otherwise produce false-positive findings, and stale `userName`
+  columns make findings unreadable after a rename. Shape verified live
+  on 2026-05-13 against the sacrificial workspace (`docs/api-calls.md`
+  §1a / §1b / §1c). Don't add a *fourth* read endpoint without the same
+  justification: documented false-positive class + live-probed shape +
+  added to `docs/api-calls.md`.
 - **Don't tune Hikari by raising `maximum-pool-size` alone.** The 3-phase
   ingestion split exists so the long Clockify HTTP call doesn't hold a DB
   connection. If the pool gets saturated, look for a missed split first.
