@@ -50,6 +50,10 @@ Content-Type: application/json
   user's timezone per the spec.
 - **Only `detailedFilter` is honored** among the report sub-filter objects for this
   endpoint. Don't send `exportType`, `summaryFilter`, `weeklyFilter`, etc.
+- **`approvalState`** (P1.3) is honored at the top level (live-probe
+  2026-05-13: 3 entries unfiltered → 1 entry with `approvalState=APPROVED`
+  against sacrificial workspace `65b382b606de527a7ee2b60e`). Sent only
+  when the workspace setting `excludeUnsubmittedEntries` is on.
 
 ### Response (live shape)
 
