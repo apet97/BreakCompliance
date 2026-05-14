@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
 import me.apet97.breakcompliance.persistence.entities.Severity;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
@@ -540,5 +541,99 @@ class BreakRuleEngineTest {
                 List.of(),     // group memberships unused
                 LocalDate.parse(fromIso),
                 LocalDate.parse(toIso));
+    }
+
+    // ───────────────────────── P1.1 / P1.2 / P6.2 ─────────────────────────
+
+    /**
+     * Build an engine input with the P1.1 / P1.2 suppression sets populated.
+     * Mirrors what {@code FindingsService} hands in after reading the cached
+     * holiday + time-off rows for the date range.
+     */
+    private static BreakRuleEngineInput inputWithSuppression(
+            WorkspaceSettings settings,
+            List<TimeEntry> entries,
+            String fromIso,
+            String toIso,
+            Set<LocalDate> workspaceWide,
+            Map<String, Set<LocalDate>> perUser) {
+        return new BreakRuleEngineInput(
+                WS, settings,
+                List.of(), List.of(), entries, List.of(),
+                LocalDate.parse(fromIso), LocalDate.parse(toIso),
+                workspaceWide, perUser);
+    }
+
+    @Test
+    void workspaceWideHoliday_suppressesEveryUsersBucket() {
+        // Two users, both with a textbook 8h-no-break shift on the same
+        // date. Without suppression that's 2 MISSING_REQUIRED_BREAK
+        // findings; the workspace-wide holiday must drop both.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        List<TimeEntry> entries = List.of(
+                workEntryFor("user-a", "ea", "2026-12-25T09:00:00Z", "2026-12-25T17:00:00Z"),
+                workEntryFor("user-b", "eb", "2026-12-25T09:00:00Z", "2026-12-25T17:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(inputWithSuppression(
+                settings, entries, "2026-12-25", "2026-12-25",
+                Set.of(LocalDate.parse("2026-12-25")),
+                Map.of()));
+
+        assertThat(findings).isEmpty();
+    }
+
+    @Test
+    void perUserHoliday_suppressesOnlyThatUser() {
+        // user-a is on a per-user holiday; user-b worked the same day and
+        // should still fire its violation.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        List<TimeEntry> entries = List.of(
+                workEntryFor("user-a", "ea", "2026-12-10T09:00:00Z", "2026-12-10T17:00:00Z"),
+                workEntryFor("user-b", "eb", "2026-12-10T09:00:00Z", "2026-12-10T17:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(inputWithSuppression(
+                settings, entries, "2026-12-10", "2026-12-10",
+                Set.of(),
+                Map.of("user-a", Set.of(LocalDate.parse("2026-12-10")))));
+
+        // user-a is suppressed; every emitted finding belongs to user-b
+        // (which may fire both MISSING_REQUIRED_BREAK and
+        // MAX_CONTINUOUS_WORK_EXCEEDED for the same 8h-no-break shift).
+        assertThat(findings).isNotEmpty();
+        assertThat(findings).extracting(FindingDraft::userId).containsOnly("user-b");
+    }
+
+    @Test
+    void perUserTimeOff_suppressesAllRulesIncludingMaxContinuous() {
+        // Approved time-off on this day; the engine should suppress both
+        // the missing-break and max-continuous-work rules in one go —
+        // suppression happens at bucketing time, before any rule fires.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        List<TimeEntry> entries = List.of(
+                workEntryFor("user-a", "ea", "2026-12-10T08:00:00Z", "2026-12-10T18:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(inputWithSuppression(
+                settings, entries, "2026-12-10", "2026-12-10",
+                Set.of(),
+                Map.of("user-a", Set.of(LocalDate.parse("2026-12-10")))));
+
+        assertThat(findings).isEmpty();
+    }
+
+    @Test
+    void exemptUserSetting_suppressesAcrossEveryDate() {
+        // P6.2 — exemptUserIds applies globally, not just on suppressed dates.
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setExemptUserIds("user-a, user-b");
+
+        List<TimeEntry> entries = List.of(
+                workEntryFor("user-a", "ea", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z"),
+                workEntryFor("user-c", "ec", "2026-05-10T09:00:00Z", "2026-05-10T17:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        // user-a exempt; every emitted finding belongs to user-c.
+        assertThat(findings).isNotEmpty();
+        assertThat(findings).extracting(FindingDraft::userId).containsOnly("user-c");
     }
 }
