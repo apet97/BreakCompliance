@@ -123,7 +123,8 @@ class ManifestContractTest {
         tabSettings.forEach(node -> ids.add(node.get("id").asText()));
         // `appliedPresetKey` was moved to the sidebar (POST /api/presets/apply)
         // because Clockify's per-field rendering breaks any cross-field loader.
-        // Remaining fields stay in evaluation order, then timezone + fallback.
+        // Original 10 thresholds stay first in evaluation order, followed by
+        // the operational / engine-tuning settings added in later waves.
         assertThat(ids).containsExactly(
                 "workThresholdMinutes",
                 "breakThresholdMinutes",
@@ -134,7 +135,17 @@ class ManifestContractTest {
                 "secondWorkThresholdMinutes",
                 "secondBreakThresholdMinutes",
                 "timezoneStrategy",
-                "fallbackDetectionEnabled");
+                "fallbackDetectionEnabled",
+                // P6.2 / P3.3
+                "exemptUserIds",
+                "refreshDebounceSeconds",
+                // P1.3 / P2.9
+                "excludeUnsubmittedEntries",
+                "severityOverrideMissingBreak",
+                "severityOverrideInsufficientBreak",
+                "severityOverrideMaxContinuous",
+                // P1.4
+                "nightShiftAttribution");
     }
 
     @Test
@@ -153,7 +164,10 @@ class ManifestContractTest {
         assertThat(timezoneStrategy).isNotNull();
         List<String> tzAllowed = new java.util.ArrayList<>();
         timezoneStrategy.get("allowedValues").forEach(v -> tzAllowed.add(v.asText()));
-        assertThat(tzAllowed).containsExactly("Use entry's local time zone");
+        // P1.6 added UTC alongside the entry-local default.
+        assertThat(tzAllowed).containsExactly(
+                "Use entry's local time zone",
+                "Use UTC for every entry");
         assertThat(timezoneStrategy.get("value").asText()).isEqualTo("Use entry's local time zone");
         // required:true suppresses Clockify's auto-injected "None" option.
         assertThat(timezoneStrategy.get("required").asBoolean()).isTrue();

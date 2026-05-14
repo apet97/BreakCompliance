@@ -22,6 +22,7 @@ class BreakComplianceApplicationTests {
                 "SELECT count(*) FROM information_schema.tables "
                         + "WHERE table_schema = 'public' AND table_name LIKE 'breakcompliance_%'",
                 Integer.class);
-        assertThat(tableCount).isEqualTo(12);
+        // 12 original + 2 added in V13 (workspace_holidays / workspace_time_off).
+        assertThat(tableCount).isEqualTo(14);
     }
 }
