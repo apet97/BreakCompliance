@@ -43,14 +43,24 @@ public class AuditService {
             row.setDetails(details != null ? details : Map.of());
             repo.saveAndFlush(row);
         } catch (RuntimeException e) {
+            // CodeQL log-injection: workspaceId / entityId can carry
+            // user-controlled values (path vars, JWT claims). Strip CR/LF
+            // and control chars before they reach the log line so a
+            // crafted id can't forge a fake log entry or break downstream
+            // log parsers.
             log.warn(
                     "audit.write-failed workspace={} action={} entity={}:{} reason={}",
-                    workspaceId,
-                    action,
-                    entityType,
-                    entityId,
+                    safeLog(workspaceId),
+                    safeLog(action),
+                    safeLog(entityType),
+                    safeLog(entityId),
                     e.getClass().getSimpleName(),
                     e);
         }
+    }
+
+    private static String safeLog(String s) {
+        if (s == null) return "null";
+        return s.replaceAll("[\\r\\n\\t\\p{Cntrl}]", "_");
     }
 }
