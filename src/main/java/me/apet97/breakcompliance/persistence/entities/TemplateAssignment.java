@@ -15,6 +15,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * Engine-irrelevant — companion to {@link RuleTemplate}; the active engine
+ * synthesises one template per workspace from {@link WorkspaceSettings} and
+ * never reads this table. Kept for rollback safety and as the staging point
+ * for any future per-user / per-group rule overrides. See CLAUDE.md.
+ */
 @Entity
 @Table(name = "breakcompliance_template_assignments")
 @IdClass(TemplateAssignment.Pk.class)

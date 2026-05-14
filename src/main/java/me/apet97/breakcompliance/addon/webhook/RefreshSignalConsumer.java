@@ -22,6 +22,7 @@ import me.apet97.breakcompliance.persistence.entities.RefreshSignalStatus;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
 import me.apet97.breakcompliance.persistence.repositories.RefreshSignalRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -75,6 +76,7 @@ public class RefreshSignalConsumer {
     private final RefreshSignalRepository signals;
     private final IngestionRunRepository runs;
     private final InstallationRepository installations;
+    private final WorkspaceSettingsRepository workspaceSettings;
     private final IngestionService ingestion;
     private final FindingsService findings;
     private final TransactionTemplate tx;
@@ -88,6 +90,7 @@ public class RefreshSignalConsumer {
             RefreshSignalRepository signals,
             IngestionRunRepository runs,
             InstallationRepository installations,
+            WorkspaceSettingsRepository workspaceSettings,
             IngestionService ingestion,
             FindingsService findings,
             PlatformTransactionManager txManager,
@@ -98,6 +101,7 @@ public class RefreshSignalConsumer {
         this.signals = signals;
         this.runs = runs;
         this.installations = installations;
+        this.workspaceSettings = workspaceSettings;
         this.ingestion = ingestion;
         this.findings = findings;
         this.tx = new TransactionTemplate(txManager);
@@ -109,6 +113,10 @@ public class RefreshSignalConsumer {
 
     @Scheduled(fixedDelayString = "${breakcompliance.refresh.poll-interval-ms:30000}")
     public void pollAndDispatch() {
+        // The naive cutoff uses the application-default debounce; per
+        // P3.3 each workspace can opt into a longer / shorter window via
+        // WorkspaceSettings.customRefreshDebounceSeconds, so re-filter
+        // signal-by-signal once we know which workspace it belongs to.
         Instant cutoff = Instant.now().minus(debounce);
         List<RefreshSignal> pending = tx.execute(status -> signals
                 .findByStatusAndReceivedAtBeforeOrderByWorkspaceIdAscReceivedAtAsc(
@@ -121,16 +129,46 @@ public class RefreshSignalConsumer {
                         RefreshSignal::getWorkspaceId,
                         LinkedHashMap::new,
                         Collectors.toList()));
+        Instant now = Instant.now();
         for (Map.Entry<String, List<RefreshSignal>> entry : byWorkspace.entrySet()) {
+            String workspaceId = entry.getKey();
+            Duration workspaceDebounce = resolveDebounceFor(workspaceId);
+            // P3.3 — if this workspace's debounce is longer than the
+            // default cutoff already applied, defer any signals that
+            // haven't aged enough yet. The remaining group still respects
+            // the workspace's own setting; chatty workspaces aren't
+            // penalised by neighbours' quieter settings.
+            Instant workspaceCutoff = now.minus(workspaceDebounce);
+            List<RefreshSignal> group = entry.getValue().stream()
+                    .filter(s -> s.getReceivedAt() != null
+                            && !s.getReceivedAt().isAfter(workspaceCutoff))
+                    .toList();
+            if (group.isEmpty()) continue;
             try {
-                dispatchForWorkspace(entry.getKey(), entry.getValue());
+                dispatchForWorkspace(workspaceId, group);
             } catch (RuntimeException e) {
                 log.warn(
                         "refresh.consumer.dispatch-failed workspace={} reason={}",
-                        entry.getKey(),
+                        workspaceId,
                         e.getClass().getSimpleName(),
                         e);
             }
+        }
+    }
+
+    private Duration resolveDebounceFor(String workspaceId) {
+        try {
+            return workspaceSettings.findById(workspaceId)
+                    .map(ws -> ws.getCustomRefreshDebounceSeconds())
+                    .filter(s -> s != null && s >= 5 && s <= 300)
+                    .map(s -> Duration.ofSeconds(s))
+                    .orElse(debounce);
+        } catch (RuntimeException e) {
+            // Settings lookup is best-effort; a transient DB error
+            // shouldn't stop the consumer dispatching with the default.
+            log.debug("refresh.consumer.debounce-lookup-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+            return debounce;
         }
     }
 
@@ -276,7 +314,18 @@ public class RefreshSignalConsumer {
         }
         LocalDate to = latest;
         // Cap the span: earliest can't be more than maxWindowDays before to.
+        // A single ancient backfill hint shouldn't drag a 365-day fetch.
         LocalDate minFrom = to.minusDays(maxWindowDays);
+        if (earliest.isBefore(minFrom)) {
+            log.warn(
+                    "refresh.consumer.window-capped earliest={} latest={} cappedFrom={} maxDays={} "
+                            + "— a hint older than the cap was dropped; if this fires repeatedly the workspace "
+                            + "is backfilling outside the supported window.",
+                    earliest,
+                    latest,
+                    minFrom,
+                    maxWindowDays);
+        }
         LocalDate from = earliest.isBefore(minFrom) ? minFrom : earliest;
         return new DateRange(from, to);
     }

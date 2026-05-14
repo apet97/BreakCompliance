@@ -11,6 +11,9 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
+import me.apet97.breakcompliance.clockify.HolidayFetcher;
+import me.apet97.breakcompliance.clockify.TimeOffFetcher;
+import me.apet97.breakcompliance.clockify.UserDirectoryFetcher;
 import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.config.MetricsConfig;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
@@ -19,9 +22,15 @@ import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
 import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -67,6 +76,12 @@ public class IngestionService {
     private final Executor ingestExecutor;
     private final MeterRegistry meters;
     private final Timer runDuration;
+    private final WorkspaceSettingsRepository workspaceSettings;
+    private final HolidayFetcher holidayFetcher;
+    private final TimeOffFetcher timeOffFetcher;
+    private final WorkspaceHolidayRepository holidayRepo;
+    private final WorkspaceTimeOffRepository timeOffRepo;
+    private final UserDirectoryFetcher userDirectoryFetcher;
 
     public IngestionService(
             InstallationRepository installationRepo,
@@ -76,7 +91,13 @@ public class IngestionService {
             TokenCodec codec,
             PlatformTransactionManager txManager,
             @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor,
-            MeterRegistry meters) {
+            MeterRegistry meters,
+            WorkspaceSettingsRepository workspaceSettings,
+            HolidayFetcher holidayFetcher,
+            TimeOffFetcher timeOffFetcher,
+            WorkspaceHolidayRepository holidayRepo,
+            WorkspaceTimeOffRepository timeOffRepo,
+            UserDirectoryFetcher userDirectoryFetcher) {
         this.installationRepo = installationRepo;
         this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
@@ -85,6 +106,12 @@ public class IngestionService {
         this.tx = new TransactionTemplate(txManager);
         this.ingestExecutor = ingestExecutor;
         this.meters = meters;
+        this.workspaceSettings = workspaceSettings;
+        this.holidayFetcher = holidayFetcher;
+        this.timeOffFetcher = timeOffFetcher;
+        this.holidayRepo = holidayRepo;
+        this.timeOffRepo = timeOffRepo;
+        this.userDirectoryFetcher = userDirectoryFetcher;
         this.runDuration = Timer.builder(MetricsConfig.INGEST_RUN_DURATION)
                 .description("Total time spent in IngestionService.executeRun")
                 .register(meters);
@@ -94,13 +121,29 @@ public class IngestionService {
         return ingest(workspaceId, from, to, null);
     }
 
+    // P1.3 — best-effort lookup so a transient DB error during fetch
+    // doesn't break the ingest. Defaults to "fetch everything" (false),
+    // matching the historical behaviour.
+    private boolean isExcludeUnsubmittedEnabled(String workspaceId) {
+        try {
+            return workspaceSettings.findById(workspaceId)
+                    .map(WorkspaceSettings::isExcludeUnsubmittedEntries)
+                    .orElse(false);
+        } catch (RuntimeException e) {
+            log.debug("ingest.exclude-unsubmitted.lookup-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
         PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
         Objects.requireNonNull(prepared, "prepareRun returned null");
 
         List<Map<String, Object>> entries;
         try {
-            entries = fetcher.fetch(workspaceId, prepared.reportsUrl(), prepared.token(), from, to);
+            entries = fetcher.fetch(workspaceId, prepared.reportsUrl(), prepared.token(), from, to,
+                    isExcludeUnsubmittedEnabled(workspaceId));
         } catch (ClockifyApiException e) {
             tx.execute(status -> markRunFailed(workspaceId, prepared.runId(), "ClockifyApi:" + e.statusCode()));
             log.warn("ingestion.failed.clockify workspace={} status={}", workspaceId, e.statusCode());
@@ -114,7 +157,16 @@ public class IngestionService {
             return failed;
         }
 
-        return tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+        IngestionRun completed = tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+        // P1.1 / P1.2 — refresh suppression cache after a successful sync
+        // ingest, mirroring the async path. Best-effort.
+        try {
+            refreshSuppressionForWindow(workspaceId, prepared.token(), from, to);
+        } catch (RuntimeException e) {
+            log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+        }
+        return completed;
     }
 
     /**
@@ -212,7 +264,8 @@ public class IngestionService {
         Timer.Sample sample = Timer.start(meters);
         List<Map<String, Object>> entries;
         try {
-            entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to);
+            entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to,
+                    isExcludeUnsubmittedEnabled(workspaceId));
         } catch (ClockifyApiException e) {
             tx.execute(status -> markRunFailed(workspaceId, runId, "ClockifyApi:" + e.statusCode()));
             meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", "ClockifyApi:" + e.statusCode())
@@ -240,6 +293,95 @@ public class IngestionService {
                     .increment();
             sample.stop(runDuration);
             log.warn("ingestion.async.failed.finalize workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
+            return;
+        }
+
+        // P1.1 / P1.2 — best-effort suppression refresh. Failure here
+        // doesn't fail the run (we'd already finalized successfully); the
+        // worst case is "no suppression on this range" which matches
+        // pre-P1.1 behaviour exactly.
+        try {
+            refreshSuppressionForWindow(workspaceId, token, from, to);
+        } catch (RuntimeException e) {
+            log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Fetch + upsert holidays + approved time-off for {@code [from, to]}.
+     * The backend URL is read from the installation row (holidays + time-off
+     * live on {@code api.clockify.me}, not the reports host). Idempotent —
+     * upsert keys are stable so re-running for the same range overwrites
+     * cleanly.
+     */
+    private void refreshSuppressionForWindow(
+            String workspaceId, String token, LocalDate from, LocalDate to) {
+        Installation install = installationRepo.findByWorkspaceId(workspaceId).orElse(null);
+        if (install == null || install.getBackendUrl() == null || install.getBackendUrl().isBlank()) {
+            return;
+        }
+        String backendUrl = install.getBackendUrl();
+        java.time.Instant now = java.time.Instant.now();
+
+        // Holidays — delete-then-upsert per window. Without the delete, a
+        // holiday removed in Clockify would keep suppressing its date
+        // until a manual wipe.
+        List<HolidayFetcher.HolidayRow> holidays =
+                holidayFetcher.fetch(workspaceId, backendUrl, token, from, to);
+        tx.executeWithoutResult(status -> {
+            holidayRepo.deleteByWorkspaceIdAndDateBetween(workspaceId, from, to);
+            for (var row : holidays) {
+                WorkspaceHoliday h = new WorkspaceHoliday();
+                h.setWorkspaceId(workspaceId);
+                h.setSourceId(row.sourceId());
+                h.setDate(row.date());
+                h.setAppliesToUserId(row.appliesToUserId());
+                h.setName(row.name());
+                h.setIngestedAt(now);
+                holidayRepo.save(h);
+            }
+        });
+
+        // Approved time-off — same replace-on-refetch story. A withdrawn
+        // / rejected request stops suppressing on the next refresh.
+        Instant windowStart = from.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        Instant windowEnd = to.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        List<TimeOffFetcher.TimeOffRow> timeOff =
+                timeOffFetcher.fetchApproved(workspaceId, backendUrl, token, from, to);
+        tx.executeWithoutResult(status -> {
+            timeOffRepo.deleteByWorkspaceIdAndStartAtLessThanAndEndAtGreaterThanEqual(
+                    workspaceId, windowEnd, windowStart);
+            for (var row : timeOff) {
+                WorkspaceTimeOff t = new WorkspaceTimeOff();
+                t.setWorkspaceId(workspaceId);
+                t.setSourceId(row.sourceId());
+                t.setUserId(row.userId());
+                t.setStartAt(row.startAt());
+                t.setEndAt(row.endAt());
+                t.setStatus(row.status());
+                t.setIngestedAt(now);
+                timeOffRepo.save(t);
+            }
+        });
+
+        // P2.3 — refresh stale userName columns. Single transaction over
+        // the whole directory; the repo's bulk UPDATE is a no-op for
+        // rows whose name already matches. Avoids "John Owner" lingering
+        // after a user renames in Clockify.
+        try {
+            Map<String, String> directory =
+                    userDirectoryFetcher.fetchActive(workspaceId, backendUrl, token);
+            if (!directory.isEmpty()) {
+                tx.executeWithoutResult(status -> {
+                    for (var e : directory.entrySet()) {
+                        timeEntryRepo.updateUserNameForUser(workspaceId, e.getKey(), e.getValue());
+                    }
+                });
+            }
+        } catch (RuntimeException e) {
+            log.info("ingestion.userdir.reconcile-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
         }
     }
 

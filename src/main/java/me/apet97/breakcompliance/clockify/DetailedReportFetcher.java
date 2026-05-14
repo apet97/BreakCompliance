@@ -51,6 +51,19 @@ public class DetailedReportFetcher {
 
     public List<Map<String, Object>> fetch(
             String workspaceId, String reportsUrl, String addonToken, LocalDate from, LocalDate to) {
+        // Defaults to the historical "fetch every entry" behaviour. P1.3
+        // callers go through fetch(..., excludeUnsubmittedEntries=true) which
+        // adds approvalState=APPROVED to the body.
+        return fetch(workspaceId, reportsUrl, addonToken, from, to, false);
+    }
+
+    public List<Map<String, Object>> fetch(
+            String workspaceId,
+            String reportsUrl,
+            String addonToken,
+            LocalDate from,
+            LocalDate to,
+            boolean excludeUnsubmittedEntries) {
         List<Map<String, Object>> all = new ArrayList<>();
         int page = 1;
         while (page <= MAX_PAGES) {
@@ -58,6 +71,14 @@ public class DetailedReportFetcher {
             body.put("dateRangeStart", from.atStartOfDay().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             body.put("dateRangeEnd", to.atTime(23, 59, 59).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             body.put("detailedFilter", Map.of("page", page, "pageSize", PAGE_SIZE));
+            if (excludeUnsubmittedEntries) {
+                // P1.3 — Clockify honours top-level approvalState on the
+                // detailed-report request body. With APPROVED, the response
+                // omits everything still in WIP / SUBMITTED states, which
+                // means findings only fire for entries the user has
+                // confirmed are real.
+                body.put("approvalState", "APPROVED");
+            }
 
             String path = "/v1/workspaces/" + workspaceId + "/reports/detailed";
             org.springframework.http.ResponseEntity<String> response = api.postWithHeaders(workspaceId, reportsUrl, addonToken, path, body, String.class);

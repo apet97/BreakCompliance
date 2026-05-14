@@ -1,7 +1,8 @@
 # Clockify API calls used by Break Compliance
 
-The add-on makes ONE outbound HTTP call to Clockify (detailed report). Everything else
-is inbound: JWT-verified lifecycle webhooks and time-entry webhooks.
+The add-on makes four outbound HTTP calls to Clockify (detailed report +
+three suppression-cache refreshes). Everything else is inbound:
+JWT-verified lifecycle webhooks and time-entry / time-off webhooks.
 
 Everything below is **live-probed** against `developer.clockify.me` (dev workspace
 `69bda6b317a0c5babe34b4ff`, user "John Owner") and `reports.api.clockify.me` (prod
@@ -49,6 +50,10 @@ Content-Type: application/json
   user's timezone per the spec.
 - **Only `detailedFilter` is honored** among the report sub-filter objects for this
   endpoint. Don't send `exportType`, `summaryFilter`, `weeklyFilter`, etc.
+- **`approvalState`** (P1.3) is honored at the top level (live-probe
+  2026-05-13: 3 entries unfiltered → 1 entry with `approvalState=APPROVED`
+  against sacrificial workspace `65b382b606de527a7ee2b60e`). Sent only
+  when the workspace setting `excludeUnsubmittedEntries` is on.
 
 ### Response (live shape)
 
@@ -114,6 +119,113 @@ encrypted `breakcompliance_installations.auth_token` column (decrypt via
 | 5xx | Retry with exponential backoff (1s → 2s → 4s, cap 30s), max 4 retries. |
 
 ---
+
+## 1a. Outbound: holidays cache refresh (P1.1)
+
+`GET {backendUrl}/v1/workspaces/{workspaceId}/holidays`
+
+Caller: `src/main/java/me/apet97/breakcompliance/clockify/HolidayFetcher.java`
+
+Returns the full holiday list and is filtered client-side to the ingest
+window. The documented `/holidays/in-period?start=&end=` variant requires
+an `assigned-to` ObjectId param even though OpenAPI marks it optional —
+live probe 2026-05-13 against workspace `65b382b606de527a7ee2b60e`
+returned `{"message":"Required request parameter 'assigned-to'...","code":3001}`
+when omitted and `{"message":"Invalid ObjectId provided for field 'assigned-to'","code":501}`
+when passed an empty string. The non-period endpoint sidesteps that
+quirk.
+
+### Response (live shape)
+
+```jsonc
+[
+  {
+    "id": "6967ed48d3e5101589b553ae",
+    "name": "TestHoliday2",
+    "userIds": ["64621faec4d2cc53b91fce6c", "..."],
+    "userGroupIds": ["..."],
+    "datePeriod": { "startDate": "2026-12-25", "endDate": "2026-12-25" },
+    "everyoneIncludingNew": true,
+    "occursAnnually": false,
+    "automaticTimeEntryCreation": false,
+    "projectId": null,
+    "taskId": null
+  }
+]
+```
+
+Suppression rules:
+- `everyoneIncludingNew=true` ⇒ workspace-wide (engine skips every user's
+  bucket on that date).
+- otherwise `userIds[]` ⇒ per-user.
+- `userGroupIds[]` ignored for now; per-group expansion is a future
+  enhancement.
+
+## 1b. Outbound: approved time-off cache refresh (P1.2)
+
+`POST {backendUrl}/v1/workspaces/{workspaceId}/time-off/requests`
+
+Caller: `src/main/java/me/apet97/breakcompliance/clockify/TimeOffFetcher.java`
+
+Body:
+
+```json
+{
+  "statuses": ["APPROVED"],
+  "start":  "2026-05-04T00:00:00Z",
+  "end":    "2026-05-17T23:59:59Z",
+  "page": 1,
+  "pageSize": 200
+}
+```
+
+### Response (live shape)
+
+```jsonc
+{
+  "count": 25,
+  "requests": [
+    {
+      "id":          "6a03a4a52568d3d29336df75",
+      "workspaceId": "...",
+      "userId":      "64621faec4d2cc53b91fce6c",
+      "userName":    "Firstname Lastname",
+      "timeOffPeriod": {
+        "period":  { "start": "2026-12-20T23:00:00Z",
+                     "end":   "2026-12-21T22:59:59Z" },
+        "halfDay": false,
+        "halfDayPeriod": "NOT_DEFINED",
+        "halfDayHours": null
+      },
+      "status": {                          // ← nested object, not a flat string
+        "statusType": "APPROVED",
+        "note": null,
+        "changedAt": "2026-05-12T22:07:46.411997904Z",
+        "changedByUserId":   "...",
+        "changedByUserName": "Firstname Lastname"
+      },
+      "policyId": "...",
+      "policyName": "1111",
+      "createdAt": "..."
+    }
+  ]
+}
+```
+
+Two probe-corrected shapes (vs. earlier OpenAPI assumption):
+1. `status` is `{statusType, note, changedAt, …}` — read `status.statusType`.
+2. The covered window is at `timeOffPeriod.period.{start,end}`, one level
+   deeper than what OpenAPI's schema (loosely typed as `object`) suggested.
+
+## 1c. Outbound: user-directory refresh (P2.3)
+
+`GET {backendUrl}/v1/workspaces/{workspaceId}/users?status=ACTIVE&page=1&page-size=200`
+
+Caller: `src/main/java/me/apet97/breakcompliance/clockify/UserDirectoryFetcher.java`
+
+Used after each ingest to keep cached `time_entries.user_name` in sync
+with Clockify renames. Live probe confirmed the array-of-users response
+shape — engine reads `id` + `name` (fallback `email`).
 
 ## 2. Inbound: lifecycle webhook envelopes
 

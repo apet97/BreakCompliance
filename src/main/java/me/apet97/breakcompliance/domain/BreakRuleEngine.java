@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
 import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
@@ -71,6 +72,16 @@ public class BreakRuleEngine {
             ActiveRequirement active = pickActiveRequirement(template, segments.workMinutes);
             int effectiveBreakMinutes = pickEffectiveBreakMinutes(template, segments);
 
+            // P2.9 — admin-configurable severity per finding code. Defaults
+            // to VIOLATION (the historical engine output); blank / invalid
+            // overrides fall back to VIOLATION too.
+            Severity missingSev = resolveSeverity(
+                    input.settings().getSeverityOverrideMissingBreak(), Severity.VIOLATION);
+            Severity insufficientSev = resolveSeverity(
+                    input.settings().getSeverityOverrideInsufficientBreak(), Severity.VIOLATION);
+            Severity continuousSev = resolveSeverity(
+                    input.settings().getSeverityOverrideMaxContinuous(), Severity.VIOLATION);
+
             if (active != null) {
                 Map<String, Object> evidence = buildEvidence(segments, active.thresholdMinutes, active.requiredBreakMinutes);
                 if (effectiveBreakMinutes <= 0) {
@@ -79,7 +90,7 @@ public class BreakRuleEngine {
                             bucket.userId(),
                             bucket.date(),
                             template.getId(),
-                            Severity.VIOLATION,
+                            missingSev,
                             FindingCode.MISSING_REQUIRED_BREAK,
                             "Worked " + segments.workMinutes + " minutes (threshold " + active.thresholdMinutes
                                     + ") with no qualifying break.",
@@ -90,7 +101,7 @@ public class BreakRuleEngine {
                             bucket.userId(),
                             bucket.date(),
                             template.getId(),
-                            Severity.VIOLATION,
+                            insufficientSev,
                             FindingCode.INSUFFICIENT_BREAK_DURATION,
                             "Qualifying break minutes " + effectiveBreakMinutes + " below required "
                                     + active.requiredBreakMinutes + ".",
@@ -110,7 +121,7 @@ public class BreakRuleEngine {
                         bucket.userId(),
                         bucket.date(),
                         template.getId(),
-                        Severity.VIOLATION,
+                        continuousSev,
                         FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED,
                         "Continuous work " + segments.maxContinuousWorkMinutes + " minutes exceeds maximum "
                                 + template.getMaxContinuousWorkMinutesBeforeBreak() + ".",
@@ -180,6 +191,22 @@ public class BreakRuleEngine {
         return t;
     }
 
+    /**
+     * P2.9 — parse the persisted severity override string into a
+     * {@link Severity} enum value, returning {@code fallback} when the
+     * stored value is null, blank, or doesn't match an enum member.
+     * The lifecycle handler validates input at the boundary; this is the
+     * inner safety net so an out-of-band DB edit can't crash the engine.
+     */
+    private static Severity resolveSeverity(String override, Severity fallback) {
+        if (override == null || override.isBlank()) return fallback;
+        try {
+            return Severity.valueOf(override.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
     private static int positiveOr(Integer custom, int fallback) {
         return (custom != null && custom > 0) ? custom : fallback;
     }
@@ -203,6 +230,20 @@ public class BreakRuleEngine {
      */
     private List<DayBucket> bucketEntries(BreakRuleEngineInput input) {
         Map<String, TreeMap<LocalDate, List<TimeEntry>>> byUser = new HashMap<>();
+        // Count entries that have a startAt but no endAt — i.e. a still-running
+        // timer that we can't evaluate yet but shouldn't pretend isn't there.
+        // Surfaced via evidence so the admin sees "this user has an open
+        // timer; refresh in N minutes" instead of mystery-clean days.
+        Map<String, Map<LocalDate, Integer>> runningByUserDate = new HashMap<>();
+        // P6.2 — workspace-scoped exemption list. Loaded once per evaluate()
+        // call; the set is small (most workspaces leave it empty) and
+        // membership checks are O(1).
+        Set<String> exemptUserIds = input.settings().exemptUserIdSet();
+        // P1.1 / P1.2 — suppression sets from the input. Workspace-wide
+        // holidays skip everyone's bucket for that date; per-user
+        // suppressed dates skip only the matching user.
+        Set<LocalDate> wsHolidays = input.workspaceWideHolidayDates();
+        Map<String, Set<LocalDate>> perUserSuppressed = input.userSpecificSuppressedDates();
         for (TimeEntry entry : input.entries()) {
             if (!Objects.equals(entry.getWorkspaceId(), input.workspaceId())) {
                 continue;
@@ -210,8 +251,11 @@ public class BreakRuleEngine {
             if (entry.getUserId() == null || entry.getUserId().isEmpty()) {
                 continue;
             }
-            if (entry.getEndAt() == null || entry.getStartAt() == null) {
-                continue; // running or malformed
+            if (exemptUserIds.contains(entry.getUserId())) {
+                continue;
+            }
+            if (entry.getStartAt() == null) {
+                continue; // malformed
             }
             ZoneId zoneId = ZoneOffset.UTC;
             if (input.settings().getTimezoneStrategy() == TimezoneStrategy.ENTRY_TIMEZONE) {
@@ -226,8 +270,30 @@ public class BreakRuleEngine {
                     }
                 }
             }
-            LocalDate date = entry.getStartAt().atZone(zoneId).toLocalDate();
+            // P1.4 — choose attribution day for entries crossing midnight.
+            // "end-day" reads from endAt (when set); everything else falls
+            // through to the historical start-day behaviour.
+            LocalDate date;
+            String nightAttr = input.settings().getNightShiftAttribution();
+            if ("end-day".equalsIgnoreCase(nightAttr) && entry.getEndAt() != null) {
+                date = entry.getEndAt().atZone(zoneId).toLocalDate();
+            } else {
+                date = entry.getStartAt().atZone(zoneId).toLocalDate();
+            }
             if (date.isBefore(input.dateRangeStart()) || date.isAfter(input.dateRangeEnd())) {
+                continue;
+            }
+            // P1.1 / P1.2 — bucket is suppressed entirely. Workspace-wide
+            // holiday or per-user holiday/time-off → engine emits no
+            // findings for this user-day regardless of how many work
+            // entries exist on it.
+            if (wsHolidays.contains(date)) continue;
+            Set<LocalDate> userSuppressed = perUserSuppressed.get(entry.getUserId());
+            if (userSuppressed != null && userSuppressed.contains(date)) continue;
+            if (entry.getEndAt() == null) {
+                runningByUserDate
+                        .computeIfAbsent(entry.getUserId(), k -> new HashMap<>())
+                        .merge(date, 1, Integer::sum);
                 continue;
             }
             byUser
@@ -244,9 +310,16 @@ public class BreakRuleEngine {
                 sorted.sort(Comparator
                         .comparing(TimeEntry::getStartAt)
                         .thenComparing(TimeEntry::getSourceEntryId));
-                buckets.add(new DayBucket(userId, dayEntry.getKey(), sorted));
+                int running = runningByUserDate
+                        .getOrDefault(userId, Map.of())
+                        .getOrDefault(dayEntry.getKey(), 0);
+                buckets.add(new DayBucket(userId, dayEntry.getKey(), sorted, running));
             }
         }
+        // A bucket with ONLY running entries fires no rules; skip creating
+        // it so we don't add evaluation cost for empty-of-finalised-entries
+        // buckets. The runningEntriesSkipped count is still attached when a
+        // bucket has other (finalised) entries on the same day.
         buckets.sort(Comparator
                 .comparing(DayBucket::date)
                 .thenComparing(DayBucket::userId));
@@ -260,12 +333,22 @@ public class BreakRuleEngine {
         int longestQualifyingBreakMinutes = 0;
         int currentRunWork = 0;
         int maxContinuousWork = 0;
+        // P1.4 — count entries whose duration straddles a calendar
+        // midnight in UTC. We don't change the start-day bucketing
+        // contract here, just surface the fact so admins know "this
+        // looks high because a night shift rolled into the morning."
+        int overnightShifts = 0;
         List<String> entryIds = new ArrayList<>();
         Instant prevWorkEndAt = null;
 
         for (TimeEntry entry : bucket.entries()) {
             entryIds.add(entry.getSourceEntryId());
             int minutes = durationMinutes(entry);
+            if (entry.getStartAt() != null && entry.getEndAt() != null
+                    && !entry.getStartAt().atZone(ZoneOffset.UTC).toLocalDate()
+                            .equals(entry.getEndAt().atZone(ZoneOffset.UTC).toLocalDate())) {
+                overnightShifts++;
+            }
             EntryClassifier.Kind kind = EntryClassifier.classify(entry, fallbackEnabled);
             if (kind == EntryClassifier.Kind.IGNORED) {
                 // TIME_OFF / HOLIDAY entries are not work and not breaks —
@@ -326,7 +409,9 @@ public class BreakRuleEngine {
                 longestQualifyingBreakMinutes,
                 maxContinuousWork,
                 syntheticBreakMinutes,
-                entryIds);
+                entryIds,
+                bucket.runningEntriesSkipped(),
+                overnightShifts);
     }
 
     private static int durationMinutes(TimeEntry entry) {
@@ -369,10 +454,23 @@ public class BreakRuleEngine {
         evidence.put("requiredBreakMinutes", requiredBreakMinutes);
         evidence.put("thresholdMinutes", thresholdMinutes);
         evidence.put("entryIds", segments.entryIds);
+        // Skipped running timers — sidebar renders a footnote when > 0 so
+        // admins know to refresh once the timer is stopped.
+        if (segments.runningEntriesSkipped > 0) {
+            evidence.put("runningEntriesSkipped", segments.runningEntriesSkipped);
+        }
+        // P1.4 — flag when one or more entries on this day crossed a UTC
+        // midnight. The engine still buckets to the start-day; this just
+        // tells the sidebar "the work-minutes here include the tail of an
+        // overnight shift, double-check before acting on the finding."
+        if (segments.overnightShifts > 0) {
+            evidence.put("overnightShifts", segments.overnightShifts);
+        }
         return evidence;
     }
 
-    private record DayBucket(String userId, LocalDate date, List<TimeEntry> entries) {
+    private record DayBucket(
+            String userId, LocalDate date, List<TimeEntry> entries, int runningEntriesSkipped) {
     }
 
     private record EvaluatedSegments(
@@ -381,7 +479,9 @@ public class BreakRuleEngine {
             int longestQualifyingBreakMinutes,
             int maxContinuousWorkMinutes,
             int syntheticBreakMinutes,
-            List<String> entryIds) {
+            List<String> entryIds,
+            int runningEntriesSkipped,
+            int overnightShifts) {
     }
 
     private record ActiveRequirement(int thresholdMinutes, int requiredBreakMinutes) {

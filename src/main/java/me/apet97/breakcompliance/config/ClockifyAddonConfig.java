@@ -92,6 +92,21 @@ public class ClockifyAddonConfig {
                 .path("/webhook/time-entry-deleted")
                 .build());
 
+        // P3.1 — approved / rejected / withdrawn time-off events invalidate
+        // the suppression cache. SDK exposes these events natively.
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeOffRequestApproved()
+                .path("/webhook/time-off-approved")
+                .build());
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeOffRequestRejected()
+                .path("/webhook/time-off-rejected")
+                .build());
+        manifest.getWebhooks().add(ClockifyWebhook.builder()
+                .onTimeOffRequestWithdrawn()
+                .path("/webhook/time-off-withdrawn")
+                .build());
+
         manifest.getComponents().add(ClockifyComponent.builder()
                 .sidebar()
                 .allowAdmins()
@@ -225,6 +240,88 @@ public class ClockifyAddonConfig {
                 .description("ON: detect breaks taken as gaps between work entries. A gap of 5–120 minutes between two consecutive work entries on the same day counts as a qualifying break. Turn ON when your workspace records breaks by stopping the timer rather than logging dedicated BREAK entries.")
                 .build();
 
+        // P6.2 — user ids whose schedules shouldn't trigger findings (execs /
+        // contractors). Comma- or whitespace-separated. Leave blank to evaluate
+        // every user.
+        ClockifySetting exemptUsers = ClockifySetting.builder()
+                .id("exemptUserIds")
+                .name("Exempt user ids")
+                .allowAdmins()
+                .asTxt()
+                .value("")
+                .placeholder("Comma-separated Clockify user ids")
+                .description("Optional. User ids listed here are skipped during evaluation — useful for execs, contractors, or anyone whose schedule isn't subject to the workspace's break policy.")
+                .build();
+
+        // P3.3 — workspace override for the refresh-signal debounce window
+        // (5–300 s). 0 / blank keeps the application default (20s).
+        ClockifySetting refreshDebounce = ClockifySetting.builder()
+                .id("refreshDebounceSeconds")
+                .name("Refresh debounce (seconds)")
+                .allowAdmins()
+                .asNumber()
+                .value(0)
+                .placeholder("0 = use default (20s); accepted range 5–300")
+                .description("Optional. How long the addon waits after a Clockify webhook before refreshing findings — bursts of edits coalesce into one re-ingest within this window. Heavy workspaces benefit from longer windows; quiet ones from shorter.")
+                .build();
+
+        // P1.3 — scope the detailed-report fetch to APPROVED entries only.
+        // OFF by default so the engine still sees work-in-progress entries.
+        ClockifySetting excludeUnsubmitted = ClockifySetting.builder()
+                .id("excludeUnsubmittedEntries")
+                .name("Only evaluate approved entries")
+                .allowAdmins()
+                .asCheckbox()
+                .value(Boolean.FALSE)
+                .description("ON: only entries already approved in Clockify count toward break compliance. Work still being edited won't trigger findings. Recommended for workspaces with mandatory approval workflows.")
+                .build();
+
+        // P2.9 — severity overrides per finding code. Empty = engine default
+        // (VIOLATION). Letting a workspace downgrade to WARNING / INFO is
+        // useful when admins want softer signals during a rollout.
+        List<String> severityValues = List.of("VIOLATION", "WARNING", "INFO");
+        ClockifySetting severityMissing = ClockifySetting.builder()
+                .id("severityOverrideMissingBreak")
+                .name("Severity — missing break")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("VIOLATION")
+                .allowedValues(severityValues)
+                .description("How severe a missing-required-break finding is. Downgrade to WARNING or INFO if you want softer signals during a rollout.")
+                .build();
+        ClockifySetting severityInsufficient = ClockifySetting.builder()
+                .id("severityOverrideInsufficientBreak")
+                .name("Severity — insufficient break")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("VIOLATION")
+                .allowedValues(severityValues)
+                .description("Severity used when a user took some break but below the required total.")
+                .build();
+        ClockifySetting severityContinuous = ClockifySetting.builder()
+                .id("severityOverrideMaxContinuous")
+                .name("Severity — max continuous work")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("VIOLATION")
+                .allowedValues(severityValues)
+                .description("Severity used when a user exceeded the max-continuous-work limit without a qualifying break.")
+                .build();
+
+        // P1.4 — overnight-shift bucketing. "Start day" matches the
+        // historical default; "End day" attributes a shift to the day it
+        // ended, useful for night-shift workflows where the bulk of the
+        // work was done after midnight.
+        ClockifySetting nightShiftAttribution = ClockifySetting.builder()
+                .id("nightShiftAttribution")
+                .name("Overnight shift bucketing")
+                .allowAdmins()
+                .asDropdownSingle()
+                .value("start-day")
+                .allowedValues(List.of("start-day", "end-day"))
+                .description("How to attribute time entries whose start and end span a calendar midnight. start-day = whole shift counted on the day it began (default). end-day = whole shift counted on the day it ended.")
+                .build();
+
         ClockifySettingsTab settingsTab = ClockifySettingsTab.builder()
                 .id("breakCompliance")
                 .name("Break Compliance")
@@ -238,7 +335,14 @@ public class ClockifyAddonConfig {
                         secondWork,
                         secondBreak,
                         timezoneStrategy,
-                        fallbackDetection))
+                        fallbackDetection,
+                        exemptUsers,
+                        refreshDebounce,
+                        excludeUnsubmitted,
+                        severityMissing,
+                        severityInsufficient,
+                        severityContinuous,
+                        nightShiftAttribution))
                 .build();
 
         return ClockifySettings.builder()

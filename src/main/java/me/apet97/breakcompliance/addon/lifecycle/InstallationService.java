@@ -428,8 +428,97 @@ public class InstallationService {
             }
             case "secondWorkThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondWorkThresholdMinutes);
             case "secondBreakThresholdMinutes" -> setNullableMinutes(value, settings::setCustomSecondBreakThresholdMinutes);
+            // P6.2 — comma / whitespace separated list of user ids the engine
+            // should skip. Stored verbatim; the entity exposes a parsed set.
+            case "exemptUserIds" -> {
+                if (value == null || (value instanceof String s && s.isBlank())) {
+                    settings.setExemptUserIds(null);
+                    yield true;
+                }
+                if (value instanceof String s) {
+                    settings.setExemptUserIds(s.trim());
+                    yield true;
+                }
+                yield false;
+            }
+            // P3.3 — workspace override for the refresh-signal debounce.
+            // Range 5..300 enforced here so a typoed value just keeps the
+            // application default rather than mis-tuning the consumer.
+            case "refreshDebounceSeconds" -> {
+                if (value == null) {
+                    settings.setCustomRefreshDebounceSeconds(null);
+                    yield true;
+                }
+                Integer parsed = null;
+                if (value instanceof Number n) parsed = n.intValue();
+                else if (value instanceof String s && !s.isBlank()) {
+                    try { parsed = Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) { yield false; }
+                }
+                if (parsed == null) yield false;
+                if (parsed == 0) {
+                    settings.setCustomRefreshDebounceSeconds(null);
+                    yield true;
+                }
+                if (parsed < 5 || parsed > 300) yield false;
+                settings.setCustomRefreshDebounceSeconds(parsed);
+                yield true;
+            }
+            // P1.3 — toggle approvalState=APPROVED on the detailed-report
+            // fetcher so the engine only sees approved entries.
+            case "excludeUnsubmittedEntries" -> {
+                if (value instanceof Boolean b) {
+                    settings.setExcludeUnsubmittedEntries(b);
+                    yield true;
+                }
+                yield false;
+            }
+            // P2.9 — per finding-code severity override. Engine validates
+            // against the Severity enum at evaluation time; we still
+            // sanity-check here so a typo doesn't land in the DB.
+            case "severityOverrideMissingBreak" -> applySeverityOverride(
+                    value, settings::setSeverityOverrideMissingBreak);
+            case "severityOverrideInsufficientBreak" -> applySeverityOverride(
+                    value, settings::setSeverityOverrideInsufficientBreak);
+            case "severityOverrideMaxContinuous" -> applySeverityOverride(
+                    value, settings::setSeverityOverrideMaxContinuous);
+            // P1.4 — overnight-shift bucketing. Engine treats "end-day"
+            // specially; anything else (null / blank / unknown value)
+            // falls back to the historical start-day attribution.
+            case "nightShiftAttribution" -> {
+                if (value == null || (value instanceof String s && s.isBlank())) {
+                    settings.setNightShiftAttribution(null);
+                    yield true;
+                }
+                if (value instanceof String s) {
+                    String v = s.trim().toLowerCase();
+                    if ("start-day".equals(v) || "end-day".equals(v)) {
+                        settings.setNightShiftAttribution(v);
+                        yield true;
+                    }
+                }
+                yield false;
+            }
             default -> false;
         };
+    }
+
+    private static boolean applySeverityOverride(Object value, java.util.function.Consumer<String> setter) {
+        if (value == null) {
+            setter.accept(null);
+            return true;
+        }
+        if (!(value instanceof String s)) return false;
+        String trimmed = s.trim();
+        if (trimmed.isEmpty()) {
+            setter.accept(null);
+            return true;
+        }
+        String upper = trimmed.toUpperCase();
+        if (!"VIOLATION".equals(upper) && !"WARNING".equals(upper) && !"INFO".equals(upper)) {
+            return false;
+        }
+        setter.accept(upper);
+        return true;
     }
 
     private static boolean setNullableMinutes(Object value, java.util.function.Consumer<Integer> setter) {

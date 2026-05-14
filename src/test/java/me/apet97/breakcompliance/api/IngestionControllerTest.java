@@ -1,6 +1,7 @@
 package me.apet97.breakcompliance.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -95,7 +96,10 @@ class IngestionControllerTest {
 
     @Test
     void detailedReport_returnsAcceptedAndPersistsRun() throws Exception {
-        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
+        // P1.3 added a 6-arg overload that takes the excludeUnsubmittedEntries
+        // flag; IngestionService now always calls the 6-arg variant, so the
+        // stub must match its signature.
+        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
                 .thenReturn(List.of());
 
         mockMvc.perform(post("/api/ingest/detailed-report")
@@ -117,7 +121,10 @@ class IngestionControllerTest {
 
     @Test
     void detailedReport_clockifyReports401_recordsFailedRunWithoutPropagating() throws Exception {
-        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
+        // P1.3 added a 6-arg overload that takes the excludeUnsubmittedEntries
+        // flag; IngestionService now always calls the 6-arg variant, so the
+        // stub must match its signature.
+        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
                 .thenThrow(new ClockifyApiException("Clockify client error: 401", 401));
 
         // The controller no longer translates 401 into a synchronous 503 — the

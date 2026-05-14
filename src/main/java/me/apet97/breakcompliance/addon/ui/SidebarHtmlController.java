@@ -108,6 +108,7 @@ public class SidebarHtmlController {
                           <option value="last_week">Last Week</option>
                           <option value="last_2_weeks">Last 2 Weeks</option>
                           <option value="last_month">Last Month</option>
+                          <option value="all_open">All Open (last 90 days)</option>
                           <option value="custom_range">Custom Range</option>
                         </select>
                       </div>
@@ -142,6 +143,7 @@ public class SidebarHtmlController {
                       <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span>Pivot Table</span></label>
                       <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span>Checklist</span></label>
                     </fieldset>
+                    <select id="user-filter-select" class="user-filter-select" aria-label="Filter findings by user" hidden></select>
                     <button id="export-csv-btn" class="btn-link export-csv-btn" type="button" hidden title="Download the current findings list as a CSV file">
                       <span aria-hidden="true">⬇</span> Export CSV
                     </button>

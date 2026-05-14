@@ -15,6 +15,15 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * Engine-irrelevant in current evaluation paths — the active engine builds a
+ * transient template from {@link WorkspaceSettings} via
+ * {@code BreakRuleEngine.synthesizeWorkspaceTemplate(...)}. The persisted
+ * table {@code breakcompliance_rule_templates} is kept for rollback safety
+ * (additive-migrations policy) and as the staging point if per-user /
+ * per-group rule overrides land in the future. See CLAUDE.md "Settings
+ * model" notes — don't waste time refactoring evaluation through this entity.
+ */
 @Entity
 @Table(name = "breakcompliance_rule_templates")
 @IdClass(RuleTemplate.Pk.class)

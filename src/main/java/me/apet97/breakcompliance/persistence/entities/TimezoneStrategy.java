@@ -1,7 +1,21 @@
 package me.apet97.breakcompliance.persistence.entities;
 
 public enum TimezoneStrategy {
-    ENTRY_TIMEZONE("Use entry's local time zone");
+    /**
+     * Bucket each time entry by the day in the entry's own recorded
+     * timezone ({@code timeInterval.timeZone}). Recommended for
+     * distributed teams — every shift lands on the day the worker
+     * actually worked it.
+     */
+    ENTRY_TIMEZONE("Use entry's local time zone"),
+
+    /**
+     * Bucket every entry by UTC calendar date. Useful when the workspace
+     * needs a single canonical day boundary regardless of where the user
+     * logged time. Trade-off: a worker in UTC+10 finishing at 02:00 local
+     * lands on the previous UTC day, which may surprise admins.
+     */
+    UTC("Use UTC for every entry");
 
     private final String manifestLabel;
 

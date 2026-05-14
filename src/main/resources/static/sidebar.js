@@ -31,6 +31,15 @@ const DATE_PRESETS = {
     last_week: () => weekRange(-1),
     last_2_weeks: () => weekRange(-2, 0),
     last_month: () => monthRange(-1),
+    // P2.8 — "All open" sweeps the last 90 days and asks the backend to
+    // hide anything already acknowledged or overridden. Useful for
+    // burning down the backlog without picking a window manually.
+    all_open: () => {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 90);
+        return { start: isoDate(start), end: isoDate(end), openOnly: true };
+    },
 };
 
 // Fallback labels when /api/presets hasn't loaded yet. The catalog is the
@@ -69,6 +78,7 @@ const state = {
     chooserOpen: false,     // preset-chooser panel visibility
     chooserBusy: null,      // presetKey currently being applied, or null
     pendingRefreshAt: null, // Date — newest PENDING/CLAIMED signal after lastRunAt, or null
+    userFilter: null,        // P2.1 — selected userId in the filter dropdown, or null
 };
 
 // ────────────────────────── Errors ──────────────────────────
@@ -729,8 +739,19 @@ function renderActiveTemplate() {
     const active = state.session?.activeTemplate;
     if (!active) {
         details.appendChild(create("p", { className: "muted", text: "Thresholds not configured yet — open the settings page in Clockify." }));
+        chip.removeAttribute("data-preview");
         return;
     }
+
+    // P2.5 — one-line summary on chip hover, so admins don't have to click
+    // the chip to glance at the current rule.
+    // P2.7 — also mirror onto aria-label so screen-reader users get the
+    // same context (CSS ::after pseudo-content is invisible to AT).
+    const splitNote = active.allowSplitBreaks ? "split allowed" : "single block required";
+    const segmentNote = `${active.minBreakSegmentMinutes ?? 0}m segments OK`;
+    const preview = `≥${active.workThresholdMinutes ?? 0}m work → ≥${active.breakThresholdMinutes ?? 0}m break (${segmentNote}, ${splitNote})`;
+    chip.setAttribute("data-preview", preview);
+    chip.setAttribute("aria-label", `Active preset: ${presetLabel}. ${preview}. Click to see full thresholds.`);
 
     const rows = [
         ["Work threshold", formatMinutes(active.workThresholdMinutes)],
@@ -839,6 +860,7 @@ function renderResults() {
     const container = el("results-container");
     clearChildren(container);
     renderExportButton();
+    renderUserFilter();
     if (state.findings.length === 0) {
         if (state.lastRun) {
             // Successful run, just no violations — celebrate the empty list.
@@ -856,6 +878,43 @@ function renderResults() {
     }
     if (state.view === "pivot") renderPivot(container);
     else renderChecklist(container);
+}
+
+// P2.1 — populate the user-filter dropdown from the userIds currently in
+// state.findings. Hidden when there are no findings or only one user.
+// Client-side filter via state.userFilter; downstream renderers respect it.
+function renderUserFilter() {
+    const sel = document.getElementById("user-filter-select");
+    if (!sel) return;
+    // Single pass: prefer the first non-blank userName per user, else
+    // fall through to the raw id. Avoids the O(N×U) filter-per-user trap.
+    const byUserId = new Map();
+    for (const f of state.findings) {
+        if (!f.userId) continue;
+        const existing = byUserId.get(f.userId);
+        const name = f.userName && f.userName.trim();
+        if (existing == null) {
+            byUserId.set(f.userId, name || f.userId);
+        } else if (existing === f.userId && name) {
+            byUserId.set(f.userId, name);
+        }
+    }
+    if (byUserId.size < 2) {
+        sel.hidden = true;
+        state.userFilter = null;
+        return;
+    }
+    sel.hidden = false;
+    clearChildren(sel);
+    const all = create("option", { text: `All users (${byUserId.size})` });
+    all.value = "";
+    sel.appendChild(all);
+    for (const [userId, name] of [...byUserId.entries()].sort((a, b) => a[1].localeCompare(b[1]))) {
+        const opt = create("option", { text: name });
+        opt.value = userId;
+        sel.appendChild(opt);
+    }
+    sel.value = state.userFilter ?? "";
 }
 
 // Picks the best display name for a user from any of their findings.
@@ -916,9 +975,17 @@ function statusIconMeta(severity) {
     return { icon: "✗", srLabel: "Violation" };
 }
 
+function visibleFindings() {
+    // P2.1 — apply the user-filter dropdown selection. Empty / null
+    // selection = no filter; show everyone.
+    if (!state.userFilter) return state.findings;
+    return state.findings.filter(f => f.userId === state.userFilter);
+}
+
 function renderPivot(container) {
+    const findingsView = visibleFindings();
     const byUser = new Map();
-    for (const f of state.findings) {
+    for (const f of findingsView) {
         if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
         const byDate = byUser.get(f.userId);
         if (!byDate.has(f.date)) byDate.set(f.date, []);
@@ -1072,8 +1139,9 @@ async function cycleReview(findingId, currentStatus) {
 }
 
 function renderChecklist(container) {
+    const findingsView = visibleFindings();
     const byUser = new Map();
-    for (const f of state.findings) {
+    for (const f of findingsView) {
         if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
         const byDate = byUser.get(f.userId);
         if (!byDate.has(f.date)) byDate.set(f.date, []);
@@ -1138,6 +1206,62 @@ function renderChecklist(container) {
                     cycleReview(f.id, reviewStatus);
                 });
                 li.appendChild(reviewBtn);
+
+                // P2.2 — drill-down: surface entryIds + runningEntriesSkipped
+                // + overnightShifts already in the evidence payload. No new
+                // endpoint needed.
+                const entryIds = Array.isArray(f.evidence?.entryIds) ? f.evidence.entryIds : [];
+                const runningSkipped = Number(f.evidence?.runningEntriesSkipped) || 0;
+                const overnightShifts = Number(f.evidence?.overnightShifts) || 0;
+                if (entryIds.length > 0 || runningSkipped > 0 || overnightShifts > 0) {
+                    const drillBtn = create("button", {
+                        className: "btn-link rule-drill-btn",
+                        text: `▾ ${entryIds.length} ${entryIds.length === 1 ? "entry" : "entries"}`
+                            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : ""),
+                        title: "Show contributing time-entry ids",
+                    });
+                    drillBtn.type = "button";
+                    drillBtn.setAttribute("aria-expanded", "false");
+                    // P2.7 — screen-reader friendly label so the button
+                    // announces its target clearly.
+                    drillBtn.setAttribute("aria-label",
+                        `Show ${entryIds.length} contributing time-entry id${entryIds.length === 1 ? "" : "s"} for this finding`);
+                    const drillBody = create("div", { className: "rule-drill-body" });
+                    drillBody.hidden = true;
+                    if (entryIds.length > 0) {
+                        const idList = create("ul", { className: "rule-drill-ids" });
+                        for (const id of entryIds) {
+                            idList.appendChild(create("li", { className: "rule-drill-id", text: id }));
+                        }
+                        drillBody.appendChild(idList);
+                    }
+                    if (runningSkipped > 0) {
+                        drillBody.appendChild(create("p", {
+                            className: "rule-drill-note",
+                            // P1.5 — admins refresh after the user stops the timer.
+                            text: `${runningSkipped} running timer${runningSkipped === 1 ? "" : "s"} skipped — refresh once the user stops the entry to include it in the evaluation.`,
+                        }));
+                    }
+                    if (overnightShifts > 0) {
+                        drillBody.appendChild(create("p", {
+                            className: "rule-drill-note",
+                            // P1.4 — flag that the work-minutes here include
+                            // the tail of an overnight shift, so admins can
+                            // double-check before acting.
+                            text: `${overnightShifts} entr${overnightShifts === 1 ? "y" : "ies"} crossed midnight — the full shift is attributed to the start-day; review before acting.`,
+                        }));
+                    }
+                    drillBtn.addEventListener("click", () => {
+                        const open = drillBody.hidden;
+                        drillBody.hidden = !open;
+                        drillBtn.setAttribute("aria-expanded", open ? "true" : "false");
+                        drillBtn.firstChild.nodeValue = (open ? "▴ " : "▾ ")
+                            + `${entryIds.length} ${entryIds.length === 1 ? "entry" : "entries"}`
+                            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : "");
+                    });
+                    li.appendChild(drillBtn);
+                    li.appendChild(drillBody);
+                }
                 items.appendChild(li);
             }
             section.appendChild(items);
@@ -1197,11 +1321,47 @@ function describeIngestFailure(errorCode) {
     return `Ingestion failed (${errorCode}). The run was recorded so an admin can audit it from Settings.`;
 }
 
+// P2.8 — read-only fetch path for the "All open" preset. Reuses the
+// findings list endpoint with openOnly=true; no ingest, no evaluate.
+async function loadOpenFindings(range) {
+    setLoading(true);
+    setLoadingMessage(`Loading open findings ${range.start} → ${range.end}…`);
+    let listResult;
+    try {
+        listResult = await api("/api/findings", {
+            query: { dateRangeStart: range.start, dateRangeEnd: range.end, openOnly: "true" },
+        });
+    } catch (err) {
+        setLoading(false);
+        showBanner("err", err instanceof HttpError
+            ? `Loading open findings failed: ${err.message}`
+            : "Loading open findings failed.");
+        return;
+    }
+    state.findings = listResult.findings;
+    state.lastRunRange = { start: range.start, end: range.end };
+    setLoading(false);
+    renderResults();
+    if (state.findings.length === 0) {
+        showBanner("ok", `No open findings in the last 90 days.`);
+    } else {
+        showBanner("warn",
+            `${state.findings.length} open finding(s) — acknowledge or override to clear the backlog.`);
+    }
+}
+
 async function runCompliance() {
     showBanner("hidden");
     const range = computeDateRange();
     if ("error" in range) {
         showBanner("err", range.error);
+        return;
+    }
+    // P2.8 — "All open" preset is a read-only backlog view. Skip the
+    // 90-day re-ingest + re-evaluate (expensive + unwanted) and just
+    // refresh the rendered list from persisted findings.
+    if (range.openOnly) {
+        await loadOpenFindings(range);
         return;
     }
     setRunButtonState(true);
@@ -1279,9 +1439,11 @@ async function runCompliance() {
 
     let listResult;
     try {
-        listResult = await api("/api/findings", {
-            query: { dateRangeStart: range.start, dateRangeEnd: range.end },
-        });
+        const query = { dateRangeStart: range.start, dateRangeEnd: range.end };
+        // P2.8 — "All open" preset asks the backend to hide already-handled
+        // findings so the list paints the actual remaining backlog.
+        if (range.openOnly) query.openOnly = "true";
+        listResult = await api("/api/findings", { query });
     } catch (err) {
         setLoading(false);
         setRunButtonState(false);
@@ -1445,6 +1607,15 @@ function wireEvents() {
             renderResults();
         });
     }
+
+    // P2.1 — sidebar user-filter dropdown.
+    const userSelect = document.getElementById("user-filter-select");
+    if (userSelect) {
+        userSelect.addEventListener("change", () => {
+            state.userFilter = userSelect.value || null;
+            renderResults();
+        });
+    }
 }
 
 // Refresh the "Last checked" relative time once a minute so the label
@@ -1508,6 +1679,14 @@ function initAuthAndMessenger() {
             addonToken = urlToken;
             stripAuthTokenFromUrl();
         }
+    });
+
+    // P2.6 — Clockify dispatches THEME_CHANGED when the user toggles light
+    // ↔ dark in their own UI. Mirror the change live instead of waiting
+    // for an iframe reload.
+    messenger.on("THEME_CHANGED", (payload) => {
+        const next = String(payload?.theme ?? payload ?? "").toUpperCase();
+        if (next === "DARK" || next === "LIGHT") applyTheme(next);
     });
 
     setInterval(() => {

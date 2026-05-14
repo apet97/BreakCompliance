@@ -33,10 +33,13 @@ public class FindingsController {
 
     private final FindingsService findingsService;
     private final FindingReviewRepository reviewRepo;
+    private final AuditService audit;
 
-    public FindingsController(FindingsService findingsService, FindingReviewRepository reviewRepo) {
+    public FindingsController(
+            FindingsService findingsService, FindingReviewRepository reviewRepo, AuditService audit) {
         this.findingsService = findingsService;
         this.reviewRepo = reviewRepo;
+        this.audit = audit;
     }
 
     @PostMapping(value = "/evaluate", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -62,7 +65,9 @@ public class FindingsController {
     public ResponseEntity<Map<String, Object>> list(
             HttpServletRequest request,
             @RequestParam("dateRangeStart") String fromIso,
-            @RequestParam("dateRangeEnd") String toIso) {
+            @RequestParam("dateRangeEnd") String toIso,
+            @RequestParam(value = "openOnly", required = false, defaultValue = "false") boolean openOnly,
+            @RequestParam(value = "userIds", required = false) String userIdsCsv) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
@@ -72,10 +77,40 @@ public class FindingsController {
         LocalDate to = range.to();
         List<Finding> findings = findingsService.list(claims.workspaceId(), from, to);
         Map<String, FindingReview> reviewsById = loadReviewsFor(claims.workspaceId(), findings);
+        // P2.8 — "All open findings" workflow filters out anything an admin
+        // already acknowledged or overrode. A finding with no review row
+        // is implicitly OPEN; explicit OPEN review rows count too.
+        if (openOnly) {
+            findings = findings.stream()
+                    .filter(f -> {
+                        FindingReview r = reviewsById.get(f.getId());
+                        return r == null || r.getStatus() == ReviewStatus.OPEN;
+                    })
+                    .toList();
+        }
+        // P2.1 — server-side userIds filter: comma-separated allowlist.
+        // Blank / missing param means "all users." Filter runs after openOnly
+        // so the two compose without surprise.
+        java.util.Set<String> userIdAllowlist = parseUserIds(userIdsCsv);
+        if (!userIdAllowlist.isEmpty()) {
+            findings = findings.stream()
+                    .filter(f -> userIdAllowlist.contains(f.getUserId()))
+                    .toList();
+        }
         List<Map<String, Object>> body = findings.stream()
                 .map(f -> toJsonShape(f, reviewsById.get(f.getId())))
                 .toList();
         return ResponseEntity.ok(Map.of("findings", body));
+    }
+
+    private static java.util.Set<String> parseUserIds(String csv) {
+        if (csv == null || csv.isBlank()) return java.util.Set.of();
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String part : csv.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) out.add(trimmed);
+        }
+        return out;
     }
 
     /**
@@ -96,7 +131,8 @@ public class FindingsController {
             HttpServletRequest request,
             @RequestParam("dateRangeStart") String fromIso,
             @RequestParam("dateRangeEnd") String toIso,
-            @RequestParam(value = "format", required = false, defaultValue = "csv") String format) {
+            @RequestParam(value = "format", required = false, defaultValue = "csv") String format,
+            @RequestParam(value = "userIds", required = false) String userIdsCsv) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
@@ -110,6 +146,14 @@ public class FindingsController {
         LocalDate from = range.from();
         LocalDate to = range.to();
         List<Finding> findings = findingsService.list(claims.workspaceId(), from, to);
+        // P2.1 — same userIds filter as the JSON list endpoint so the
+        // exported CSV matches the rendered page.
+        java.util.Set<String> userIdAllowlist = parseUserIds(userIdsCsv);
+        if (!userIdAllowlist.isEmpty()) {
+            findings = findings.stream()
+                    .filter(f -> userIdAllowlist.contains(f.getUserId()))
+                    .toList();
+        }
         String csv = toCsv(findings);
         String filename = "break-compliance-" + claims.workspaceId() + "-" + from + "-" + to + ".csv";
         return ResponseEntity.ok()
@@ -163,6 +207,18 @@ public class FindingsController {
         }
         review.setUpdatedAt(Instant.now());
         reviewRepo.saveAndFlush(review);
+        // P4.3 — record the admin's review action so the audit endpoint
+        // can render a history. Actor is the JWT's user id; details are
+        // bounded to status + whether a note exists (don't echo PII).
+        audit.record(
+                claims.workspaceId(),
+                claims.userId(),
+                "FINDING_REVIEW",
+                "Finding",
+                findingId,
+                Map.of(
+                        "status", status.name(),
+                        "hasNote", review.getNote() != null && !review.getNote().isBlank()));
         return ResponseEntity.ok(toReviewShape(review));
     }
 

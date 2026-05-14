@@ -30,6 +30,9 @@ public class WorkspaceDataDeletionService {
         em.createQuery("DELETE FROM GroupMembership g WHERE g.workspaceId = :wId").setParameter("wId", workspaceId).executeUpdate();
         em.createQuery("DELETE FROM TemplateAssignment t WHERE t.workspaceId = :wId").setParameter("wId", workspaceId).executeUpdate();
         em.createQuery("DELETE FROM RuleTemplate r WHERE r.workspaceId = :wId").setParameter("wId", workspaceId).executeUpdate();
+        // P1.1 / P1.2 — suppression caches are workspace-scoped; wipe on uninstall.
+        em.createQuery("DELETE FROM WorkspaceHoliday h WHERE h.workspaceId = :wId").setParameter("wId", workspaceId).executeUpdate();
+        em.createQuery("DELETE FROM WorkspaceTimeOff t WHERE t.workspaceId = :wId").setParameter("wId", workspaceId).executeUpdate();
         em.createQuery("DELETE FROM WorkspaceSettings w WHERE w.workspaceId = :wId").setParameter("wId", workspaceId).executeUpdate();
         // Webhook tokens might be cascaded but deleting them explicitly is fine.
         // The FK cascade is from Installation.

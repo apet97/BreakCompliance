@@ -37,9 +37,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class PresetController {
 
     private final InstallationService installationService;
+    private final AuditService audit;
 
-    public PresetController(InstallationService installationService) {
+    public PresetController(InstallationService installationService, AuditService audit) {
         this.installationService = installationService;
+        this.audit = audit;
     }
 
     @GetMapping("/api/presets")
@@ -94,6 +96,16 @@ public class PresetController {
                     "error", "no_workspace_settings",
                     "message", "Re-open the add-on to initialise workspace settings, then retry."));
         }
+        // P4.3 — record the preset apply so the audit endpoint can render
+        // who changed which workspace's rules and when.
+        audit.record(
+                claims.workspaceId(),
+                claims.userId(),
+                "PRESET_APPLY",
+                "WorkspaceSettings",
+                claims.workspaceId(),
+                Map.of("presetKey", presetKey));
+
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("appliedPresetKey", updated.getAppliedPresetKey());
         response.put("workThresholdMinutes", updated.getCustomWorkThresholdMinutes());

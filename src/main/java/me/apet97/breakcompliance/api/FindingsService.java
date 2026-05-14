@@ -2,7 +2,12 @@ package me.apet97.breakcompliance.api;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import me.apet97.breakcompliance.domain.BreakRuleEngine;
 import me.apet97.breakcompliance.domain.BreakRuleEngineInput;
@@ -12,11 +17,15 @@ import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
 import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
 import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.TemplateAssignmentRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +45,8 @@ public class FindingsService {
     private final TimeEntryRepository entriesRepo;
     private final FindingRepository findingsRepo;
     private final BreakRuleEngine engine;
+    private final WorkspaceHolidayRepository holidayRepo;
+    private final WorkspaceTimeOffRepository timeOffRepo;
 
     public FindingsService(
             WorkspaceSettingsRepository settingsRepo,
@@ -43,13 +54,17 @@ public class FindingsService {
             TemplateAssignmentRepository assignmentsRepo,
             TimeEntryRepository entriesRepo,
             FindingRepository findingsRepo,
-            BreakRuleEngine engine) {
+            BreakRuleEngine engine,
+            WorkspaceHolidayRepository holidayRepo,
+            WorkspaceTimeOffRepository timeOffRepo) {
         this.settingsRepo = settingsRepo;
         this.templatesRepo = templatesRepo;
         this.assignmentsRepo = assignmentsRepo;
         this.entriesRepo = entriesRepo;
         this.findingsRepo = findingsRepo;
         this.engine = engine;
+        this.holidayRepo = holidayRepo;
+        this.timeOffRepo = timeOffRepo;
     }
 
     @Transactional
@@ -61,22 +76,52 @@ public class FindingsService {
         });
         List<RuleTemplate> templates = templatesRepo.findByWorkspaceId(workspaceId);
         List<TemplateAssignment> assignments = assignmentsRepo.findByWorkspaceId(workspaceId);
-        Instant fromInstant = from.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-        Instant toInstant = to.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        Instant fromInstant = from.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         List<TimeEntry> entries = entriesRepo.findByWorkspaceIdAndStartAtBetween(workspaceId, fromInstant, toInstant);
+
+        // P1.1 / P1.2 — pull cached holidays + approved time-off and build
+        // the suppression sets the engine consumes. Workspace-wide
+        // holidays apply to every user's bucket for that date; per-user
+        // holidays + every approved time-off window only apply to the
+        // matching user.
+        Set<LocalDate> workspaceWide = new HashSet<>();
+        Map<String, Set<LocalDate>> perUser = new HashMap<>();
+        for (WorkspaceHoliday h : holidayRepo.findByWorkspaceIdAndDateBetween(workspaceId, from, to)) {
+            if (h.getAppliesToUserId() == null) {
+                workspaceWide.add(h.getDate());
+            } else {
+                perUser.computeIfAbsent(h.getAppliesToUserId(), k -> new HashSet<>())
+                        .add(h.getDate());
+            }
+        }
+        for (WorkspaceTimeOff t : timeOffRepo
+                .findByWorkspaceIdAndStartAtLessThanAndEndAtGreaterThanEqual(
+                        workspaceId, toInstant, fromInstant)) {
+            // Expand the (start, end) span into a set of LocalDates in UTC.
+            // Engine bucketing already handles per-entry timezones; we use
+            // UTC here as a safe baseline that matches Clockify's storage.
+            LocalDate dStart = t.getStartAt().atZone(ZoneOffset.UTC).toLocalDate();
+            LocalDate dEnd = t.getEndAt().atZone(ZoneOffset.UTC).toLocalDate();
+            Set<LocalDate> dates = perUser.computeIfAbsent(t.getUserId(), k -> new HashSet<>());
+            for (LocalDate d = dStart; !d.isAfter(dEnd); d = d.plusDays(1)) {
+                dates.add(d);
+            }
+        }
 
         // groupMemberships intentionally empty: the synthesised workspace
         // template is single per workspace and the engine does not consult
         // memberships. The record field stays for a future per-group policy.
         BreakRuleEngineInput input = new BreakRuleEngineInput(
-                workspaceId, settings, templates, assignments, entries, java.util.List.of(), from, to);
+                workspaceId, settings, templates, assignments, entries, List.of(),
+                from, to, workspaceWide, perUser);
         List<FindingDraft> drafts = engine.evaluate(input);
 
         // Build a userId → userName lookup from the time entries we just
         // pulled (the engine doesn't carry names; we attach them here so
         // findings render human-readable in the sidebar). Last-write-wins
         // when an entry's name is blank vs. set; sticky to non-blank.
-        java.util.Map<String, String> userNameByUserId = new java.util.HashMap<>();
+        Map<String, String> userNameByUserId = new HashMap<>();
         for (TimeEntry e : entries) {
             if (e.getUserId() == null || e.getUserName() == null || e.getUserName().isBlank()) continue;
             userNameByUserId.putIfAbsent(e.getUserId(), e.getUserName());
