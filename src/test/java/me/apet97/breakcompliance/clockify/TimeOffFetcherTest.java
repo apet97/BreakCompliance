@@ -49,10 +49,14 @@ class TimeOffFetcherTest {
         fetcher = new TimeOffFetcher(api, new ObjectMapper());
     }
 
-    @SuppressWarnings("unchecked")
     private void mockResponse(String body) {
         Mockito.when(api.post(eq(WS), eq(BACKEND_URL), eq(TOKEN), anyString(), any(), eq(String.class)))
                 .thenReturn(body);
+    }
+
+    private void mockResponses(String first, String... rest) {
+        Mockito.when(api.post(eq(WS), eq(BACKEND_URL), eq(TOKEN), anyString(), any(), eq(String.class)))
+                .thenReturn(first, rest);
     }
 
     @Test
@@ -160,6 +164,30 @@ class TimeOffFetcherTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void paginatesBeyondFirstTwoHundredRows() {
+        mockResponses(requestsPayload(0, 200, 201), requestsPayload(200, 1, 201));
+
+        List<TimeOffFetcher.TimeOffRow> out = fetcher.fetchApproved(
+                WS, BACKEND_URL, TOKEN, LocalDate.parse("2026-12-01"), LocalDate.parse("2026-12-31"));
+
+        assertThat(out).hasSize(201);
+        assertThat(out.get(0).sourceId()).isEqualTo("pto-0");
+        assertThat(out.get(200).sourceId()).isEqualTo("pto-200");
+
+        ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+        Mockito.verify(api, Mockito.times(2)).post(eq(WS), eq(BACKEND_URL), eq(TOKEN),
+                eq("/v1/workspaces/" + WS + "/time-off/requests"),
+                bodyCaptor.capture(), eq(String.class));
+
+        List<Map<String, Object>> pages = bodyCaptor.getAllValues().stream()
+                .map(value -> (Map<String, Object>) value)
+                .toList();
+        assertThat(pages).extracting(page -> page.get("page")).containsExactly(1, 2);
+        assertThat(pages).extracting(page -> page.get("pageSize")).containsOnly(200);
+    }
+
+    @Test
     void apiException_returnsEmptyListNotThrow() {
         Mockito.when(api.post(any(), any(), any(), any(), any(), eq(String.class)))
                 .thenThrow(new ClockifyApiException("workspace has no time-off feature", 404, null));
@@ -168,5 +196,21 @@ class TimeOffFetcherTest {
                 WS, BACKEND_URL, TOKEN, LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-31"));
 
         assertThat(out).isEmpty();
+    }
+
+    private static String requestsPayload(int startIndex, int count, int totalCount) {
+        StringBuilder json = new StringBuilder();
+        json.append("{\"count\":").append(totalCount).append(",\"requests\":[");
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                json.append(',');
+            }
+            int id = startIndex + i;
+            json.append("""
+                    {"id":"pto-%d","userId":"u-%d","status":{"statusType":"APPROVED"},"timeOffPeriod":{"period":{"start":"2026-12-20T00:00:00Z","end":"2026-12-21T00:00:00Z"}}}
+                    """.formatted(id, id));
+        }
+        json.append("]}");
+        return json.toString();
     }
 }

@@ -9,6 +9,8 @@ spring:
 breakcompliance:
   manifest:
     base-url: http://localhost:8080
+  clockify:
+    allow-local-base-urls: true
   crypto:
     keys:
       default: "0000000000000000000000000000000000000000000000000000000000000000"

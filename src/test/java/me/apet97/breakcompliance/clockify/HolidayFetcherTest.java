@@ -101,6 +101,27 @@ class HolidayFetcherTest {
     }
 
     @Test
+    void groupOnlyHolidayWithoutUserExpansion_isNotTreatedAsWorkspaceWide() {
+        mockResponse("""
+                [
+                  {
+                    "id": "h-group",
+                    "name": "Group holiday",
+                    "userIds": [],
+                    "userGroupIds": ["g-eu"],
+                    "everyoneIncludingNew": false,
+                    "datePeriod": { "startDate": "2026-12-10", "endDate": "2026-12-10" }
+                  }
+                ]
+                """);
+
+        List<HolidayFetcher.HolidayRow> out = fetcher.fetch(
+                WS, BACKEND_URL, TOKEN, LocalDate.parse("2026-12-01"), LocalDate.parse("2026-12-31"));
+
+        assertThat(out).isEmpty();
+    }
+
+    @Test
     void multiDaySpan_iteratesEveryDay() {
         mockResponse("""
                 [

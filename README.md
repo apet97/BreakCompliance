@@ -15,6 +15,9 @@ Active backlog of engine / UX / marketplace polish items is tracked in
 [`docs/IMPROVEMENT_CHECKLIST.md`](docs/IMPROVEMENT_CHECKLIST.md). Items are
 grouped P1–P6 by user-facing impact.
 
+Domain context and durable decisions live in [`CONTEXT.md`](CONTEXT.md) and
+[`docs/adr/`](docs/adr/).
+
 ## Prerequisites
 
 - Java 21 (Temurin recommended)
@@ -26,8 +29,9 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 ## Local setup
 
 1. From this directory: `mvn verify`
-2. Run locally: `mvn spring-boot:run`
-3. Smoke test: `curl http://localhost:8080/healthz` → `{"status":"ok"}` and `curl http://localhost:8080/manifest` → manifest JSON.
+2. Check static sidebar modules: `find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check`
+3. Run locally: `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
+4. Smoke test: `curl http://localhost:8080/healthz` → `{"status":"ok"}` and `curl http://localhost:8080/manifest` → manifest JSON.
 
 ## Project layout
 
@@ -45,9 +49,11 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 │   └── util/                                         Webhook path normalizer
 ├── src/main/resources/
 │   ├── application.yaml                              Env-driven Spring config
-│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V11, additive only)
+│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V15, additive only)
 │   ├── logback-spring.xml                            Token-redacting log pattern
-│   └── static/                                       sidebar.js, styles.css, icon.svg (64×64 designed mark)
+│   └── static/                                       sidebar.js, sidebar/*.js modules,
+│                                                      sidebar/css/*.css, theme-init.js,
+│                                                      styles.css, icon.svg
 ├── docs/                                             Marketplace submission docs
 │   ├── PRIVACY.md / SECURITY.md / DATA_RETENTION.md / LEGAL_NOTICES.md / SUPPORT.md
 │   ├── LISTING.md                                    Source-of-truth listing copy
@@ -62,7 +68,7 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 ## Architecture
 
 - **Spring Boot 3.3 + Spring MVC** — all routes are `@RestController` classes; the SDK is used as a manifest builder (`ClockifyManifest.v1_3Builder()`) + JWT verifier (`ClockifySignatureParser`), not as a routing framework.
-- **PostgreSQL + Spring Data JPA + Flyway** — 12 workspace-scoped tables, composite primary keys with `workspace_id` leading every tenant-scoped table for schema-enforced isolation.
+- **PostgreSQL + Spring Data JPA + Flyway** — additive migrations through V15, composite primary keys with `workspace_id` leading tenant-scoped tables for schema-enforced isolation.
 - **Redis + Spring Data Redis (Lettuce)** — webhook idempotency (24-hour SETNX TTL keyed by `sha256(eventType||body)`) and per-workspace Clockify-API rate limiting (50 req/sec/workspace, fixed-window).
 - **AES-GCM-256 token codec** — every installation token and webhook auth token encrypted at rest; 12-byte IV per encrypt, `keyId` for rotation, fail-closed on any tamper.
 - **3-check webhook auth** — RS256 signature, event-type header match, stored per-webhook authToken comparison.
@@ -70,7 +76,7 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 
 ## CI
 
-GitHub Actions runs `mvn verify` on every push to `main` and every PR. No repo secrets are needed for the build — the Clockify SDK comes from the vendored `repo/` directory, Maven Central handles everything else.
+GitHub Actions runs static JS syntax checks plus `mvn verify` on every push to `main` and every PR. No repo secrets are needed for the build — the Clockify SDK comes from the vendored `repo/` directory, Maven Central handles everything else.
 
 ## Production environment variables
 
@@ -87,6 +93,7 @@ GitHub Actions runs `mvn verify` on every push to `main` and every PR. No repo s
 | `EXTRA_FRAME_ANCESTORS` | optional | CSV of extra `frame-ancestors` for the CSP (e.g. `https://developer.clockify.me` during dev-portal testing). |
 | `LOG_LEVEL_APP` | optional | Per-incident log level for `me.apet97.breakcompliance` (default `INFO`). Flip via `railway variables --set` without redeploy. |
 | `SIDEBAR_TOKEN_MAX_IAT_AGE_SECONDS` / `IAT_CLOCK_SKEW_SECONDS` | optional | Sidebar JWT iat-replay window + tolerance. |
+| `BREAKCOMPLIANCE_CLOCKIFY_ALLOW_LOCAL_BASE_URLS` | optional | Dev/test-only opt-in for `http://localhost` Clockify base URLs. Leave unset in production. |
 
 ## Observability
 

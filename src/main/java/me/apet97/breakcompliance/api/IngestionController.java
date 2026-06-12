@@ -33,14 +33,15 @@ public class IngestionController {
 
     @PostMapping(value = "/detailed-report", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> ingest(
-            HttpServletRequest request, @RequestBody Map<String, String> body) {
+            HttpServletRequest request, @RequestBody IngestRequest body) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
         RequestValidator.requireAdmin(claims);
         RequestValidator.DateRange range = RequestValidator.parseAndValidateDates(
-                body.get("dateRangeStart"), body.get("dateRangeEnd"));
+                body == null ? null : body.dateRangeStart(),
+                body == null ? null : body.dateRangeEnd());
         LocalDate from = range.from();
         LocalDate to = range.to();
         IngestionRun run;
@@ -75,4 +76,6 @@ public class IngestionController {
                 "dateRangeEnd", run.getDateRangeEnd(),
                 "entriesProcessed", run.getEntriesProcessed())));
     }
+
+    public record IngestRequest(String dateRangeStart, String dateRangeEnd) {}
 }

@@ -24,10 +24,10 @@ P1.1, P1.2, P1.3, P1.4 (evidence + setting), P1.5, P1.6 (UTC strategy
 added), P2.1 (backend filter + sidebar dropdown), P2.2, P2.3, P2.4
 (verified), P2.5, P2.6, P2.7 (focus rings + aria-label), P2.8, P2.9,
 P3.1 (approved/rejected/withdrawn time-off webhooks), P3.3, P3.4, P4.3,
-P4.4, P4.5, P4.6 (metric only), P5.1, P5.5, P5.6, P6.1, P6.2, P6.3.
+P4.4, P4.5, P4.6 (metric only), P5.1, P5.4, P5.5, P5.6, P6.1, P6.2, P6.3.
 
 **Still deferred — code refactors that touch every caller:**
-P5.3 (i18n), P5.4 (typed DTO).
+P5.3 (i18n).
 
 **Live-blocked — requires a Clockify dev install + manual screenshot capture
 or 30-day production metric history:**
@@ -35,7 +35,7 @@ P4.1, P4.2, P5.2.
 
 **Probe-blocked — requires confirming Clockify webhook event types via live
 manifest install:**
-P3.1, P3.2.
+P3.2.
 
 Each deferred item retains its original detailed entry below so the next pass
 can pick up without re-research.
@@ -48,15 +48,18 @@ Highest user-facing value. Each item closes a class of "this finding is wrong"
 admin complaints.
 
 - [x] **P1.1 Holiday-aware suppression** — shipped
-  - Fetch `GET /v1/workspaces/{ws}/holidays/in-period?start={from}&end={to}` at
-    ingest time. Persist in `breakcompliance_workspace_holidays(workspaceId, date,
-    name, userIds[], userGroupIds[])` (additive migration `V11__holidays.sql`).
+  - Fetch `GET /v1/workspaces/{ws}/holidays` at ingest time and filter by date
+    client-side because the `/in-period` variant requires an `assigned-to`
+    ObjectId despite the docs marking it optional. Persist in
+    `breakcompliance_workspace_holidays` (additive migration
+    `V13__workspace_holidays_and_time_off.sql`).
   - `BreakRuleEngine.bucketEntries` skips `(userId, date)` buckets covered by a
     matching holiday. Already-classified `type=HOLIDAY` entries continue to
     short-circuit via `EntryClassifier.Kind.IGNORED`; this fills the gap when the
     workspace simply doesn't log a holiday entry.
-  - Verify required scope (probe live before adding `HOLIDAY_READ` to the
-    manifest).
+  - Group-only holidays (`everyoneIncludingNew=false`, empty `userIds`,
+    non-empty `userGroupIds`) are skipped with a WARN until a group-membership
+    expansion module exists; they are never broadened to workspace-wide.
   - Touches: `clockify/HolidayFetcher.java` (new), `domain/BreakRuleEngine.java`,
     `api/IngestionService.java`, `config/ClockifyAddonConfig.java`.
 
@@ -197,10 +200,10 @@ admin complaints.
     `LIVE_VALIDATION.md` §10.
 
 - [x] **P4.3 [shipped] Admin-action audit log UI**
-  - Backend audit-log rows exist (preset apply, finding review); no UI surface.
-    Add `GET /api/audit?dateRangeStart=&dateRangeEnd=` (admin-gated) and a
-    collapsible sidebar panel.
-  - Touches: `api/AuditController.java` (new), `static/sidebar.js`.
+  - `GET /api/audit?dateRangeStart=&dateRangeEnd=` is admin-gated and
+    workspace-scoped; the sidebar renders a compact admin-only audit panel.
+  - Touches: `api/AuditController.java`, `static/sidebar.js`,
+    `static/sidebar/audit-panel.js`.
 
 - [x] **P4.4 [shipped] Observability docs**
   - Add `docs/OBSERVABILITY.md`: actuator endpoint, recommended Grafana
@@ -242,10 +245,10 @@ admin complaints.
     `static/i18n/en.json`. Future locales drop in without code changes.
   - Touches: `domain/BreakRuleEngine.java`, new resource bundle.
 
-- [!] **P5.4 [deferred] Typed detailed-report DTO**
-  - `IngestionService` round-trips entries via `mapper.convertValue(entry,
-    Map.class)`. Replace with a typed `DetailedReportEntry` record (from the
-    addon-sdk if available, otherwise local).
+- [x] **P5.4 [shipped] Typed detailed-report DTO**
+  - `DetailedReportFetcher` returns local `DetailedReportEntry` records with
+    typed IDs, interval, duration, billable, tags, and retained raw JSON.
+    `IngestionService` delegates row upsert to `TimeEntryUpserter`.
 
 - [x] **P5.5 [shipped] Last-Page-absent regression test**
   - Add a Testcontainers / mock test exercising a regional response with no
@@ -291,7 +294,7 @@ admin complaints.
 | Webhooks | `src/main/java/me/apet97/breakcompliance/addon/webhook/WebhookController.java` |
 | Refresh signals | `src/main/java/me/apet97/breakcompliance/addon/webhook/RefreshSignalConsumer.java` |
 | Settings | `src/main/java/me/apet97/breakcompliance/persistence/entities/WorkspaceSettings.java` |
-| Sidebar UI | `src/main/resources/static/sidebar.js`, `static/styles.css` |
+| Sidebar UI | `src/main/resources/static/sidebar.js`, `static/sidebar/*.js`, `static/sidebar/css/*.css`, `static/styles.css` |
 | Lifecycle | `src/main/java/me/apet97/breakcompliance/addon/lifecycle/InstallationService.java` |
 | Marketplace docs | `docs/LISTING.md`, `docs/SECURITY.md`, `docs/LIVE_VALIDATION.md`, `docs/DATA_RETENTION.md` |
 
@@ -299,7 +302,7 @@ admin complaints.
 
 ## Verification (per item)
 
-1. **Unit + Testcontainers tests pass.** Current baseline: 296 green. Each new
+1. **Unit + Testcontainers tests pass.** Current baseline: 339 green. Each new
    behaviour gets at least one focused test.
    ```sh
    JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \

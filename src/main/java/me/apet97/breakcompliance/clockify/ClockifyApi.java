@@ -10,6 +10,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -30,8 +32,8 @@ import org.springframework.web.client.RestClient;
  *   <li>Authentication via {@code X-Addon-Token} header (not
  *       {@code Authorization}).
  *   <li>SSRF guard: every backendUrl/reportsUrl must be HTTPS and point at a
- *       {@code *.clockify.me} host (with {@code http://localhost} permitted
- *       for tests against WireMock).
+ *       {@code *.clockify.me} host. Local HTTP hosts are only permitted when
+ *       the explicit dev/test opt-in property is enabled.
  *   <li>429 handling: parse {@code Retry-After} (seconds or HTTP date), sleep
  *       up to 30s, retry once. The per-workspace rate limiter usually
  *       prevents this but Clockify's quota is shared across all calls so a
@@ -52,20 +54,32 @@ public class ClockifyApi {
     private final ClockifyRateLimiter rateLimiter;
     private final ObjectMapper objectMapper;
     private final io.micrometer.core.instrument.MeterRegistry meters;
+    private final boolean allowLocalBaseUrls;
+
+    @Autowired
+    public ClockifyApi(
+            RestClient clockifyRestClient,
+            ClockifyRateLimiter rateLimiter,
+            ObjectMapper objectMapper,
+            io.micrometer.core.instrument.MeterRegistry meters,
+            @Value("${breakcompliance.clockify.allow-local-base-urls:false}") boolean allowLocalBaseUrls) {
+        this.restClient = clockifyRestClient;
+        this.rateLimiter = rateLimiter;
+        this.objectMapper = objectMapper;
+        this.meters = meters;
+        this.allowLocalBaseUrls = allowLocalBaseUrls;
+    }
 
     public ClockifyApi(
             RestClient clockifyRestClient,
             ClockifyRateLimiter rateLimiter,
             ObjectMapper objectMapper,
             io.micrometer.core.instrument.MeterRegistry meters) {
-        this.restClient = clockifyRestClient;
-        this.rateLimiter = rateLimiter;
-        this.objectMapper = objectMapper;
-        this.meters = meters;
+        this(clockifyRestClient, rateLimiter, objectMapper, meters, false);
     }
 
     public <T> T get(String workspaceId, String baseUrl, String addonToken, String path, Class<T> type) {
-        validateBaseUrl(baseUrl);
+        validateBaseUrl(baseUrl, allowLocalBaseUrls);
         String url = baseUrl + path;
         return executeWithRetry(workspaceId, attempt -> restClient
                 .get()
@@ -77,7 +91,7 @@ public class ClockifyApi {
     }
 
     public <T> T post(String workspaceId, String baseUrl, String addonToken, String path, Object body, Class<T> type) {
-        validateBaseUrl(baseUrl);
+        validateBaseUrl(baseUrl, allowLocalBaseUrls);
         String url = baseUrl + path;
         return executeWithRetry(workspaceId, attempt -> restClient
                 .post()
@@ -91,7 +105,7 @@ public class ClockifyApi {
     }
 
     public <T> org.springframework.http.ResponseEntity<T> postWithHeaders(String workspaceId, String baseUrl, String addonToken, String path, Object body, Class<T> type) {
-        validateBaseUrl(baseUrl);
+        validateBaseUrl(baseUrl, allowLocalBaseUrls);
         String url = baseUrl + path;
         return executeWithRetry(workspaceId, attempt -> restClient
                 .post()
@@ -175,7 +189,7 @@ public class ClockifyApi {
         }
     }
 
-    private static void validateBaseUrl(String baseUrl) {
+    private static void validateBaseUrl(String baseUrl, boolean allowLocalBaseUrls) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new ClockifyApiException("baseUrl required", 0);
         }
@@ -191,6 +205,9 @@ public class ClockifyApi {
             throw new ClockifyApiException("baseUrl missing scheme/host: " + baseUrl, 0);
         }
         boolean localhostForTests = "localhost".equals(host) || "127.0.0.1".equals(host);
+        if (localhostForTests && !allowLocalBaseUrls) {
+            throw new ClockifyApiException("Local Clockify base URLs are disabled: " + baseUrl, 0);
+        }
         if (!"https".equals(scheme) && !localhostForTests) {
             throw new ClockifyApiException("baseUrl must be HTTPS: " + baseUrl, 0);
         }

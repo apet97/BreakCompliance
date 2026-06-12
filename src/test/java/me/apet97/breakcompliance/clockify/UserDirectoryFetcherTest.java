@@ -36,6 +36,11 @@ class UserDirectoryFetcherTest {
                 .thenReturn(body);
     }
 
+    private void mockResponses(String first, String... rest) {
+        Mockito.when(api.get(eq(WS), eq(BACKEND_URL), eq(TOKEN), anyString(), eq(String.class)))
+                .thenReturn(first, rest);
+    }
+
     @Test
     void hitsActiveUsersEndpointWithPageSize200() {
         mockResponse("[]");
@@ -97,6 +102,23 @@ class UserDirectoryFetcherTest {
     }
 
     @Test
+    void paginatesBeyondFirstTwoHundredUsers() {
+        mockResponses(usersPayload(0, 200), usersPayload(200, 1));
+
+        Map<String, String> directory = fetcher.fetchActive(WS, BACKEND_URL, TOKEN);
+
+        assertThat(directory).hasSize(201);
+        assertThat(directory).containsEntry("u-0", "User 0");
+        assertThat(directory).containsEntry("u-200", "User 200");
+        Mockito.verify(api).get(eq(WS), eq(BACKEND_URL), eq(TOKEN),
+                eq("/v1/workspaces/" + WS + "/users?status=ACTIVE&page=1&page-size=200"),
+                eq(String.class));
+        Mockito.verify(api).get(eq(WS), eq(BACKEND_URL), eq(TOKEN),
+                eq("/v1/workspaces/" + WS + "/users?status=ACTIVE&page=2&page-size=200"),
+                eq(String.class));
+    }
+
+    @Test
     void apiException_returnsEmptyMap() {
         Mockito.when(api.get(any(), any(), any(), any(), any()))
                 .thenThrow(new ClockifyApiException("not allowed", 403, null));
@@ -104,5 +126,19 @@ class UserDirectoryFetcherTest {
         Map<String, String> directory = fetcher.fetchActive(WS, BACKEND_URL, TOKEN);
 
         assertThat(directory).isEmpty();
+    }
+
+    private static String usersPayload(int startIndex, int count) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                json.append(',');
+            }
+            int id = startIndex + i;
+            json.append("{\"id\":\"u-").append(id).append("\",\"name\":\"User ")
+                    .append(id).append("\",\"email\":\"user").append(id).append("@example.com\"}");
+        }
+        json.append(']');
+        return json.toString();
     }
 }

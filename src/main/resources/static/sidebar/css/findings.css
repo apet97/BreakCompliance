@@ -1,0 +1,350 @@
+/* Pivot table */
+.pivot-scroll-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pivot-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  font-variant-numeric: tabular-nums;
+}
+.pivot-table th, .pivot-table td {
+  padding: 8px 6px;
+  text-align: center;
+  border: 1px solid var(--border-color);
+}
+.pivot-table thead th {
+  background: var(--bg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+}
+.user-col {
+  text-align: left !important;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.day-col { min-width: 60px; }
+.day-name { font-weight: 600; color: var(--text-primary); }
+.day-date { font-size: 10px; color: var(--text-secondary); }
+.day-cell { position: relative; cursor: default; }
+.status-icon { font-size: 16px; display: block; }
+.cell-detail { font-size: 10px; color: var(--text-secondary); margin-top: 2px; }
+
+.status-pass.day-cell { background: var(--pass-bg); }
+.status-warn.day-cell { background: var(--warn-bg); }
+.status-fail.day-cell { background: var(--fail-bg); }
+
+.pivot-scroll-container .pivot-table .user-col { position: sticky; left: 0; z-index: 1; background: var(--bg-card); }
+.pivot-scroll-container .pivot-table thead .user-col { background: var(--bg-secondary); z-index: 2; }
+
+/* Checklist */
+.checklist-container { display: flex; flex-direction: column; gap: 12px; }
+.user-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.user-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+.day-list { display: flex; flex-direction: column; gap: 6px; }
+.day-section {
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--none-color);
+}
+.day-section.status-pass { border-left-color: var(--pass-color); background: var(--pass-bg); }
+.day-section.status-warn { border-left-color: var(--warn-color); background: var(--warn-bg); }
+.day-section.status-fail { border-left-color: var(--fail-color); background: var(--fail-bg); }
+.day-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.day-status-icon { font-size: 14px; }
+.day-label { font-weight: 600; font-size: 12px; }
+.day-summary { font-size: 11px; color: var(--text-secondary); margin-left: auto; font-variant-numeric: tabular-nums; }
+.rule-list { list-style: none; margin: 0 0 0 22px; padding: 0; }
+.rule-item { display: flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 2px 0; }
+
+/* Reviewed finding rows fade slightly so the eye is drawn to the open
+ * items first. The badge + cycle button stay full-contrast so admins can
+ * still see the audit state at a glance. */
+.rule-item--reviewed .rule-name,
+.rule-item--reviewed .rule-detail {
+  opacity: 0.65;
+}
+
+.review-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.review-badge--ack {
+  background: var(--pass-bg);
+  color: var(--pass-color);
+}
+.review-badge--override {
+  background: var(--warn-bg);
+  color: var(--warn-color);
+}
+
+.rule-review-btn {
+  margin-left: auto;
+  padding: 1px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.rule-review-btn:disabled,
+.rule-review-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.rule-icon { font-size: 11px; flex-shrink: 0; }
+.rule-name { font-weight: 500; flex-shrink: 0; }
+.rule-detail { color: var(--text-secondary); }
+
+.no-data { color: var(--text-secondary); font-style: italic; font-size: 12px; }
+
+.muted { color: var(--text-secondary); }
+.tabular { font-variant-numeric: tabular-nums; }
+.section-stack > * + * { margin-top: 12px; }
+
+/* Button row for the primary CTA + the refresh icon button */
+.button-row { display: flex; gap: 6px; flex: 0 0 100%; }
+.button-row .btn-primary { flex: 1; }
+
+/* Row holding the "Last checked Xm ago" caption and (when a webhook
+ * fired after the last completed run) a "Pending refresh" pill. */
+.staleness-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: -4px 0 8px;
+  flex-wrap: wrap;
+}
+
+/* Last-checked relative timestamp */
+.last-checked {
+  margin: 0;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* "Pending refresh · webhook Xm ago" — surfaced when /api/refresh-signals
+ * carries a PENDING/CLAIMED row newer than the latest completed run. The
+ * consumer drains it on its own debounce schedule; this just tells the
+ * admin that clicking Refresh now would actually pull new data. */
+.pending-refresh-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn-color);
+  border: 1px solid var(--warn-color);
+  white-space: nowrap;
+}
+
+/* Empty states (no run yet OR run-with-no-findings) */
+.empty-state {
+  padding: 24px 16px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  text-align: center;
+}
+.empty-state.ok {
+  border-color: var(--pass-color);
+  background: var(--pass-bg);
+}
+.empty-state .empty-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.empty-state .empty-detail {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.empty-state.ok .empty-detail { color: inherit; opacity: 0.9; }
+
+/* Narrow-viewport polish — Clockify's mobile rendering or a wide-sidebar
+   collapse should keep the pivot legible. */
+@media (max-width: 720px) {
+  .pivot-table th, .pivot-table td { padding: 6px 4px; font-size: 11px; }
+  .user-col { max-width: 96px; }
+  .day-col { min-width: 48px; }
+  .day-name { font-size: 11px; }
+  .day-date { font-size: 9px; }
+  .status-icon { font-size: 14px; }
+  .cell-detail { font-size: 9px; }
+  .header-controls { flex-direction: column; align-items: stretch; }
+  .control-group { width: 100%; }
+}
+
+/* Findings table on the sidebar (actual route output, not the design's
+   pivot — the engine emits row-per-finding by default; the pivot is a
+   future view layered on the same data) */
+.findings-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-card);
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.findings-table th, .findings-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  vertical-align: top;
+  font-size: 12px;
+}
+.findings-table thead th {
+  background: var(--bg-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+}
+
+/* Diagnostics block (run summary) */
+.diagnostics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+.diagnostics .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.diagnostics .value {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* P2.2 — drill-down expander shown on every finding row. Reveals
+   evidence.entryIds and the P1.5 runningEntriesSkipped footnote. */
+.rule-drill-btn {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-variant-numeric: tabular-nums;
+}
+.rule-drill-btn:hover {
+  color: var(--text-primary);
+}
+.rule-drill-body {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  font-size: 11px;
+}
+.rule-drill-ids {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+.rule-drill-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+.rule-drill-note {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* P2.5 — threshold preview popover. Shown on chip hover; hidden by default. */
+.active-template-chip {
+  position: relative;
+}
+.active-template-chip[data-preview]:hover::after {
+  content: attr(data-preview);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* P2.7 — minimum-bar focus rings. Sidebar already uses semantic <button>
+   elements; adding a consistent ring across all interactive controls so
+   keyboard navigation is visible against both themes. */
+.btn-link:focus-visible,
+.btn-primary:focus-visible,
+.btn-icon:focus-visible,
+.rule-review-btn:focus-visible,
+.rule-drill-btn:focus-visible,
+.preset-card:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* P2.1 — user-filter dropdown beside the view toggle. */
+.user-filter-select {
+  margin-left: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-family);
+  max-width: 200px;
+}
+.user-filter-select:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}

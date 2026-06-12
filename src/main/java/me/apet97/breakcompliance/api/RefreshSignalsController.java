@@ -53,14 +53,15 @@ public class RefreshSignalsController {
      * and fresh findings without a second round-trip.
      */
     @PostMapping(value = "/api/refresh-signals/run", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Map<String, Object>> run(HttpServletRequest request, @RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> run(HttpServletRequest request, @RequestBody RefreshRunRequest body) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
         RequestValidator.requireAdmin(claims);
         RequestValidator.DateRange range = RequestValidator.parseAndValidateDates(
-                body.get("dateRangeStart"), body.get("dateRangeEnd"));
+                body == null ? null : body.dateRangeStart(),
+                body == null ? null : body.dateRangeEnd());
         LocalDate from = range.from();
         LocalDate to = range.to();
         String workspaceId = claims.workspaceId();
@@ -101,6 +102,8 @@ public class RefreshSignalsController {
         response.put("dateRangeEnd", to.toString());
         return ResponseEntity.accepted().body(response);
     }
+
+    public record RefreshRunRequest(String dateRangeStart, String dateRangeEnd) {}
 
     private Map<String, Object> toBody(RefreshSignal s) {
         Map<String, Object> body = new LinkedHashMap<>();

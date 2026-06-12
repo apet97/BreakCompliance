@@ -1,0 +1,325 @@
+/* App */
+.app-container { max-width: 100%; padding: 12px; }
+.app-container.wide { max-width: 900px; margin: 0 auto; }
+
+/* Header */
+.app-header { margin-bottom: 12px; }
+.app-header h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+.app-header .caption { margin: 0 0 8px; font-size: 11px; }
+.session-status {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--severity-fail-text, #b00);
+}
+
+/* "Where do I configure thresholds?" collapsible — visible enough to find but
+ * out of the way for repeat users who already know where the settings tab
+ * lives. */
+.settings-hint {
+  margin: 6px 0 12px;
+}
+.settings-hint-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+.settings-hint-summary::-webkit-details-marker { display: none; }
+.settings-hint-summary:hover { color: var(--text-primary); }
+.settings-hint-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+.settings-hint-body {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.settings-hint-body strong { color: var(--text-primary); font-weight: 600; }
+
+/* Non-admin notice rendered when state.session.workspaceRole is not
+ * ADMIN/OWNER. The disabled buttons + this banner together explain why
+ * write actions aren't available without making the sidebar feel broken. */
+.admin-required-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 10px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+.admin-required-glyph {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+/* Row holding either the live "Fine-tune in Clockify" link or the
+ * collapsible fallback when the JWT didn't carry enough claims to build
+ * a usable URL. */
+.settings-link-row {
+  margin: 6px 0 12px;
+}
+.settings-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+/* Cross-field validation banner — appears when admin-saved thresholds are
+ * inconsistent and the engine is silently falling back to preset defaults. */
+.settings-warning-banner {
+  border: 1px solid var(--severity-warn-border, #d99500);
+  background: var(--severity-warn-bg, #fff7e0);
+  color: var(--severity-warn-text, #5c3a00);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.settings-warning-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.settings-warning-list {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+.settings-warning-list li { margin: 2px 0; }
+.settings-warning-foot {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Matches/Customized pill next to the active-preset chip. */
+.customized-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.customized-pill.matches {
+  background: var(--severity-pass-bg, #e6f4ea);
+  color: var(--severity-pass-text, #1e6b3a);
+}
+.customized-pill.diverged {
+  background: var(--severity-warn-bg, #fff4e0);
+  color: var(--severity-warn-text, #5c3a00);
+  cursor: pointer;
+}
+.customized-pill.diverged:hover {
+  filter: brightness(0.97);
+}
+
+/* Inline preset chooser panel that opens below the active-preset row. */
+.preset-chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.preset-card {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+}
+.preset-card.active {
+  border-color: var(--accent-color);
+}
+.preset-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.preset-card-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.preset-card-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+.preset-card-badge.matches {
+  background: var(--severity-pass-bg, #e6f4ea);
+  color: var(--severity-pass-text, #1e6b3a);
+}
+.preset-card-badge.diverged {
+  background: var(--severity-warn-bg, #fff4e0);
+  color: var(--severity-warn-text, #5c3a00);
+}
+.preset-card-summary {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.preset-card-summary li { margin: 2px 0; }
+.preset-card-desc {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.preset-card-apply {
+  display: inline-block;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.preset-card-apply[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Active template chip + threshold popover */
+.active-template-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.active-template-row .control-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.active-template-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.active-template-chip:hover { background: var(--bg-card); border-color: var(--accent-color); }
+.active-template-chip:focus-visible {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.active-template-chip .chip-caret {
+  font-size: 9px;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+.active-template-chip[aria-expanded="true"] .chip-caret {
+  transform: rotate(180deg);
+  color: var(--accent-color);
+}
+.active-template-details {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  min-width: 240px;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+}
+/* Narrow viewport — popover anchors right-edge so it doesn't clip the
+   sidebar's left frame on Clockify's mobile collapse. */
+@media (max-width: 720px) {
+  .active-template-details {
+    left: auto;
+    right: 0;
+    max-width: calc(100vw - 24px);
+  }
+}
+.active-template-details[hidden] { display: none; }
+.active-template-details .threshold-list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.active-template-details dt { color: var(--text-secondary); }
+.active-template-details dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+.active-template-details p.muted { font-size: 12px; margin: 0; }
+
+/* Screen-reader-only utility */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}
+
+.header-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.control-group { display: flex; flex-direction: column; gap: 3px; flex: 1 0 auto; }
+.control-group label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+select, input[type="date"], input[type="text"], input[type="number"] {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+select:focus, input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}

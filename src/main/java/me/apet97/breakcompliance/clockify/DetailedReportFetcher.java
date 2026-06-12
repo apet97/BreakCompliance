@@ -49,7 +49,7 @@ public class DetailedReportFetcher {
         this.mapper = mapper;
     }
 
-    public List<Map<String, Object>> fetch(
+    public List<DetailedReportEntry> fetch(
             String workspaceId, String reportsUrl, String addonToken, LocalDate from, LocalDate to) {
         // Defaults to the historical "fetch every entry" behaviour. P1.3
         // callers go through fetch(..., excludeUnsubmittedEntries=true) which
@@ -57,14 +57,14 @@ public class DetailedReportFetcher {
         return fetch(workspaceId, reportsUrl, addonToken, from, to, false);
     }
 
-    public List<Map<String, Object>> fetch(
+    public List<DetailedReportEntry> fetch(
             String workspaceId,
             String reportsUrl,
             String addonToken,
             LocalDate from,
             LocalDate to,
             boolean excludeUnsubmittedEntries) {
-        List<Map<String, Object>> all = new ArrayList<>();
+        List<DetailedReportEntry> all = new ArrayList<>();
         int page = 1;
         while (page <= MAX_PAGES) {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -97,7 +97,7 @@ public class DetailedReportFetcher {
                 break;
             }
             for (JsonNode entry : entries) {
-                all.add(mapper.convertValue(entry, Map.class));
+                all.add(DetailedReportEntry.from(entry, mapper));
             }
             
             // Pagination stop conditions, in order of preference:

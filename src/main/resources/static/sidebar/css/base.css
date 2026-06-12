@@ -1,0 +1,90 @@
+/*
+ * Break Compliance for Clockify — Design Tokens + Components
+ *
+ * Mirrors the design system at break-checker-design-system/project/source/
+ * styles.css (Claude Design handoff bundle, 2026-05-08).
+ *
+ * Density is the design — narrow Clockify sidebar (~360-480px wide).
+ * 13px base, 6px radius, neutral grays, single brand action color.
+ */
+
+:root {
+  --bg-primary:   #FFFFFF;
+  --bg-secondary: #F5F7FA;
+  --bg-card:      #FFFFFF;
+
+  --text-primary:   #1A1A2E;
+  --text-secondary: #6B7280;
+
+  --border-color: #E5E7EB;
+
+  --accent-color: #3B82F6;
+  --accent-hover: #2563EB;
+  --accent-ring:  rgba(59, 130, 246, 0.15);
+
+  --pass-color: #10B981;
+  --pass-bg:    #ECFDF5;
+  --warn-color: #F59E0B;
+  --warn-bg:    #FFFBEB;
+  --fail-color: #EF4444;
+  --fail-bg:    #FEF2F2;
+  --none-color: #9CA3AF;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+
+  --radius:    6px;
+  --radius-sm: 4px;
+
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+html[data-clockify-theme='dark'],
+html[data-clockify-theme='dark'] body,
+body.dark,
+body.dark-mode,
+body[data-clockify-theme='dark'] {
+  --bg-primary:    #0F172A;
+  --bg-secondary:  #1E293B;
+  --bg-card:       #1E293B;
+  --text-primary:  #F1F5F9;
+  --text-secondary:#94A3B8;
+  --border-color:  #334155;
+  --accent-color:  #60A5FA;
+  --accent-hover:  #3B82F6;
+  --accent-ring:   rgba(96, 165, 250, 0.30);
+  /* Higher-contrast status backgrounds + text under dark mode — WCAG AA on
+     dark backgrounds means lighter status text on darker chip backgrounds. */
+  --pass-color:    #34D399;
+  --pass-bg:       rgba(16, 185, 129, 0.18);
+  --warn-color:    #FBBF24;
+  --warn-bg:       rgba(245, 158, 11, 0.20);
+  --fail-color:    #F87171;
+  --fail-bg:       rgba(239, 68, 68, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/*
+ * Global HTML5 `hidden` precedence. Our author CSS (and Clockify's CDN
+ * baseline) declares display:flex/grid on `.loading`, `.diagnostics`,
+ * `.header-controls`, etc.; those rules outrank the UA `[hidden]{display:none}`
+ * baseline and would otherwise reveal hidden nodes. This one line restores
+ * the expected HTML5 behaviour across every element + theme.
+ */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent-color); text-decoration: none; }
+a:hover { text-decoration: underline; }

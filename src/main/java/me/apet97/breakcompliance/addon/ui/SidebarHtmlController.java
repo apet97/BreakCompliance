@@ -31,20 +31,10 @@ public class SidebarHtmlController {
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <title>Break Compliance</title>
                 <!-- Apply theme synchronously BEFORE the body paints so a dark-mode
-                     Clockify host doesn't flash light first. The script reads
-                     ?theme=DARK|LIGHT from the iframe URL (Clockify always passes
-                     it) and sets a data-attribute the CSS keys on. Failing
-                     silently leaves the default (light) palette. -->
-                <script>
-                  (function () {
-                    try {
-                      var t = (new URLSearchParams(location.search).get('theme') || '').toUpperCase();
-                      if (t === 'DARK' || t === 'LIGHT') {
-                        document.documentElement.setAttribute('data-clockify-theme', t.toLowerCase());
-                      }
-                    } catch (e) { /* defensive: never block paint on script errors */ }
-                  })();
-                </script>
+                     Clockify host doesn't flash light first. Kept in a first-party
+                     file because CSP intentionally uses script-src 'self' with no
+                     inline-script escape hatch. -->
+                <script src="/theme-init.js"></script>
                 <!-- Clockify-native UI baseline (colors, typography, controls).
                      Our /styles.css below overrides where the layout needs to
                      diverge for the narrow sidebar form factor. CSP allows
@@ -146,6 +136,7 @@ public class SidebarHtmlController {
                     <button id="cancel-ingest-btn" class="btn-link" type="button">Cancel</button>
                   </div>
                   <div id="results-container" class="results-container" aria-live="polite"></div>
+                  <section id="audit-panel" class="audit-panel" aria-labelledby="audit-panel-title" hidden></section>
                 </div>
                 <script type="module" src="/sidebar.js"></script>
               </body>

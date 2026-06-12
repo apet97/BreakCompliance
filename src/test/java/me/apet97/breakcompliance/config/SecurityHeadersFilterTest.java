@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
+import me.apet97.breakcompliance.addon.auth.TestJwtForger;
 import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +19,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(PostgresTestcontainersConfig.class)
+@Import({PostgresTestcontainersConfig.class, TestClockifyKeyConfig.class})
 class SecurityHeadersFilterTest {
 
     @Autowired
@@ -72,6 +74,21 @@ class SecurityHeadersFilterTest {
         assertThat(csp).contains("style-src 'self' 'unsafe-inline' https://resources.developer.clockify.me");
         assertThat(csp).contains("img-src 'self' data: https://resources.developer.clockify.me");
         assertThat(csp).contains("font-src 'self' https://resources.developer.clockify.me");
+    }
+
+    @Test
+    void sidebarDoesNotRenderInlineScriptsBlockedBySelfOnlyCsp() throws Exception {
+        MvcResult result = mockMvc.perform(get("/sidebar")
+                        .param("auth_token", TestJwtForger.forgeInstalledToken()))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        assertThat(result.getResponse().getHeader("Content-Security-Policy"))
+                .contains("script-src 'self'");
+        assertThat(body).doesNotContain("<script>");
+        assertThat(body).contains("<script src=\"/theme-init.js\"></script>");
+        assertThat(body).contains("<script type=\"module\" src=\"/sidebar.js\"></script>");
     }
 
     @Test

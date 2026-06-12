@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
 import me.apet97.breakcompliance.persistence.entities.Finding;
@@ -44,14 +43,15 @@ public class FindingsController {
 
     @PostMapping(value = "/evaluate", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> evaluate(
-            HttpServletRequest request, @RequestBody Map<String, String> body) {
+            HttpServletRequest request, @RequestBody EvaluateRequest body) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
         RequestValidator.requireAdmin(claims);
         RequestValidator.DateRange range = RequestValidator.parseAndValidateDates(
-                body.get("dateRangeStart"), body.get("dateRangeEnd"));
+                body == null ? null : body.dateRangeStart(),
+                body == null ? null : body.dateRangeEnd());
         LocalDate from = range.from();
         LocalDate to = range.to();
         List<Finding> findings = findingsService.evaluateAndReplace(claims.workspaceId(), from, to);
@@ -175,14 +175,14 @@ public class FindingsController {
     public ResponseEntity<Map<String, Object>> review(
             HttpServletRequest request,
             @PathVariable("findingId") String findingId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody ReviewRequest body) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
         RequestValidator.requireAdmin(claims);
-        ReviewStatus status = parseReviewStatus(body.get("status"));
-        String note = body.get("note");
+        ReviewStatus status = parseReviewStatus(body == null ? null : body.status());
+        String note = body == null ? null : body.note();
         // Existence check against the finding lives on the service so the
         // workspace-scope filter is reused (and we get a clean 404 instead
         // of letting a phantom review row leak in).
@@ -236,14 +236,17 @@ public class FindingsController {
 
     private Map<String, FindingReview> loadReviewsFor(String workspaceId, List<Finding> findings) {
         if (findings.isEmpty()) return Map.of();
-        // Workspace-scoped lookup + in-memory filter to the current page of
-        // findings keeps the query simple while still cheap — a single
-        // workspace's reviews max out at the same order of magnitude as
-        // its findings (one per finding), and the JpaRepository already
-        // indexes on the workspace_id column via the composite PK.
-        return reviewRepo.findByWorkspaceId(workspaceId).stream()
-                .collect(Collectors.toMap(FindingReview::getFindingId, r -> r, (a, b) -> a, HashMap::new));
+        java.util.Set<String> findingIds = findings.stream()
+                .map(Finding::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        return reviewRepo.findByWorkspaceIdAndFindingIdIn(workspaceId, findingIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        FindingReview::getFindingId, r -> r, (a, b) -> a, HashMap::new));
     }
+
+    public record EvaluateRequest(String dateRangeStart, String dateRangeEnd) {}
+
+    public record ReviewRequest(String status, String note) {}
 
     private static final String CSV_HEADER =
             "date,userId,userName,severity,code,message,workMinutes,breakMinutes,syntheticBreakMinutes,templateId,createdAt";

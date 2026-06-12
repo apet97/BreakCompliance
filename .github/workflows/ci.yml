@@ -19,5 +19,8 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Static JS syntax check
+        run: find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+
       - name: Maven verify
         run: mvn -B -ntp verify

@@ -73,13 +73,13 @@ public class PresetController {
 
     @PostMapping("/api/presets/apply")
     public ResponseEntity<Map<String, Object>> apply(
-            HttpServletRequest request, @RequestBody Map<String, String> body) {
+            HttpServletRequest request, @RequestBody ApplyPresetRequest body) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
             return ResponseEntity.status(401).build();
         }
         RequestValidator.requireAdmin(claims);
-        String presetKey = body == null ? null : body.get("presetKey");
+        String presetKey = body == null ? null : body.presetKey();
         if (presetKey == null || presetKey.isBlank()) {
             return ResponseEntity.status(400).body(Map.of(
                     "error", "missing_preset_key"));
@@ -118,4 +118,6 @@ public class PresetController {
         response.put("secondBreakThresholdMinutes", updated.getCustomSecondBreakThresholdMinutes());
         return ResponseEntity.ok(response);
     }
+
+    public record ApplyPresetRequest(String presetKey) {}
 }

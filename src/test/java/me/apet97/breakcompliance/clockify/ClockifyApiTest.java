@@ -57,7 +57,8 @@ class ClockifyApiTest {
         RestClient client = RestClient.builder().requestFactory(factory).build();
         api = new ClockifyApi(
                 client, new InMemoryRateLimiter(), new ObjectMapper(),
-                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                true);
     }
 
     @Test
@@ -125,6 +126,19 @@ class ClockifyApiTest {
         assertThatThrownBy(() -> api.get("ws-1", "http://evil.example.com", "tok", "/path", String.class))
                 .isInstanceOf(ClockifyApiException.class)
                 .hasMessageContaining("HTTPS");
+    }
+
+    @Test
+    void localhostBaseUrl_rejectedByDefaultProductionGuard() {
+        ClockifyApi productionApi = new ClockifyApi(
+                RestClient.builder().build(),
+                new InMemoryRateLimiter(),
+                new ObjectMapper(),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+
+        assertThatThrownBy(() -> productionApi.get("ws-1", "http://localhost:8080", "tok", "/path", String.class))
+                .isInstanceOf(ClockifyApiException.class)
+                .hasMessageContaining("Local Clockify base URLs are disabled");
     }
 
     @Test

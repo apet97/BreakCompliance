@@ -14,9 +14,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
-import me.apet97.breakcompliance.clockify.HolidayFetcher;
-import me.apet97.breakcompliance.clockify.TimeOffFetcher;
-import me.apet97.breakcompliance.clockify.UserDirectoryFetcher;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
@@ -25,10 +22,7 @@ import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
-import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
-import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
-import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -46,7 +40,6 @@ class IngestionServiceTest {
         RecordingTxManager txManager = new RecordingTxManager();
         IngestionService service = new IngestionService(
                 installationRepo,
-                mock(TimeEntryRepository.class),
                 runRepo,
                 mock(DetailedReportFetcher.class),
                 codec,
@@ -54,11 +47,8 @@ class IngestionServiceTest {
                 Runnable::run,
                 new SimpleMeterRegistry(),
                 mock(WorkspaceSettingsRepository.class),
-                mock(HolidayFetcher.class),
-                mock(TimeOffFetcher.class),
-                mock(WorkspaceHolidayRepository.class),
-                mock(WorkspaceTimeOffRepository.class),
-                mock(UserDirectoryFetcher.class));
+                mock(TimeEntryUpserter.class),
+                mock(SuppressionCacheRefresher.class));
 
         Installation installation = new Installation();
         installation.setWorkspaceId("ws-test");

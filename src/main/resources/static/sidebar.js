@@ -18,331 +18,37 @@
 //
 // This file is hand-authored ES module — no bundler, no package.json.
 
+import { renderAuditPanel } from "./sidebar/audit-panel.js";
+import { createApiClient, HttpError } from "./sidebar/api-client.js";
+import { applyTheme, createMessenger, readAuthTokenFromQuery, stripAuthTokenFromUrl } from "./sidebar/auth-messenger.js";
+import {
+    createDateFormatters,
+    DATE_PRESETS,
+    enumerateDates,
+    formatBreakWithSynthetic,
+    formatMinutes,
+    formatRelativeTime,
+    severityClass,
+} from "./sidebar/date-range.js";
+import { clearChildren, create, el } from "./sidebar/dom.js";
+import { downloadFindingsCsv as downloadFindingsCsvFile } from "./sidebar/findings-export.js";
+import { displayUserName, reviewBadgeClass, reviewBadgeText, statusIconMeta } from "./sidebar/findings-rendering.js";
+import { describeIngestFailure, pollIngestionRun } from "./sidebar/ingest-polling.js";
+import { fieldsThatDivergeFromPreset, PRESET_LABELS, TIMEZONE_LABELS } from "./sidebar/presets.js";
+import { requestReviewNote } from "./sidebar/review-dialog.js";
+import { state } from "./sidebar/state.js";
+
 // ───────────────────────────── Constants ─────────────────────────────
 
 const ADDON_TITLE = "Break Compliance";
 const ADDON_KEY = "break-compliance-jvm";
-const QUERY_PARAM_AUTH_TOKEN = "auth_token";
 const TOKEN_REFRESH_INTERVAL_MS = 25 * 60 * 1000;
-
-const DATE_PRESETS = {
-    today: () => dayRange(0),
-    this_week: () => weekRange(0),
-    last_week: () => weekRange(-1),
-    last_2_weeks: () => weekRange(-2, 0),
-    last_month: () => monthRange(-1),
-    // P2.8 — "All open" sweeps the last 90 days and asks the backend to
-    // hide anything already acknowledged or overridden. Useful for
-    // burning down the backlog without picking a window manually.
-    all_open: () => {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - 90);
-        return { start: isoDate(start), end: isoDate(end), openOnly: true };
-    },
-};
-
-// Fallback labels when /api/presets hasn't loaded yet. The catalog is the
-// source of truth — these are only used during the first paint before
-// loadPresetCatalog resolves.
-const PRESET_LABELS = {
-    "custom-basic": "Custom (Editable Defaults)",
-    "california-style": "California (IWC Meal & Rest)",
-    "germany-arbzg-style": "Germany (ArbZG §3 & §4)",
-};
-
-const TIMEZONE_LABELS = {
-    "ENTRY_TIMEZONE": "Entry timezone",
-    "UTC": "UTC",
-};
 
 // ────────────────────────── Module state ──────────────────────────
 
 let addonToken = null;
 let messenger = null;
-
-const state = {
-    session: null,
-    jurisdiction: "custom-basic",
-    preset: "this_week",
-    customStart: "",
-    customEnd: "",
-    view: "pivot",
-    findings: [],
-    lastRun: null,
-    lastRunAt: null,        // Date — when the last successful Check Compliance completed
-    lastRunRange: null,     // { start, end } — used by the refresh button
-    detailsOpen: false,     // active-template details popover visibility
-    cancelIngest: false,    // flips true when the user clicks Cancel mid-poll
-    presetCatalog: null,    // [{key,label,description,thresholds:{...}}] from GET /api/presets
-    chooserOpen: false,     // preset-chooser panel visibility
-    chooserBusy: null,      // presetKey currently being applied, or null
-    pendingRefreshAt: null, // Date — newest PENDING/CLAIMED signal after lastRunAt, or null
-    userFilter: null,        // P2.1 — selected userId in the filter dropdown, or null
-};
-
-// ────────────────────────── Errors ──────────────────────────
-
-class HttpError extends Error {
-    constructor(status, body, message) {
-        super(message ?? `HTTP ${status}`);
-        this.status = status;
-        this.body = body;
-    }
-}
-
-// ─────────────────── URL / origin / auth-token helpers ───────────────────
-
-function safeOrigin(url) {
-    if (!url || !url.trim()) return null;
-    try {
-        const parsed = new URL(url);
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-        return parsed.origin;
-    } catch {
-        return null;
-    }
-}
-
-function ancestorOriginOf(location) {
-    if (!location?.ancestorOrigins) return null;
-    if (Array.isArray(location.ancestorOrigins)) {
-        return typeof location.ancestorOrigins[0] === "string"
-            ? safeOrigin(location.ancestorOrigins[0])
-            : null;
-    }
-    if (location.ancestorOrigins.length === 0) return null;
-    const first = location.ancestorOrigins.item(0);
-    return typeof first === "string" ? safeOrigin(first) : null;
-}
-
-function locationToUrl(location) {
-    if (location?.href) return new URL(location.href);
-    const origin = location?.origin ?? "https://addon.invalid";
-    const pathname = location?.pathname ?? "/";
-    const search = location?.search ?? "";
-    const hash = location?.hash ?? "";
-    return new URL(`${origin}${pathname}${search}${hash}`);
-}
-
-function readAuthTokenFromQuery() {
-    const search = window.location?.search ?? "";
-    return new URLSearchParams(search).get(QUERY_PARAM_AUTH_TOKEN);
-}
-
-function stripAuthTokenFromUrl() {
-    const url = locationToUrl(window.location);
-    const token = url.searchParams.get(QUERY_PARAM_AUTH_TOKEN);
-    if (!token) return { stripped: false, token: null };
-    url.searchParams.delete(QUERY_PARAM_AUTH_TOKEN);
-    window.history?.replaceState?.(null, "", url.toString());
-    return { stripped: true, token };
-}
-
-function parentOriginFrom(location, document) {
-    const fromAncestor = ancestorOriginOf(location);
-    if (fromAncestor) return fromAncestor;
-    const referrer = document?.referrer ?? "";
-    return referrer ? safeOrigin(referrer) : null;
-}
-
-// ─────────────────── postMessage bridge to parent (Clockify) ───────────────────
-
-function parseIncomingMessage(raw) {
-    const data = typeof raw === "string"
-        ? (() => { try { return JSON.parse(raw); } catch { return null; } })()
-        : raw;
-    if (!data || typeof data !== "object") return null;
-    const title = typeof data.title === "string"
-        ? data.title
-        : (typeof data.action === "string" ? data.action : null);
-    if (!title) return null;
-    const body = Object.hasOwn(data, "body") ? data.body : data.payload;
-    return { title, body };
-}
-
-function createMessenger() {
-    const parentOrigin = parentOriginFrom(window.location, window.document);
-    const target = window.top ?? null;
-    const listeners = new Map();
-
-    function onMessage(event) {
-        if (!parentOrigin || event.origin !== parentOrigin) return;
-        const parsed = parseIncomingMessage(event.data);
-        if (!parsed) return;
-        listeners.get(parsed.title)?.forEach(fn => fn(parsed, event));
-    }
-    window.addEventListener("message", onMessage);
-
-    function dispatch(action, payload) {
-        if (!parentOrigin || !target?.postMessage) return false;
-        // Canonical outbound shape per docs/clockify-marketplace/build/
-        // window-events.md: JSON-stringified `{ action, payload }`. Strict
-        // target origin (not "*").
-        target.postMessage(
-            JSON.stringify({ action, payload: payload ?? {} }),
-            parentOrigin);
-        return true;
-    }
-
-    return {
-        parentOrigin,
-        destroy() { window.removeEventListener("message", onMessage); listeners.clear(); },
-        dispatch,
-        navigate(path) { return dispatch("navigate", path); },
-        on(title, fn) {
-            let set = listeners.get(title);
-            if (!set) { set = new Set(); listeners.set(title, set); }
-            set.add(fn);
-            return () => set?.delete(fn);
-        },
-        off(title, fn) { listeners.get(title)?.delete(fn); },
-        preview() { return dispatch("preview"); },
-        refreshAddonToken() { return dispatch("refreshAddonToken"); },
-        toastrPop(payload) { return dispatch("toastrPop", payload); },
-    };
-}
-
-// ─────────────────── Theme ───────────────────
-
-function applyTheme(theme) {
-    // The inline <head> script already set data-clockify-theme on
-    // <html> synchronously to avoid a paint flash. Here we just mirror
-    // the value onto <body> for any CSS that keys off the body element.
-    const target = document.body ?? document.documentElement;
-    if (!target) return;
-    const resolved = theme === "DARK" ? "dark" : "light";
-    target.classList.toggle("dark", resolved === "dark");
-    target.setAttribute("data-clockify-theme", resolved);
-}
-
-// ─────────────────── API client ───────────────────
-
-function buildApiUrl(path, query) {
-    const url = new URL(path, window.location.origin);
-    if (query) {
-        for (const [k, v] of Object.entries(query)) {
-            if (v != null && v !== "") url.searchParams.set(k, v);
-        }
-    }
-    return url.pathname + (url.search ? `?${url.searchParams.toString()}` : "");
-}
-
-async function api(path, options = {}) {
-    if (!addonToken) throw new HttpError(401, { error: "token_missing" });
-    const { query, ...rest } = options;
-    const headers = new Headers(rest.headers);
-    headers.set("x-addon-token", addonToken);
-    if (rest.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-
-    const response = await fetch(buildApiUrl(path, query), { ...rest, headers });
-    const text = await response.text();
-    let body = null;
-    if (text.length > 0) {
-        try { body = JSON.parse(text); } catch { body = text; }
-    }
-    if (!response.ok) {
-        const message = (body && typeof body === "object" && "error" in body)
-            ? String(body.error)
-            : `HTTP ${response.status}`;
-        throw new HttpError(response.status, body, message);
-    }
-    return body;
-}
-
-// ─────────────────── Date preset helpers ───────────────────
-
-function pad2(n) { return n.toString().padStart(2, "0"); }
-
-function isoDate(d) {
-    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-}
-
-function dayRange(offsetDays) {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() + offsetDays);
-    const iso = isoDate(d);
-    return { start: iso, end: iso };
-}
-
-function weekRange(weekOffset, endWeekOffset) {
-    const now = new Date();
-    const dayOfWeekMonZero = (now.getUTCDay() + 6) % 7;
-    const start = new Date(now);
-    start.setUTCDate(now.getUTCDate() - dayOfWeekMonZero + weekOffset * 7);
-    const endOffset = endWeekOffset ?? weekOffset;
-    const end = new Date(now);
-    end.setUTCDate(now.getUTCDate() - dayOfWeekMonZero + endOffset * 7 + 6);
-    return { start: isoDate(start), end: isoDate(end) };
-}
-
-function monthRange(monthOffset) {
-    const now = new Date();
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset, 1));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset + 1, 0));
-    return { start: isoDate(start), end: isoDate(end) };
-}
-
-function formatMinutes(minutes) {
-    if (minutes == null || minutes <= 0) return "0m";
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    if (h === 0) return `${m}m`;
-    if (m === 0) return `${h}h`;
-    return `${h}h ${m}m`;
-}
-
-function formatBreakWithSynthetic(evidence) {
-    const total = evidence?.breakMinutes ?? 0;
-    const synth = evidence?.syntheticBreakMinutes ?? 0;
-    if (!synth) return formatMinutes(total);
-    return `${formatMinutes(total)} · ${formatMinutes(synth)} detected`;
-}
-
-function formatRelativeTime(date) {
-    if (!(date instanceof Date) || isNaN(date.getTime())) return "";
-    const diffSec = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
-    if (diffSec < 5) return "just now";
-    if (diffSec < 60) return `${diffSec}s ago`;
-    const diffMin = Math.round(diffSec / 60);
-    if (diffMin < 60) return `${diffMin} min${diffMin === 1 ? "" : "s"} ago`;
-    const diffHour = Math.round(diffMin / 60);
-    if (diffHour < 24) return `${diffHour}h ago`;
-    const diffDay = Math.round(diffHour / 24);
-    return `${diffDay}d ago`;
-}
-
-function severityClass(severity) {
-    if (severity === "INFO") return "pass";
-    if (severity === "WARNING") return "warn";
-    return "fail";
-}
-
-// ─────────────────── DOM helpers ───────────────────
-
-function el(id) {
-    const node = document.getElementById(id);
-    if (!node) throw new Error(`expected #${id} in sidebar markup`);
-    return node;
-}
-
-function clearChildren(node) {
-    while (node.firstChild) node.removeChild(node.firstChild);
-}
-
-function create(tag, opts, children) {
-    const node = document.createElement(tag);
-    if (opts?.className) node.className = opts.className;
-    if (opts?.title) node.title = opts.title;
-    if (opts?.href && tag === "a") node.href = opts.href;
-    if (opts?.text !== undefined) node.textContent = opts.text;
-    if (children) {
-        for (const child of children) {
-            node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
-        }
-    }
-    return node;
-}
+const api = createApiClient(() => addonToken);
 
 // ─────────────────── Admin-role gating ───────────────────
 
@@ -541,29 +247,6 @@ function renderValidationWarnings() {
 }
 
 // ─────────────────── Preset chooser ───────────────────
-
-// Compare current active-template values against a preset's canonical
-// thresholds. Returns the list of field names that differ — empty list
-// means "matches preset". Null fields on either side are treated as
-// "not set" (which matches itself).
-function fieldsThatDivergeFromPreset(active, preset) {
-    if (!active || !preset?.thresholds) return [];
-    const t = preset.thresholds;
-    const diff = [];
-    const compare = (name, a, b) => { if ((a ?? null) !== (b ?? null)) diff.push(name); };
-    compare("workThresholdMinutes",       active.workThresholdMinutes,       t.workThresholdMinutes);
-    compare("breakThresholdMinutes",      active.breakThresholdMinutes,      t.breakThresholdMinutes);
-    compare("minBreakSegmentMinutes",     active.minBreakSegmentMinutes,     t.minBreakSegmentMinutes);
-    compare("maxContinuousWorkMinutes",   active.maxContinuousWorkMinutes,   t.maxContinuousWorkMinutes);
-    compare("gracePeriodMinutes",         active.gracePeriodMinutes,         t.gracePeriodMinutes);
-    compare("allowSplitBreaks",           active.allowSplitBreaks,           t.allowSplitBreaks);
-    // Preset 2nd-tier columns can be null (custom-basic). DB columns hold
-    // 0 instead. Treat 0 and null as equivalent for "Matches preset".
-    const z = v => (v == null || v === 0) ? null : v;
-    compare("secondWorkThresholdMinutes",  z(active.secondWorkThresholdMinutes),  z(t.secondWorkThresholdMinutes));
-    compare("secondBreakThresholdMinutes", z(active.secondBreakThresholdMinutes), z(t.secondBreakThresholdMinutes));
-    return diff;
-}
 
 async function loadPresetCatalog() {
     if (state.presetCatalog) return state.presetCatalog;
@@ -812,48 +495,55 @@ function currentFindingsRange() {
     return computed;
 }
 
-async function downloadFindingsCsv() {
+function renderAuditLog() {
+    const root = document.getElementById("audit-panel");
+    if (!root) return;
+    renderAuditPanel(root, {
+        entries: state.audit.entries,
+        loaded: state.audit.loaded,
+        loading: state.audit.loading,
+        range: state.audit.range ?? currentFindingsRange(),
+        isAdmin: isAdminRole(),
+        onRefresh: () => loadAuditLog(),
+    });
+}
+
+async function loadAuditLog() {
     const range = currentFindingsRange();
     if (!range) {
-        showBanner("err", "Pick a date range before exporting.");
+        showBanner("err", "Pick a date range before loading the audit log.");
         return;
     }
-    const url = buildApiUrl("/api/findings/export", {
-        dateRangeStart: range.start,
-        dateRangeEnd: range.end,
-        format: "csv",
-    });
-    let blob;
-    let filename = `break-compliance-${range.start}-${range.end}.csv`;
+    state.audit.loading = true;
+    state.audit.range = range;
+    renderAuditLog();
     try {
-        const response = await fetch(url, { headers: { "x-addon-token": addonToken } });
-        if (!response.ok) {
-            throw new HttpError(response.status, null, `HTTP ${response.status}`);
-        }
-        // Honor the server's Content-Disposition filename when it's a plain
-        // ASCII bare filename — keeps the workspaceId in the saved file.
-        const cd = response.headers.get("Content-Disposition") || "";
-        const match = cd.match(/filename="([^"\\]+)"/);
-        if (match) filename = match[1];
-        blob = await response.blob();
+        const body = await api("/api/audit", {
+            query: {
+                dateRangeStart: range.start,
+                dateRangeEnd: range.end,
+                limit: "50",
+            },
+        });
+        state.audit.entries = Array.isArray(body?.audit) ? body.audit : [];
+        state.audit.loaded = true;
+        state.audit.range = range;
     } catch (err) {
         showBanner("err", err instanceof HttpError
-            ? `Export failed (${err.status}). Try again, or refresh the addon if the error persists.`
-            : "Export failed. Try again, or refresh the addon if the error persists.");
-        return;
+            ? `Audit log failed: ${err.message}`
+            : "Audit log failed.");
+    } finally {
+        state.audit.loading = false;
+        renderAuditLog();
     }
-    // Trigger the browser-native download. URL.createObjectURL stays alive
-    // until we revoke it; doing so on the next animation frame is safe and
-    // avoids leaking the object URL.
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = filename;
-    anchor.rel = "noopener";
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    requestAnimationFrame(() => URL.revokeObjectURL(objectUrl));
+}
+
+async function downloadFindingsCsv() {
+    await downloadFindingsCsvFile({
+        range: currentFindingsRange(),
+        token: addonToken,
+        showBanner,
+    });
 }
 
 function renderResults() {
@@ -917,64 +607,6 @@ function renderUserFilter() {
     sel.value = state.userFilter ?? "";
 }
 
-// Picks the best display name for a user from any of their findings.
-// `userName` was added in §21; pre-§21 findings still have null userName,
-// so we fall through to userId in that case.
-function displayUserName(findings, userId) {
-    for (const f of findings) {
-        if (f.userName && typeof f.userName === "string" && f.userName.trim().length > 0) {
-            return f.userName;
-        }
-    }
-    return userId;
-}
-
-function enumerateDates(startIso, endIso) {
-    // Inclusive day-by-day enumeration. Returns ISO strings.
-    const out = [];
-    if (!startIso || !endIso) return out;
-    const start = new Date(`${startIso}T00:00:00Z`);
-    const end = new Date(`${endIso}T00:00:00Z`);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return out;
-    // Cap defensively at ~6 weeks so a bad input can't blow up the DOM.
-    const MAX_DAYS = 45;
-    let count = 0;
-    for (let d = start; d <= end && count < MAX_DAYS; d.setUTCDate(d.getUTCDate() + 1)) {
-        out.push(`${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`);
-        count++;
-    }
-    return out;
-}
-
-// Locale-aware day-of-week + short-date formatters. Built once per render
-// pass off state.session.userTimeZone (or the browser default when the
-// JWT didn't carry one) so the pivot table reads naturally for admins in
-// any region — e.g. "Mon 12/05" in en-US vs "Lun 12/05" in fr-FR vs
-// "12月5日 月" in ja-JP. Intl handles the fallback to system locale when
-// the timezone is missing or invalid.
-function dateFormatters() {
-    const tz = state.session?.userTimeZone || undefined;
-    const safe = (opts) => {
-        try {
-            return new Intl.DateTimeFormat(undefined, { ...opts, timeZone: tz });
-        } catch {
-            // Bad tz string from a malformed claim — fall back to system tz.
-            return new Intl.DateTimeFormat(undefined, opts);
-        }
-    };
-    return {
-        weekday: safe({ weekday: "short" }),
-        monthDay: safe({ month: "numeric", day: "numeric" }),
-    };
-}
-
-function statusIconMeta(severity) {
-    const cls = severityClass(severity);
-    if (cls === "pass") return { icon: "✓", srLabel: "Pass" };
-    if (cls === "warn") return { icon: "!", srLabel: "Warning" };
-    return { icon: "✗", srLabel: "Violation" };
-}
-
 function visibleFindings() {
     // P2.1 — apply the user-filter dropdown selection. Empty / null
     // selection = no filter; show everyone.
@@ -1017,7 +649,7 @@ function renderPivot(container) {
     const thead = create("thead");
     const headerRow = create("tr");
     headerRow.appendChild(create("th", { className: "user-col", text: "User" }));
-    const { weekday, monthDay } = dateFormatters();
+    const { weekday, monthDay } = createDateFormatters(state.session?.userTimeZone);
     for (const date of sortedDates) {
         // Anchor the calendar date at noon UTC so DST transitions in the
         // user's timezone can't shift the rendered date by a day.
@@ -1078,37 +710,17 @@ function isAdminRole() {
     return role === "ADMIN" || role === "OWNER";
 }
 
-// Map a server-side review-status to the small chip rendered next to a
-// finding's day header. OPEN is the absence state and produces no chip
-// so the row reads the same as it did before reviews shipped.
-function reviewBadgeText(status) {
-    if (status === "ACKNOWLEDGED") return "Acknowledged";
-    if (status === "OVERRIDDEN") return "Overridden";
-    return null;
-}
-
-function reviewBadgeClass(status) {
-    if (status === "ACKNOWLEDGED") return "review-badge review-badge--ack";
-    if (status === "OVERRIDDEN") return "review-badge review-badge--override";
-    return "review-badge";
-}
-
-// Cycle a finding through OPEN → ACKNOWLEDGED → OVERRIDDEN → OPEN. The
-// note is captured via window.prompt when transitioning into a non-OPEN
-// state and skipped (cleared server-side) when going back to OPEN. Prompt
-// is intentional — a richer modal isn't worth the surface area for an
-// audit-text capture; it matches the existing applyPreset confirm() UX.
+// Cycle a finding through OPEN -> ACKNOWLEDGED -> OVERRIDDEN -> OPEN.
+// Non-OPEN transitions can carry an optional audit note captured through
+// the first-party review dialog module.
 async function cycleReview(findingId, currentStatus) {
     const next = currentStatus === "ACKNOWLEDGED" ? "OVERRIDDEN"
         : currentStatus === "OVERRIDDEN" ? "OPEN"
         : "ACKNOWLEDGED";
     let note = null;
     if (next !== "OPEN") {
-        const entered = window.prompt(
-            `Add an optional note for marking this finding as ${next.toLowerCase()} (Cancel to leave blank):`,
-            "");
-        // Cancel returns null; empty string is a deliberate "no note" — both
-        // omit the note from the request body, letting the server clear it.
+        const entered = await requestReviewNote(next);
+        if (entered === undefined) return;
         note = entered == null ? null : entered.trim();
     }
     const body = note ? { status: next, note } : { status: next };
@@ -1131,6 +743,7 @@ async function cycleReview(findingId, currentStatus) {
             }
         }
         renderResults();
+        if (state.audit.loaded) loadAuditLog();
     } catch (err) {
         showBanner("err", err instanceof HttpError
             ? `Couldn't update review: ${err.message}`
@@ -1284,43 +897,6 @@ function setLoadingMessage(text) {
     if (span) span.textContent = text;
 }
 
-// Poll the async ingest run until it reaches a terminal state (COMPLETED or
-// FAILED). Returns the final IngestionRun body. Throws on poll-level errors
-// (network / 4xx). Cancellation is cooperative — the caller flips
-// state.cancelIngest and the loop exits the next tick.
-async function pollIngestionRun(runId, range, isCanceled) {
-    let delay = 800;
-    const maxDelay = 4000;
-    while (true) {
-        if (isCanceled?.()) {
-            const err = new Error("canceled");
-            err.canceled = true;
-            throw err;
-        }
-        const body = await api(`/api/ingest/runs/${encodeURIComponent(runId)}`);
-        if (body.status === "COMPLETED" || body.status === "FAILED") return body;
-        if (body.status === "RUNNING") {
-            const processed = Number(body.entriesProcessed) || 0;
-            setLoadingMessage(processed > 0
-                ? `Imported ${processed.toLocaleString()} entries…`
-                : `Fetching ${range.start} → ${range.end} from Clockify…`);
-        }
-        await new Promise(r => setTimeout(r, delay));
-        delay = Math.min(maxDelay, Math.round(delay * 1.4));
-    }
-}
-
-function describeIngestFailure(errorCode) {
-    if (!errorCode) return "Ingestion failed. The run was recorded — re-open the addon and try again.";
-    if (errorCode === "ClockifyApi:401") {
-        return "Reports API is unavailable in this workspace. Install in a production Clockify workspace to run full compliance checks.";
-    }
-    if (errorCode.startsWith("ClockifyApi:")) {
-        return `Clockify rejected the report request (${errorCode}). Try again in a minute; if it persists, re-open the addon to refresh credentials.`;
-    }
-    return `Ingestion failed (${errorCode}). The run was recorded so an admin can audit it from Settings.`;
-}
-
 // P2.8 — read-only fetch path for the "All open" preset. Reuses the
 // findings list endpoint with openOnly=true; no ingest, no evaluate.
 async function loadOpenFindings(range) {
@@ -1340,8 +916,12 @@ async function loadOpenFindings(range) {
     }
     state.findings = listResult.findings;
     state.lastRunRange = { start: range.start, end: range.end };
+    state.audit.loaded = false;
+    state.audit.entries = [];
+    state.audit.range = range;
     setLoading(false);
     renderResults();
+    renderAuditLog();
     if (state.findings.length === 0) {
         showBanner("ok", `No open findings in the last 90 days.`);
     } else {
@@ -1399,7 +979,13 @@ async function runCompliance() {
 
     let runFinal;
     try {
-        runFinal = await pollIngestionRun(runId, range, () => state.cancelIngest);
+        runFinal = await pollIngestionRun({
+            api,
+            runId,
+            range,
+            isCanceled: () => state.cancelIngest,
+            setLoadingMessage,
+        });
     } catch (err) {
         setLoading(false);
         setRunButtonState(false);
@@ -1457,6 +1043,9 @@ async function runCompliance() {
     state.lastRun = { entriesProcessed, findingsCreated: evalResult.findingsCreated };
     state.lastRunAt = new Date();
     state.lastRunRange = { start: range.start, end: range.end };
+    state.audit.loaded = false;
+    state.audit.entries = [];
+    state.audit.range = range;
     // Fresh data just landed — any prior PENDING/CLAIMED webhook signals
     // are either consumed by this run or older than it, so the pill drops.
     state.pendingRefreshAt = null;
@@ -1466,6 +1055,7 @@ async function runCompliance() {
     renderLastChecked();
     renderPendingRefreshPill();
     renderResults();
+    renderAuditLog();
     if (state.findings.length === 0) {
         showBanner("ok", `Range ${range.start} → ${range.end}: no break-compliance issues.`);
     } else {
@@ -1517,6 +1107,7 @@ async function loadInitialData() {
         renderPendingRefreshPill();
         renderDiagnostics();
         renderResults(); // first-paint empty state
+        renderAuditLog();
     } catch (err) {
         statusNode.hidden = false;
         statusNode.textContent = "Not connected — try reloading the addon.";

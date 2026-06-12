@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,6 +25,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class HolidayFetcher {
+
+    private static final Logger log = LoggerFactory.getLogger(HolidayFetcher.class);
 
     private final ClockifyApi api;
     private final ObjectMapper mapper;
@@ -78,7 +82,12 @@ public class HolidayFetcher {
             LocalDate effStart = startDate.isBefore(from) ? from : startDate;
             LocalDate effEnd = endDate.isAfter(to) ? to : endDate;
             if (effStart.isAfter(effEnd)) continue;
+            boolean workspaceWide = holiday.path("everyoneIncludingNew").asBoolean(false);
             List<String> userIds = collectUserIds(holiday);
+            if (!workspaceWide && userIds.isEmpty() && hasTextArray(holiday.path("userGroupIds"))) {
+                log.warn("clockify.holiday.group_only_unsupported workspace={} holiday={}", workspaceId, sourceId);
+                continue;
+            }
             for (LocalDate d = effStart; !d.isAfter(effEnd); d = d.plusDays(1)) {
                 if (userIds.isEmpty()) {
                     // Workspace-wide holiday — record as appliesToUserId=null.
@@ -105,6 +114,18 @@ public class HolidayFetcher {
             if (n.isTextual() && !n.asText().isBlank()) out.add(n.asText());
         }
         return out;
+    }
+
+    private static boolean hasTextArray(JsonNode arr) {
+        if (!arr.isArray() || arr.isEmpty()) {
+            return false;
+        }
+        for (JsonNode n : arr) {
+            if (n.isTextual() && !n.asText().isBlank()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String textOrNull(JsonNode n, String field) {

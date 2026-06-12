@@ -587,10 +587,7 @@ class BreakRuleEngineTest {
         return new BreakRuleEngineInput(
                 WS,
                 settings,
-                List.of(),     // templates unused
-                List.of(),     // assignments unused
                 entries,
-                List.of(),     // group memberships unused
                 LocalDate.parse(fromIso),
                 LocalDate.parse(toIso));
     }
@@ -611,8 +608,7 @@ class BreakRuleEngineTest {
             Map<String, Set<LocalDate>> perUser) {
         return new BreakRuleEngineInput(
                 WS, settings,
-                List.of(), List.of(), entries, List.of(),
-                LocalDate.parse(fromIso), LocalDate.parse(toIso),
+                entries, LocalDate.parse(fromIso), LocalDate.parse(toIso),
                 workspaceWide, perUser);
     }
 

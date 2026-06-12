@@ -16,7 +16,7 @@ Specific threats handled:
 - **Replay of a valid token against a different addon's webhook route** — Mitigated by the third check in `WebhookAuthFilter`: the `authToken` claim in the JWT must match the decrypted stored `authToken` for `(workspace_id, addon_id, normalized_path)`.
 - **Cross-workspace data probing** — Mitigated by composite PKs with `workspace_id` leading every tenant-scoped table; the controllers derive `workspaceId` only from verified claims, never from the request body or query.
 - **Server-side credential leak via response or log** — Mitigated by the AES-GCM-256 token codec keeping plaintext out of the database, Logback `%replace` converters masking JWT triplets and token-header patterns before any line reaches the appender, and `Cache-Control: no-store` on every `/api/*` response.
-- **SSRF via tampered `backendUrl` claim** — Mitigated by `ClockifyApi`'s scheme + host allowlist (`https://` + `*.clockify.me`, `localhost` allowed only for tests).
+- **SSRF via tampered `backendUrl` claim** — Mitigated by `ClockifyApi`'s scheme + host allowlist (`https://` + `*.clockify.me`). Localhost is rejected unless the explicit dev/test opt-in property is enabled.
 - **Double-slash webhook path / addon-id confusion** — Mitigated by `WebhookPathNormalizer` (collapses `//` runs, strips trailing slash) and by using `claims.addonId` (the Clockify-generated id) as the install identifier rather than the manifest key.
 - **Webhook delivery double-processing on retry** — Mitigated by Redis `SETNX` idempotency keyed by `sha256(eventType || 0x00 || body)` with 24-hour TTL.
 
@@ -30,11 +30,11 @@ Specific threats handled:
 ## Transport
 
 - TLS 1.2+ enforced at Railway's load balancer. HSTS toggled on via `ENABLE_HSTS=true` once the custom domain is fully verified end-to-end. `SecurityHeadersFilter` additionally gates HSTS on `request.isSecure()` so the header is only emitted when Railway's `X-Forwarded-Proto` reports HTTPS — a config slip that exposes the service over plain HTTP cannot pin a browser to HTTPS for two years (P1 commit `d06cdff`).
-- The add-on rejects non-HTTPS `backendUrl`/`reportsUrl` claims (except `localhost` for tests).
+- The add-on rejects non-HTTPS `backendUrl`/`reportsUrl` claims and non-Clockify hosts. `http://localhost` is accepted only when `breakcompliance.clockify.allow-local-base-urls=true` (the `dev` profile sets it for local probes).
 
 ## Per-request hardening
 
-- **CSP:** `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://resources.developer.clockify.me; img-src 'self' data: https://resources.developer.clockify.me; font-src 'self' https://resources.developer.clockify.me; connect-src 'self' https://*.clockify.me; frame-ancestors https://app.clockify.me https://*.clockify.me [+ EXTRA_FRAME_ANCESTORS]`. The frame-ancestors wildcard covers `developer.clockify.me` (dev-portal preview) and regional subdomains so the iframe is embeddable only by Clockify-controlled hosts; operators can add allow-list entries via `EXTRA_FRAME_ANCESTORS` (comma-delimited) when staging behind a custom domain.
+- **CSP:** `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://resources.developer.clockify.me; img-src 'self' data: https://resources.developer.clockify.me; font-src 'self' https://resources.developer.clockify.me; connect-src 'self' https://*.clockify.me; frame-ancestors https://app.clockify.me https://*.clockify.me [+ EXTRA_FRAME_ANCESTORS]`. The frame-ancestors wildcard covers `developer.clockify.me` (dev-portal preview) and regional subdomains so the iframe is embeddable only by Clockify-controlled hosts; operators can add allow-list entries via `EXTRA_FRAME_ANCESTORS` (comma-delimited) when staging behind a custom domain. `/sidebar` renders no inline scripts; the synchronous theme bootstrap is a first-party `/theme-init.js` file covered by `script-src 'self'`.
 - **X-Content-Type-Options:** `nosniff`.
 - **Referrer-Policy:** `no-referrer`.
 - **Permissions-Policy:** `camera=() microphone=() geolocation=()`.
@@ -67,10 +67,10 @@ rollback, monitoring, key rotation, and data-erasure procedures.
 
 - **`/actuator/health`** — unauthenticated, used by Railway's healthcheck.
 - **`/actuator/prometheus`** — Micrometer Prometheus registry. Emits `breakcompliance_webhook_received{event}`, `…_webhook_duplicate{event}`, `…_refresh_signals_processed{outcome}`, `…_ingest_run_duration` (timer), `…_ingest_entries_processed`, `…_ingest_run_failed{reason}`. Scrape from inside the Railway network; narrow public access via reverse-proxy / IP allowlist before exposing externally.
+- **Admin audit log** — `GET /api/audit` plus the sidebar's admin-only audit panel show preset-apply and finding-review actions from `breakcompliance_audit_logs`.
 - **Redaction proof**: `LIVE_VALIDATION.md` §8 captures Railway log lines from a real install/ingest/uninstall cycle showing zero JWT triplets and zero token material in stdout.
 
 ## Open follow-ups
 
-- Centralised audit log for admin actions (currently captured in `breakcompliance_audit_logs` but no UI surface yet).
 - Out-of-band log shipping with a downstream redaction policy (today: stdout + the application-level Logback mask).
 - Periodic external penetration test on the production endpoint.

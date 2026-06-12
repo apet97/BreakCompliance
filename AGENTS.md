@@ -13,10 +13,11 @@ misparse.
 ## Before changing code
 
 1. **`CLAUDE.md`** — settings model, deploy info, hard rules.
-2. **`docs/api-calls.md`** — outbound + inbound API shapes with live-probe evidence.
-3. **`docs/clockify-marketplace/`** — canonical marketplace docs mirror; cite paths in
+2. **`CONTEXT.md`** — read-only mission, current domain model, ADR index.
+3. **`docs/api-calls.md`** — outbound + inbound API shapes with live-probe evidence.
+4. **`docs/clockify-marketplace/`** — canonical marketplace docs mirror; cite paths in
    commit messages when adding new functionality.
-4. **`docs/addon-java-sdk/`** — Java SDK 1.5.3 source; the SDK already verifies — never
+5. **`docs/addon-java-sdk/`** — Java SDK 1.5.3 source; the SDK already verifies — never
    reimplement.
 
 ## Run + verify
@@ -25,8 +26,10 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 304 green. Postgres + Redis spin up via Testcontainers.
+# Expect 339 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
+
+find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 
 # Targeted run.
 mvn -B -ntp test -Dtest='LifecycleControllerTest,BreakRuleEngineTest'
@@ -65,7 +68,9 @@ any API call shape.
 | Rule | Why |
 |---|---|
 | Read `backendUrl`/`reportsUrl` from JWT claims — never hardcode. | Dev portal uses `/report/v1/…`; production `reports.api.clockify.me/v1/…`. JWT carries the env-correct URL. |
+| Production Clockify base URLs must be HTTPS `*.clockify.me`; `http://localhost` requires the explicit dev/test opt-in property. | Prevents tampered JWT claims from steering outbound calls to localhost or arbitrary hosts. |
 | `X-Addon-Token` header (not `Authorization`) for outbound Clockify. | Clockify rejects `Authorization`. |
+| `/sidebar` must not render inline scripts under `script-src 'self'`; theme bootstrap lives in `/theme-init.js`. | Inline scripts are CSP-blocked in the iframe and cause dark-mode theme flicker. |
 | Settings = native structured-settings only. No `/settings` iframe. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by 2026-05-11 live probe. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single `{id,value}` shape. Unknown shapes drift-log + return 200. |
 | Detailed-report response key is `timeentries` (ALL LOWERCASE). | Spec mislabels as `timeEntries`. Live API returns lowercase. |
@@ -281,7 +286,8 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
     in V1; controller was inert). `GET /api/findings` now embeds
     `review: {status, note, updatedAt} | null` per row. Sidebar
     Checklist cycles a finding through OPEN → ACK → OVERRIDE via
-    per-row button with optional `window.prompt` audit note.
+    per-row button with optional `window.prompt` audit note (replaced
+    by the §30 accessible dialog).
     `FindingsService.exists(workspaceId, findingId)` is the
     workspace-scoped guard.
   - **Locale-aware date labels**: `NormalizedClaims.userTimeZone`
@@ -297,7 +303,7 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
     +5 `FindingsControllerTest` review cases, +4
     `FindingsControllerTest` CSV cases, +3 `ClaimsNormalizerTest`
     userTimeZone, +2 `SessionControllerTest` userTimeZone).
-- **§29** — Marketplace submission hardening (this branch): Maven project version
+- **§29** — Marketplace submission hardening: Maven project version
   aligned to `0.2.0`; sidebar/session settings deep links removed in favor of the
   documented breadcrumb only; `TIME_OFF`/`HOLIDAY` ignored-entry semantics clarified
   and pinned with tests; V15 retires any pre-existing duplicate RUNNING rows and
@@ -305,3 +311,17 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
   duplicate RUNNING ingests under concurrent starts; detailed-report pagination /
   live-shape fixture tests added; operations and submission checklist docs added.
   304 tests green on 2026-06-12.
+- **§30** — Codebase improvement pass: no-inline `/sidebar` CSP contract with
+  `/theme-init.js`; production URL guard rejects local/non-Clockify Clockify
+  base URLs unless dev/test opts in; group-only holidays no longer suppress the
+  whole workspace; non-report Clockify fetchers paginate; detailed-report rows
+  now parse into `DetailedReportEntry` while retaining raw JSON; `IngestionService`
+  delegates time-entry upsert and suppression-cache refresh; engine input no
+  longer carries dead template/assignment/group fields; review lookups are
+  finding-id scoped; review notes use an accessible dialog instead of
+  `window.prompt`; sidebar includes an admin audit panel; sidebar JS and CSS
+  are split into first-party modules; CI checks all static JS modules;
+  patch/minor deps staged (PostgreSQL 42.7.11, Lombok 1.18.46,
+  Testcontainers 1.21.4). Flyway 12.8.1 was tested and deferred because
+  Spring Boot 3.3.5 calls the removed `cleanOnValidationError(boolean)` API;
+  keep it with the future Boot migration branch. 339 tests expected.

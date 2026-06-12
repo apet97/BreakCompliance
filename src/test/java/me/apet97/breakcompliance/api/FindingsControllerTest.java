@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -55,7 +57,7 @@ class FindingsControllerTest {
     @Autowired
     FindingRepository findingRepo;
 
-    @Autowired
+    @SpyBean
     FindingReviewRepository reviewRepo;
 
     @Test
@@ -81,6 +83,27 @@ class FindingsControllerTest {
                         .param("dateRangeEnd", "2025-01-07"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.findings").isArray());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void list_loadsReviewsOnlyForVisibleFindingIds() throws Exception {
+        Finding visible = seedFinding("u-1", LocalDate.parse("2025-01-03"));
+        seedFinding("u-2", LocalDate.parse("2025-02-03"));
+
+        String token = TestJwtForger.forgeInstalledToken();
+        mockMvc.perform(get("/api/findings")
+                        .header("X-Addon-Token", token)
+                        .param("dateRangeStart", "2025-01-01")
+                        .param("dateRangeEnd", "2025-01-07"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<Collection<String>> idsCaptor =
+                org.mockito.ArgumentCaptor.forClass(Collection.class);
+        org.mockito.Mockito.verify(reviewRepo).findByWorkspaceIdAndFindingIdIn(
+                org.mockito.ArgumentMatchers.eq(TestJwtForger.DEFAULT_WORKSPACE_ID),
+                idsCaptor.capture());
+        org.assertj.core.api.Assertions.assertThat(idsCaptor.getValue()).containsExactly(visible.getId());
     }
 
     @Test

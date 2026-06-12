@@ -13,15 +13,11 @@ import me.apet97.breakcompliance.domain.BreakRuleEngine;
 import me.apet97.breakcompliance.domain.BreakRuleEngineInput;
 import me.apet97.breakcompliance.domain.FindingDraft;
 import me.apet97.breakcompliance.persistence.entities.Finding;
-import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
-import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
-import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
-import me.apet97.breakcompliance.persistence.repositories.TemplateAssignmentRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
@@ -40,8 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class FindingsService {
 
     private final WorkspaceSettingsRepository settingsRepo;
-    private final RuleTemplateRepository templatesRepo;
-    private final TemplateAssignmentRepository assignmentsRepo;
     private final TimeEntryRepository entriesRepo;
     private final FindingRepository findingsRepo;
     private final BreakRuleEngine engine;
@@ -50,16 +44,12 @@ public class FindingsService {
 
     public FindingsService(
             WorkspaceSettingsRepository settingsRepo,
-            RuleTemplateRepository templatesRepo,
-            TemplateAssignmentRepository assignmentsRepo,
             TimeEntryRepository entriesRepo,
             FindingRepository findingsRepo,
             BreakRuleEngine engine,
             WorkspaceHolidayRepository holidayRepo,
             WorkspaceTimeOffRepository timeOffRepo) {
         this.settingsRepo = settingsRepo;
-        this.templatesRepo = templatesRepo;
-        this.assignmentsRepo = assignmentsRepo;
         this.entriesRepo = entriesRepo;
         this.findingsRepo = findingsRepo;
         this.engine = engine;
@@ -74,8 +64,6 @@ public class FindingsService {
             s.setWorkspaceId(workspaceId);
             return s;
         });
-        List<RuleTemplate> templates = templatesRepo.findByWorkspaceId(workspaceId);
-        List<TemplateAssignment> assignments = assignmentsRepo.findByWorkspaceId(workspaceId);
         Instant fromInstant = from.atStartOfDay(ZoneOffset.UTC).toInstant();
         Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         List<TimeEntry> entries = entriesRepo.findByWorkspaceIdAndStartAtBetween(workspaceId, fromInstant, toInstant);
@@ -109,12 +97,8 @@ public class FindingsService {
             }
         }
 
-        // groupMemberships intentionally empty: the synthesised workspace
-        // template is single per workspace and the engine does not consult
-        // memberships. The record field stays for a future per-group policy.
         BreakRuleEngineInput input = new BreakRuleEngineInput(
-                workspaceId, settings, templates, assignments, entries, List.of(),
-                from, to, workspaceWide, perUser);
+                workspaceId, settings, entries, from, to, workspaceWide, perUser);
         List<FindingDraft> drafts = engine.evaluate(input);
 
         // Build a userId → userName lookup from the time entries we just

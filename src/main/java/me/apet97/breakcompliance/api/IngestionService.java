@@ -5,15 +5,12 @@ import io.micrometer.core.instrument.Timer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
+import me.apet97.breakcompliance.clockify.DetailedReportEntry;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
-import me.apet97.breakcompliance.clockify.HolidayFetcher;
-import me.apet97.breakcompliance.clockify.TimeOffFetcher;
-import me.apet97.breakcompliance.clockify.UserDirectoryFetcher;
 import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.config.MetricsConfig;
 import me.apet97.breakcompliance.persistence.crypto.TokenCodec;
@@ -21,16 +18,10 @@ import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
 import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
-import me.apet97.breakcompliance.persistence.entities.TimeEntry;
-import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
-import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
-import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
-import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
-import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -70,7 +61,6 @@ public class IngestionService {
     private static final int FINALIZE_FLUSH_BATCH = 200;
 
     private final InstallationRepository installationRepo;
-    private final TimeEntryRepository timeEntryRepo;
     private final IngestionRunRepository runRepo;
     private final DetailedReportFetcher fetcher;
     private final TokenCodec codec;
@@ -80,15 +70,11 @@ public class IngestionService {
     private final MeterRegistry meters;
     private final Timer runDuration;
     private final WorkspaceSettingsRepository workspaceSettings;
-    private final HolidayFetcher holidayFetcher;
-    private final TimeOffFetcher timeOffFetcher;
-    private final WorkspaceHolidayRepository holidayRepo;
-    private final WorkspaceTimeOffRepository timeOffRepo;
-    private final UserDirectoryFetcher userDirectoryFetcher;
+    private final TimeEntryUpserter timeEntryUpserter;
+    private final SuppressionCacheRefresher suppressionCacheRefresher;
 
     public IngestionService(
             InstallationRepository installationRepo,
-            TimeEntryRepository timeEntryRepo,
             IngestionRunRepository runRepo,
             DetailedReportFetcher fetcher,
             TokenCodec codec,
@@ -96,13 +82,9 @@ public class IngestionService {
             @Qualifier(AsyncConfig.INGEST_EXECUTOR_BEAN) Executor ingestExecutor,
             MeterRegistry meters,
             WorkspaceSettingsRepository workspaceSettings,
-            HolidayFetcher holidayFetcher,
-            TimeOffFetcher timeOffFetcher,
-            WorkspaceHolidayRepository holidayRepo,
-            WorkspaceTimeOffRepository timeOffRepo,
-            UserDirectoryFetcher userDirectoryFetcher) {
+            TimeEntryUpserter timeEntryUpserter,
+            SuppressionCacheRefresher suppressionCacheRefresher) {
         this.installationRepo = installationRepo;
-        this.timeEntryRepo = timeEntryRepo;
         this.runRepo = runRepo;
         this.fetcher = fetcher;
         this.codec = codec;
@@ -112,11 +94,8 @@ public class IngestionService {
         this.ingestExecutor = ingestExecutor;
         this.meters = meters;
         this.workspaceSettings = workspaceSettings;
-        this.holidayFetcher = holidayFetcher;
-        this.timeOffFetcher = timeOffFetcher;
-        this.holidayRepo = holidayRepo;
-        this.timeOffRepo = timeOffRepo;
-        this.userDirectoryFetcher = userDirectoryFetcher;
+        this.timeEntryUpserter = timeEntryUpserter;
+        this.suppressionCacheRefresher = suppressionCacheRefresher;
         this.runDuration = Timer.builder(MetricsConfig.INGEST_RUN_DURATION)
                 .description("Total time spent in IngestionService.executeRun")
                 .register(meters);
@@ -144,7 +123,7 @@ public class IngestionService {
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
         PreparedRun prepared = prepareRunTransactional(workspaceId, from, to, reportsUrlOverride);
 
-        List<Map<String, Object>> entries;
+        List<DetailedReportEntry> entries;
         try {
             entries = fetcher.fetch(workspaceId, prepared.reportsUrl(), prepared.token(), from, to,
                     isExcludeUnsubmittedEnabled(workspaceId));
@@ -165,7 +144,7 @@ public class IngestionService {
         // P1.1 / P1.2 — refresh suppression cache after a successful sync
         // ingest, mirroring the async path. Best-effort.
         try {
-            refreshSuppressionForWindow(workspaceId, prepared.token(), from, to);
+            suppressionCacheRefresher.refresh(workspaceId, prepared.token(), from, to);
         } catch (RuntimeException e) {
             log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
                     workspaceId, e.getClass().getSimpleName());
@@ -286,7 +265,7 @@ public class IngestionService {
             LocalDate from,
             LocalDate to) {
         Timer.Sample sample = Timer.start(meters);
-        List<Map<String, Object>> entries;
+        List<DetailedReportEntry> entries;
         try {
             entries = fetcher.fetch(workspaceId, reportsUrl, token, from, to,
                     isExcludeUnsubmittedEnabled(workspaceId));
@@ -325,86 +304,9 @@ public class IngestionService {
         // worst case is "no suppression on this range" which matches
         // pre-P1.1 behaviour exactly.
         try {
-            refreshSuppressionForWindow(workspaceId, token, from, to);
+            suppressionCacheRefresher.refresh(workspaceId, token, from, to);
         } catch (RuntimeException e) {
             log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
-                    workspaceId, e.getClass().getSimpleName());
-        }
-    }
-
-    /**
-     * Fetch + upsert holidays + approved time-off for {@code [from, to]}.
-     * The backend URL is read from the installation row (holidays + time-off
-     * live on {@code api.clockify.me}, not the reports host). Idempotent —
-     * upsert keys are stable so re-running for the same range overwrites
-     * cleanly.
-     */
-    private void refreshSuppressionForWindow(
-            String workspaceId, String token, LocalDate from, LocalDate to) {
-        Installation install = installationRepo.findByWorkspaceId(workspaceId).orElse(null);
-        if (install == null || install.getBackendUrl() == null || install.getBackendUrl().isBlank()) {
-            return;
-        }
-        String backendUrl = install.getBackendUrl();
-        java.time.Instant now = java.time.Instant.now();
-
-        // Holidays — delete-then-upsert per window. Without the delete, a
-        // holiday removed in Clockify would keep suppressing its date
-        // until a manual wipe.
-        List<HolidayFetcher.HolidayRow> holidays =
-                holidayFetcher.fetch(workspaceId, backendUrl, token, from, to);
-        tx.executeWithoutResult(status -> {
-            holidayRepo.deleteByWorkspaceIdAndDateBetween(workspaceId, from, to);
-            for (var row : holidays) {
-                WorkspaceHoliday h = new WorkspaceHoliday();
-                h.setWorkspaceId(workspaceId);
-                h.setSourceId(row.sourceId());
-                h.setDate(row.date());
-                h.setAppliesToUserId(row.appliesToUserId());
-                h.setName(row.name());
-                h.setIngestedAt(now);
-                holidayRepo.save(h);
-            }
-        });
-
-        // Approved time-off — same replace-on-refetch story. A withdrawn
-        // / rejected request stops suppressing on the next refresh.
-        Instant windowStart = from.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-        Instant windowEnd = to.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-        List<TimeOffFetcher.TimeOffRow> timeOff =
-                timeOffFetcher.fetchApproved(workspaceId, backendUrl, token, from, to);
-        tx.executeWithoutResult(status -> {
-            timeOffRepo.deleteByWorkspaceIdAndStartAtLessThanAndEndAtGreaterThanEqual(
-                    workspaceId, windowEnd, windowStart);
-            for (var row : timeOff) {
-                WorkspaceTimeOff t = new WorkspaceTimeOff();
-                t.setWorkspaceId(workspaceId);
-                t.setSourceId(row.sourceId());
-                t.setUserId(row.userId());
-                t.setStartAt(row.startAt());
-                t.setEndAt(row.endAt());
-                t.setStatus(row.status());
-                t.setIngestedAt(now);
-                timeOffRepo.save(t);
-            }
-        });
-
-        // P2.3 — refresh stale userName columns. Single transaction over
-        // the whole directory; the repo's bulk UPDATE is a no-op for
-        // rows whose name already matches. Avoids "John Owner" lingering
-        // after a user renames in Clockify.
-        try {
-            Map<String, String> directory =
-                    userDirectoryFetcher.fetchActive(workspaceId, backendUrl, token);
-            if (!directory.isEmpty()) {
-                tx.executeWithoutResult(status -> {
-                    for (var e : directory.entrySet()) {
-                        timeEntryRepo.updateUserNameForUser(workspaceId, e.getKey(), e.getValue());
-                    }
-                });
-            }
-        } catch (RuntimeException e) {
-            log.info("ingestion.userdir.reconcile-failed workspace={} reason={}",
                     workspaceId, e.getClass().getSimpleName());
         }
     }
@@ -456,7 +358,7 @@ public class IngestionService {
     }
 
     private IngestionRun finalizeRun(
-            String workspaceId, String runId, List<Map<String, Object>> entries) {
+            String workspaceId, String runId, List<DetailedReportEntry> entries) {
         IngestionRun run = runRepo
                 .findById(new IngestionRun.Pk(workspaceId, runId))
                 .orElseThrow(() -> new IllegalStateException(
@@ -464,14 +366,15 @@ public class IngestionService {
         int processed = 0;
         int batchCounter = 0;
         Instant ingestedAt = Instant.now();
-        for (Map<String, Object> raw : entries) {
-            upsertEntry(workspaceId, raw, ingestedAt);
-            processed++;
+        for (DetailedReportEntry raw : entries) {
+            if (timeEntryUpserter.upsert(workspaceId, raw, ingestedAt)) {
+                processed++;
+            }
             if (++batchCounter >= FINALIZE_FLUSH_BATCH) {
                 // Periodic flush keeps the persistence context's first-level
                 // cache bounded — a 100k-entry ingest would otherwise hold
                 // every TimeEntry in memory until commit.
-                timeEntryRepo.flush();
+                timeEntryUpserter.flush();
                 batchCounter = 0;
             }
         }
@@ -491,35 +394,6 @@ public class IngestionService {
         run.setErrorCode(errorCode);
         run.setCompletedAt(Instant.now());
         return runRepo.saveAndFlush(run);
-    }
-
-    private void upsertEntry(String workspaceId, Map<String, Object> raw, Instant ingestedAt) {
-        String sourceEntryId = stringValue(raw.get("_id"), raw.get("id"));
-        if (sourceEntryId == null) {
-            return; // skip malformed
-        }
-        TimeEntry entry = timeEntryRepo
-                .findById(new TimeEntry.Pk(workspaceId, sourceEntryId))
-                .orElseGet(TimeEntry::new);
-        entry.setWorkspaceId(workspaceId);
-        entry.setSourceEntryId(sourceEntryId);
-        entry.setUserId(stringValue(raw.get("userId")));
-        // Detailed-report response includes "userName" + "userEmail" per
-        // entry (live probe 2026-05-11). Capture the name so findings can
-        // render human-readable strings instead of opaque user IDs.
-        entry.setUserName(stringValue(raw.get("userName")));
-        entry.setProjectId(stringValue(raw.get("projectId")));
-        entry.setTaskId(stringValue(raw.get("taskId")));
-        entry.setClientId(stringValue(raw.get("clientId")));
-        entry.setDescription(stringValue(raw.get("description")));
-        entry.setStartAt(parseInstant(raw.get("timeInterval"), "start"));
-        entry.setEndAt(parseInstant(raw.get("timeInterval"), "end"));
-        entry.setDurationSeconds(parseDurationSeconds(raw.get("timeInterval")));
-        entry.setBillable(raw.get("billable") instanceof Boolean b ? b : null);
-        entry.setTags(extractTagNames(raw.get("tags")));
-        entry.setRaw(raw);
-        entry.setIngestedAt(ingestedAt);
-        timeEntryRepo.save(entry);
     }
 
     private IngestionRun newRun(String workspaceId, LocalDate from, LocalDate to) {
@@ -542,70 +416,6 @@ public class IngestionService {
 
     private static String nonBlank(String value) {
         return value == null || value.isBlank() ? null : value;
-    }
-
-    private static String stringValue(Object... candidates) {
-        for (Object c : candidates) {
-            if (c instanceof String s && !s.isBlank()) {
-                return s;
-            }
-        }
-        return null;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Instant parseInstant(Object timeInterval, String key) {
-        if (!(timeInterval instanceof Map<?, ?> map)) {
-            return null;
-        }
-        Object value = ((Map<String, Object>) map).get(key);
-        if (!(value instanceof String s) || s.isBlank()) {
-            return null;
-        }
-        try {
-            return Instant.parse(s);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Long parseDurationSeconds(Object timeInterval) {
-        if (!(timeInterval instanceof Map<?, ?> map)) {
-            return null;
-        }
-        Object value = ((Map<String, Object>) map).get("duration");
-        if (value instanceof Number n) {
-            return n.longValue();
-        }
-        if (value instanceof String s && !s.isBlank()) {
-            try {
-                return Long.parseLong(s);
-            } catch (NumberFormatException ignored) {
-                // Clockify sometimes returns ISO-8601 duration ("PT1H30M"); we can't parse easily.
-                return null;
-            }
-        }
-        return null;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String> extractTagNames(Object tagsField) {
-        if (!(tagsField instanceof List<?> list)) {
-            return List.of();
-        }
-        List<String> names = new java.util.ArrayList<>();
-        for (Object t : list) {
-            if (t instanceof Map<?, ?> map) {
-                Object name = ((Map<String, Object>) map).get("name");
-                if (name instanceof String s) {
-                    names.add(s);
-                }
-            } else if (t instanceof String s) {
-                names.add(s);
-            }
-        }
-        return names;
     }
 
     private record PreparedRun(String runId, String token, String reportsUrl) {}

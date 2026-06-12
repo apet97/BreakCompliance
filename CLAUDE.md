@@ -5,6 +5,9 @@ Manifest key `break-compliance-jvm`. BASIC plan. **Read-only** scopes:
 `TIME_ENTRY_READ`, `USER_READ`, `REPORTS_READ` (no `_WRITE`, ever — `WORKSPACE_READ`
 was dropped in P0 commit `029b0da` as unused).
 
+Fast domain context lives in `CONTEXT.md`; durable design decisions live in
+`docs/adr/`.
+
 ## Live deploy
 
 | | |
@@ -21,10 +24,12 @@ was dropped in P0 commit `029b0da` as unused).
 ```sh
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
+
+find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**304 tests expected** (304 green on 2026-06-12 after §29).
+**339 tests expected** (339 green target for §30 after CSP/adapter/audit hardening).
 Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
@@ -47,6 +52,7 @@ dev runs with `-Dspring.profiles.active=dev` to layer `application-dev.yaml`.
 | `LOG_LEVEL_APP` | `INFO` | Flip to `DEBUG` for live diagnosis without redeploy. |
 | `ADDON_BASE_URL` | `http://localhost:8080` | Used by the manifest builder. |
 | `EXTRA_FRAME_ANCESTORS` | — | Extra CSP `frame-ancestors` for embedding tests. |
+| `BREAKCOMPLIANCE_CLOCKIFY_ALLOW_LOCAL_BASE_URLS` / `breakcompliance.clockify.allow-local-base-urls` | `false` | Dev/test-only opt-in for `http://localhost` Clockify base URLs. Production rejects local/non-Clockify hosts. |
 | `CORS_ALLOWED_ORIGIN_PATTERNS` | — | Marketplace-evidence allowlist (see `CorsConfigTest`). |
 | `ENABLE_HSTS` | `false` | Railway terminates TLS; only flip on if testing HSTS preload. |
 | `SIDEBAR_TOKEN_MAX_IAT_AGE_SECONDS` | `1800` | iat-replay window for sidebar JWT. |
@@ -132,6 +138,7 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 | Rule | Why |
 |---|---|
 | Read `backendUrl`/`reportsUrl` from JWT claims — never hardcode. | Dev portal uses `/report/v1/…`; production `reports.api.clockify.me/v1/…`. JWT has the env-correct URL. |
+| Production Clockify base URLs must be HTTPS `*.clockify.me`; local HTTP URLs require the explicit dev/test opt-in property. | Prevents a tampered JWT from steering outbound calls to localhost or arbitrary hosts. |
 | `X-Addon-Token` header (not `Authorization`) for outbound. | Clockify rejects `Authorization`. |
 | Threshold fields = native structured-settings; preset selection = sidebar. | Clockify renders each native field independently and never re-fetches siblings after a change, so a backend-driven cross-field write isn't visible until reload. Sidebar lets us preview, confirm, and apply atomically. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` (§24). | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single-object shapes; unknown shapes drift-log + 200. |
@@ -142,6 +149,7 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` (no `Z`). | Server interprets in user timezone. |
 | `type=TIME_OFF` / `type=HOLIDAY` entries are `IGNORED` by the engine (§25/§29). | They skip only their own duration, split the continuous-work chain, and block gap synthesis across PTO/holiday windows; mixed days still evaluate real WORK entries. |
 | `/api/*` is header-token-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook/api filters all fail-closed. |
+| CSP uses `script-src 'self'`; `/sidebar` must not render inline scripts. | Theme bootstrap lives in `/theme-init.js`, loaded before CSS. Add/keep the no-inline sidebar contract test for any HTML shell change. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive`. |
 | Webhook idempotency = Redis SETNX, TTL ≥ 24h. | Clockify retries up to ~24h. |
 | Flyway migrations are additive only. | DB shared across deploys; column drops break rollbacks. |
@@ -198,7 +206,8 @@ src/main/java/me/apet97/breakcompliance/
                   per row so the sidebar paints chip state without a second round-trip.
   clockify/       ClockifyApi (shared RestClient, SSRF guard, 429/5xx retries)
                   + DetailedReportFetcher (accepts both `timeentries` and `timeEntries`
-                  response keys) + ClockifyRateLimiter
+                  response keys, returns typed DetailedReportEntry while retaining raw JSON)
+                  + ClockifyRateLimiter
   config/         ClockifyAddonConfig (manifest builder), AsyncConfig (ingestExecutor
                   bounded pool), SchedulingConfig (@EnableScheduling gate),
                   SecurityHeadersFilter (HSTS conditional on request.isSecure()),
@@ -211,7 +220,8 @@ src/main/java/me/apet97/breakcompliance/
 src/main/resources/
   application.yaml      Env-driven Spring config (JDBC ssl/keepalive, Hikari tuning,
                         open-in-view=false, LOG_LEVEL_APP gating)
-  application-dev.yaml  Local dev profile: pins DEBUG, plain-TCP localhost Postgres
+  application-dev.yaml  Local dev profile: pins DEBUG, plain-TCP localhost Postgres,
+                        and opts into local Clockify base URLs for WireMock/dev probes
   db/migration/         V1__init through V15__unique_running_ingestion_runs
                         (Flyway, additive only). V10 extends the
                         refresh_signals status CHECK constraint with
@@ -225,10 +235,13 @@ src/main/resources/
                         unique index preventing duplicate RUNNING ingests for
                         the same workspace/date range.
   logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
-  static/               sidebar.js + styles.css + icon.svg (64×64 designed mark)
+  static/               sidebar.js, sidebar/*.js, sidebar/css/*.css, styles.css,
+                        theme-init.js, icon.svg (64×64 designed mark)
 
-src/test/...            304 green expected (JDK 21 + Postgres + Redis Testcontainers).
-                        Testcontainers pinned to 1.20.4 in pom.xml so the
+src/test/...            339 green expected (JDK 21 + Postgres + Redis Testcontainers).
+                        Static frontend syntax gate:
+                        find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+                        Testcontainers pinned to 1.21.4 in pom.xml so the
                         bundled docker-java negotiates API ≥1.44 (required
                         by Docker 25+ / Colima 29.x engines).
 

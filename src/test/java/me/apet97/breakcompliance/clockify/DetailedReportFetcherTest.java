@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -142,20 +143,22 @@ class DetailedReportFetcherTest {
                 }
                 """);
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
         assertThat(entries).hasSize(2);
-        assertThat(entries.get(0)).containsEntry("_id", "e1").containsEntry("userId", "u1");
-        assertThat(entries.get(1)).containsEntry("_id", "e2");
+        assertThat(entries.get(0).sourceEntryId()).isEqualTo("e1");
+        assertThat(entries.get(0).userId()).isEqualTo("u1");
+        assertThat(entries.get(0).raw()).containsEntry("_id", "e1");
+        assertThat(entries.get(1).sourceEntryId()).isEqualTo("e2");
     }
 
     @Test
     void emptyTimeEntriesArrayShortCircuits() {
         mockResponse("{\"timeentries\": [], \"totals\": []}");
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
@@ -182,12 +185,12 @@ class DetailedReportFetcherTest {
                 }
                 """);
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
         assertThat(entries).hasSize(2);
-        assertThat(entries.get(0)).containsEntry("_id", "e1");
+        assertThat(entries.get(0).sourceEntryId()).isEqualTo("e1");
     }
 
     @Test
@@ -206,12 +209,85 @@ class DetailedReportFetcherTest {
                 }
                 """);
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
         assertThat(entries).hasSize(1);
-        assertThat(entries.get(0)).containsEntry("_id", "live-1");
+        assertThat(entries.get(0).sourceEntryId()).isEqualTo("live-1");
+    }
+
+    @Test
+    void parsesTypedFieldsWhileRetainingRawPayload() {
+        mockResponse("""
+                {
+                  "timeentries": [
+                    {
+                      "_id": "entry-1",
+                      "userId": "user-1",
+                      "userName": "Ada Lovelace",
+                      "projectId": "project-1",
+                      "taskId": "task-1",
+                      "clientId": "client-1",
+                      "description": "Build parser",
+                      "duration": 2700,
+                      "billable": true,
+                      "tags": [{"name": "Deep work"}, "remote"],
+                      "timeInterval": {
+                        "start": "2026-05-04T08:00:00Z",
+                        "end": "2026-05-04T08:45:00Z"
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        List<DetailedReportEntry> entries = fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
+
+        assertThat(entries).singleElement().satisfies(entry -> {
+            assertThat(entry.sourceEntryId()).isEqualTo("entry-1");
+            assertThat(entry.userId()).isEqualTo("user-1");
+            assertThat(entry.userName()).isEqualTo("Ada Lovelace");
+            assertThat(entry.projectId()).isEqualTo("project-1");
+            assertThat(entry.taskId()).isEqualTo("task-1");
+            assertThat(entry.clientId()).isEqualTo("client-1");
+            assertThat(entry.description()).isEqualTo("Build parser");
+            assertThat(entry.durationSeconds()).isEqualTo(2700L);
+            assertThat(entry.billable()).isTrue();
+            assertThat(entry.tags()).containsExactly("Deep work", "remote");
+            assertThat(entry.startAt()).isEqualTo(Instant.parse("2026-05-04T08:00:00Z"));
+            assertThat(entry.endAt()).isEqualTo(Instant.parse("2026-05-04T08:45:00Z"));
+            assertThat(entry.raw()).containsKeys("_id", "timeInterval", "tags");
+        });
+    }
+
+    @Test
+    void parsesDurationFromNestedTimeIntervalWhenTopLevelDurationMissing() {
+        mockResponse("""
+                {
+                  "timeentries": [
+                    {
+                      "_id": "entry-1",
+                      "userId": "user-1",
+                      "timeInterval": {
+                        "start": "2026-05-04T08:00:00Z",
+                        "end": "2026-05-04T08:45:00Z",
+                        "duration": 2700
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        List<DetailedReportEntry> entries = fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
+
+        assertThat(entries).singleElement()
+                .extracting(DetailedReportEntry::durationSeconds)
+                .isEqualTo(2700L);
     }
 
     @Test
@@ -221,7 +297,7 @@ class DetailedReportFetcherTest {
         // so we don't burn a wasted round-trip on a full final page.
         mockResponseWithLastPage(pageWithEntries(200, "page1"), "true");
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
@@ -245,12 +321,12 @@ class DetailedReportFetcherTest {
         Mockito.when(api.postWithHeaders(any(), any(), any(), any(), any(), eq(String.class)))
                 .thenReturn(pageOne, pageTwo);
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
         assertThat(entries).hasSize(201);
-        assertThat(entries.get(200)).containsEntry("_id", "page2-0");
+        assertThat(entries.get(200).sourceEntryId()).isEqualTo("page2-0");
         Mockito.verify(api, Mockito.times(2))
                 .postWithHeaders(any(), any(), any(), any(), any(), eq(String.class));
     }
@@ -274,12 +350,12 @@ class DetailedReportFetcherTest {
         Mockito.when(api.postWithHeaders(any(), any(), any(), any(), any(), eq(String.class)))
                 .thenReturn(pageOne, pageTwo);
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
         assertThat(entries).hasSize(250);
-        assertThat(entries.get(200)).containsEntry("_id", "page2-0");
+        assertThat(entries.get(200).sourceEntryId()).isEqualTo("page2-0");
         Mockito.verify(api, Mockito.times(2))
                 .postWithHeaders(any(), any(), any(), any(), any(), eq(String.class));
     }
@@ -288,7 +364,7 @@ class DetailedReportFetcherTest {
     void missingLastPageHeaderFallsBackToShortPage() {
         mockResponseWithLastPage(pageWithEntries(199, "short"), null);
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07"));
 
@@ -303,14 +379,14 @@ class DetailedReportFetcherTest {
                 .getContentAsString(StandardCharsets.UTF_8);
         mockResponseWithLastPage(fixture, "true");
 
-        List<Map<String, Object>> entries = fetcher.fetch(
+        List<DetailedReportEntry> entries = fetcher.fetch(
                 WS, REPORTS_URL, TOKEN,
                 LocalDate.parse("2026-05-04"), LocalDate.parse("2026-05-17"));
 
         assertThat(entries).hasSize(2);
-        assertThat(entries).extracting(e -> e.get("type"))
+        assertThat(entries).extracting(e -> e.raw().get("type"))
                 .containsExactly("REGULAR", "TIME_OFF");
-        assertThat(entries.get(0)).containsKeys("_id", "userId", "userName", "userEmail", "timeInterval");
+        assertThat(entries.get(0).raw()).containsKeys("_id", "userId", "userName", "userEmail", "timeInterval");
     }
 
     @SuppressWarnings("unchecked")

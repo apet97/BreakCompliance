@@ -4,9 +4,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import me.apet97.breakcompliance.persistence.entities.GroupMembership;
-import me.apet97.breakcompliance.persistence.entities.RuleTemplate;
-import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 
@@ -21,10 +18,7 @@ import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 public record BreakRuleEngineInput(
         String workspaceId,
         WorkspaceSettings settings,
-        List<RuleTemplate> templates,
-        List<TemplateAssignment> assignments,
         List<TimeEntry> entries,
-        List<GroupMembership> groupMemberships,
         LocalDate dateRangeStart,
         LocalDate dateRangeEnd,
         Set<LocalDate> workspaceWideHolidayDates,
@@ -37,10 +31,7 @@ public record BreakRuleEngineInput(
         if (settings == null) {
             throw new IllegalArgumentException("settings required");
         }
-        templates = templates == null ? List.of() : List.copyOf(templates);
-        assignments = assignments == null ? List.of() : List.copyOf(assignments);
         entries = entries == null ? List.of() : List.copyOf(entries);
-        groupMemberships = groupMemberships == null ? List.of() : List.copyOf(groupMemberships);
         if (dateRangeStart == null || dateRangeEnd == null) {
             throw new IllegalArgumentException("date range required");
         }
@@ -53,21 +44,13 @@ public record BreakRuleEngineInput(
                 ? Map.of() : Map.copyOf(userSpecificSuppressedDates);
     }
 
-    /**
-     * Backwards-compatible constructor — every existing call site keeps
-     * working with no suppression. New callers pass the suppression sets
-     * via the canonical record constructor above.
-     */
+    /** Convenience constructor for callers that do not need suppression. */
     public BreakRuleEngineInput(
             String workspaceId,
             WorkspaceSettings settings,
-            List<RuleTemplate> templates,
-            List<TemplateAssignment> assignments,
             List<TimeEntry> entries,
-            List<GroupMembership> groupMemberships,
             LocalDate dateRangeStart,
             LocalDate dateRangeEnd) {
-        this(workspaceId, settings, templates, assignments, entries, groupMemberships,
-                dateRangeStart, dateRangeEnd, Set.of(), Map.of());
+        this(workspaceId, settings, entries, dateRangeStart, dateRangeEnd, Set.of(), Map.of());
     }
 }
