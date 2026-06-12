@@ -86,14 +86,6 @@ public class SidebarHtmlController {
                       Workspace admin required to refresh data and change settings. You can still browse existing findings.
                     </p>
                     <div class="settings-link-row">
-                      <a
-                        id="open-settings-link"
-                        class="btn-link settings-link"
-                        href="#"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        hidden
-                      ><span aria-hidden="true">⚙</span> Fine-tune individual thresholds in Clockify ↗</a>
                       <details id="settings-hint-fallback" class="settings-hint" hidden>
                         <summary class="settings-hint-summary"><span class="settings-hint-glyph" aria-hidden="true">ⓘ</span> Where do I fine-tune the thresholds?</summary>
                         <p class="settings-hint-body">Switching presets here applies the jurisdiction's defaults immediately. To fine-tune individual fields, open <strong>Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings</strong> in Clockify; any edits there land on top of the preset.</p>

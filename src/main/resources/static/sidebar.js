@@ -710,7 +710,7 @@ async function applyPreset(presetKey, options = {}) {
         renderActiveTemplate();
         renderCustomizedPill();
         renderValidationWarnings();
-        renderSettingsLink();
+        renderSettingsHint();
         showBanner("ok", `Applied "${target.label}". Reload the Clockify settings page if you want to fine-tune individual fields.`);
         togglePresetChooser(false);
     } catch (err) {
@@ -1480,18 +1480,9 @@ function updateFormFromState() {
     el("custom-range-inputs").hidden = state.preset !== "custom_range";
 }
 
-function renderSettingsLink() {
-    const link = el("open-settings-link");
+function renderSettingsHint() {
     const fallback = el("settings-hint-fallback");
-    const url = state.session?.settingsUrl;
-    if (typeof url === "string" && /^https:\/\//.test(url)) {
-        link.href = url;
-        link.hidden = false;
-        fallback.hidden = true;
-    } else {
-        // No URL in /api/session (claims missing backendUrl, etc.) — keep
-        // the collapsible breadcrumb so the user still has guidance.
-        link.hidden = true;
+    if (fallback) {
         fallback.hidden = false;
     }
 }
@@ -1520,7 +1511,7 @@ async function loadInitialData() {
         renderActiveTemplate();
         renderCustomizedPill();
         renderValidationWarnings();
-        renderSettingsLink();
+        renderSettingsHint();
         renderAdminGates();
         renderLastChecked();
         renderPendingRefreshPill();
@@ -1567,7 +1558,7 @@ function wireEvents() {
         // Also refresh the session info so the active-template chip picks
         // up any threshold/preset change from the structured-settings page.
         api("/api/session")
-            .then(s => { state.session = s; renderActiveTemplate(); renderCustomizedPill(); renderValidationWarnings(); renderSettingsLink(); })
+            .then(s => { state.session = s; renderActiveTemplate(); renderCustomizedPill(); renderValidationWarnings(); renderSettingsHint(); })
             .catch(() => { /* non-fatal — runCompliance will surface its own errors */ });
         runCompliance();
     });
@@ -1653,8 +1644,8 @@ function wireVisibilityChange() {
 
 // Settings navigation removed. Clockify's documented `navigate` postMessage
 // only supports a fixed set of locations (per canonical
-// Cldocs/01-canonical-docs/build/window-events.md, currently just "tracker"),
-// not arbitrary paths. Our previous window.open workaround was making things
+// docs/clockify-marketplace/build/window-events.md, currently just "tracker"),
+// not arbitrary paths. Our previous external-link workaround was making things
 // worse: on developer.clockify.me, the URL pattern needs the catalog addon
 // id (which the iframe's JWT claims don't carry — claims.addonId is the
 // per-workspace installation id, a different identifier), so admins landed

@@ -1,3 +1,38 @@
+# Live validation — Break Compliance
+
+## v0.2.0 marketplace-readiness refresh — 2026-06-12 status
+
+This branch has **not** been live-validated as the deployed Railway service.
+During the 2026-06-12 readiness pass:
+
+- JDK 21 was available locally.
+- Docker/Testcontainers was available through Docker Desktop at
+  `unix:///var/run/docker.sock`.
+- Local artifact proof passed:
+  - `mvn -B -ntp test` with JDK 21: 304 tests, 0 failures/errors/skips.
+  - `mvn -B -ntp -DskipTests package` with JDK 21: built
+    `target/break-compliance-0.2.0.jar`.
+- `railway status` was logged into project `break-compliance` / environment
+  `production`, but the selected service was `Postgres`, not
+  `BreakCompliance`; deployment was treated as ambiguous and skipped.
+- `/tmp/clockify-livetest.env` was missing, so no fresh dev-workspace Detailed
+  Report payload or Clockify UI screenshots could be captured.
+- Public endpoint probes succeeded:
+  - `docs/evidence/v0.2.0-healthz.txt`
+  - `docs/evidence/v0.2.0-manifest.json`
+  - `docs/evidence/v0.2.0-manifest-scopes.txt`
+  - `docs/evidence/v0.2.0-prometheus.txt`
+
+The public manifest probe showed read-only scopes (`REPORTS_READ`,
+`TIME_ENTRY_READ`, `USER_READ`) but also exposed settings ids that are not
+present in this checkout. Treat those public endpoint files as **environment
+observation only**, not proof that this branch/SHA is deployed. Before
+marketplace submission, deploy the verified artifact intentionally and capture
+fresh install, sidebar, webhook refresh, CSV/review, metrics, and uninstall
+cleanup evidence against that exact SHA.
+
+---
+
 # Live validation — Break Compliance v0.1.0 on Railway
 
 Production evidence captured on **2026-05-12 22:21–22:53 UTC** against
@@ -185,16 +220,16 @@ No `eyJ…` segments, no hex token material. ✅
 ## 10. Reproduce locally
 
 ```sh
-# 1. Confirm Colima is running (Docker Desktop has been wedged on
-#    this machine; see `~/.claude/projects/.../colima-fallback.md`).
-colima status
+# 1. Confirm Docker is reachable. Docker Desktop via /var/run/docker.sock
+#    was used for the 2026-06-12 v0.2.0 proof gate; Colima is also fine
+#    when DOCKER_HOST points at its socket.
+docker version
 
 # 2. Run the full suite.
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 \
 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
-DOCKER_HOST=unix:///Users/15x/.colima/default/docker.sock \
-  mvn -B -ntp verify
-# Expect: Tests run: 279, Failures: 0, Errors: 0, BUILD SUCCESS
+  mvn -B -ntp test
+# Expect for v0.2.0: Tests run: 304, Failures: 0, Errors: 0, BUILD SUCCESS
 
 # 3. Probe the live deploy.
 curl -isS https://breakcompliance-production.up.railway.app/healthz

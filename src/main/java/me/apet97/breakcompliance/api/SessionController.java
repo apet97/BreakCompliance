@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
-import me.apet97.breakcompliance.config.BreakComplianceManifestProperties;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
 import org.slf4j.Logger;
@@ -22,9 +21,9 @@ import org.springframework.web.bind.annotation.RestController;
  * workspaceRole). Returning the raw token is deliberately avoided.
  *
  * <p>Also surfaces {@code appliedPresetKey} (the workspace's currently
- * active rule template preset) and {@code addonId} (so the sidebar's
- * "Settings" button can build the env-correct settings-page URL — different
- * shape on production vs. the developer portal).
+ * active rule template preset) and {@code addonId}. The sidebar deliberately
+ * does not receive a settings deep link; Clockify's iframe navigation API does
+ * not support add-on settings pages, so the UI shows a breadcrumb hint instead.
  *
  * <p>Returns the inline thresholds so the sidebar can render an "Active
  * template" tooltip without a second round-trip — see the
@@ -37,15 +36,12 @@ public class SessionController {
 
     private final WorkspaceSettingsRepository settingsRepo;
     private final ObjectMapper objectMapper;
-    private final BreakComplianceManifestProperties manifestProps;
 
     public SessionController(
             WorkspaceSettingsRepository settingsRepo,
-            ObjectMapper objectMapper,
-            BreakComplianceManifestProperties manifestProps) {
+            ObjectMapper objectMapper) {
         this.settingsRepo = settingsRepo;
         this.objectMapper = objectMapper;
-        this.manifestProps = manifestProps;
     }
 
     @GetMapping("/api/session")
@@ -63,7 +59,6 @@ public class SessionController {
         // null, so emitting null here is fine.
         body.put("userTimeZone", claims.userTimeZone());
         body.put("addonId", claims.addonId());
-        body.put("settingsUrl", buildSettingsUrl(claims));
 
         // Best-effort: include the workspace's active preset so the sidebar
         // can render "Active template: <name>" without a second round-trip.
@@ -82,33 +77,6 @@ public class SessionController {
                     });
         }
         return ResponseEntity.ok(body);
-    }
-
-    /**
-     * Build the URL the sidebar's Settings button should open. Dev-portal
-     * installs land on the per-installation page
-     * ({@code developer.clockify.me/addon/<installId>/settings}); production
-     * installs land on the per-workspace page
-     * ({@code app.clockify.me/workspaces/<wsId>/settings/addons/<manifestKey>}).
-     * The env is detected from the JWT's {@code backendUrl} claim — Clockify
-     * sets it to {@code developer.clockify.me/api} in the dev portal and to
-     * {@code api.clockify.me/...} in production. Returns null when any
-     * required claim is missing so the sidebar can fall back to the
-     * collapsible breadcrumb hint instead of opening a broken URL.
-     */
-    private String buildSettingsUrl(NormalizedClaims claims) {
-        String backendUrl = claims.backendUrl();
-        if (backendUrl == null || backendUrl.isBlank()) return null;
-        boolean isDevPortal = backendUrl.contains("developer.clockify.me");
-        if (isDevPortal) {
-            String addonId = claims.addonId();
-            if (addonId == null || addonId.isBlank()) return null;
-            return "https://developer.clockify.me/addon/" + addonId + "/settings";
-        }
-        String workspaceId = claims.workspaceId();
-        if (workspaceId == null || workspaceId.isBlank()) return null;
-        return "https://app.clockify.me/workspaces/" + workspaceId
-                + "/settings/addons/" + manifestProps.key();
     }
 
     /**

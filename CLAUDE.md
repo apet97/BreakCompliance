@@ -24,7 +24,8 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**279 tests green** (2026-05-13). Postgres + Redis come up via Testcontainers.
+**304 tests expected** (304 green on 2026-06-12 after §29).
+Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
 identically under Docker Desktop and Colima — `DOCKER_HOST` is the only env var
@@ -110,10 +111,11 @@ resets the continuous-work run, feeds `longestQualifyingBreakMinutes` (so the
 California split-break rule still works), and is reported as
 `evidence.syntheticBreakMinutes` on findings. The sidebar surfaces this as
 `Break: 30m · 30m detected` only when synthetic > 0. `IGNORED` (TIME_OFF /
-HOLIDAY) and explicit `BREAK` entries reset the prev-work chain so no
-synthesis spans them. Designed for workspaces that record breaks by stopping
-the timer rather than logging dedicated BREAK entries — has no effect when
-every entry already carries a canonical `type`.
+HOLIDAY) entries close the current continuous-work run, clear the prev-work
+marker, and do not add break minutes; explicit `BREAK` entries reset the run
+only when they meet the minimum segment floor. Designed for workspaces that
+record breaks by stopping the timer rather than logging dedicated BREAK entries
+— has no effect when every entry already carries a canonical `type`.
 
 **Sidebar** shows the active preset as a **clickable chip** with a thresholds
 popover, a **Matches preset / Customized — Reset?** pill next to it, and a
@@ -135,10 +137,10 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` (§24). | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single-object shapes; unknown shapes drift-log + 200. |
 | Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Without the fallback, the failure mode is silent (zero rows → no findings → no error). |
 | `lifecycle.deleted` is guarded by `iat < installedAt - 30s` rejection (P0 commit `029b0da`). | Clockify retries up to ~24h; a stale DELETED arriving after a reinstall would otherwise wipe the fresh install. |
-| `IngestionService.prepareRun` throws `IngestionRunInProgressException` (→ controller 409) if a RUNNING run for the same `(workspaceId, dateRange)` exists. | Admin double-click "Refresh" or webhook+admin overlap can't queue duplicate ingests. |
-| Refresh-signal consumer state machine: `PENDING → CLAIMED → CONSUMED` (or `COALESCED` / `FAILED`). | The webhook handler records `PENDING` and returns 204; the `@Scheduled` consumer drains the queue after `debounce-ms` (default 20s), dedupes against in-flight runs, dispatches via `beginAsyncForRefresh`. New status values added in V10 migration. |
+| `IngestionService.prepareRun` throws `IngestionRunInProgressException` (→ controller 409) if a RUNNING run for the same `(workspaceId, dateRange)` exists. V15 also enforces this with a partial unique index, retires pre-existing duplicate RUNNING rows, and releases CLAIMED signals attached to retired duplicates. | Admin double-click "Refresh" or webhook+admin overlap can't queue duplicate ingests, even under DB-level concurrency. |
+| Refresh-signal consumer state machine: `PENDING → CLAIMED → CONSUMED` (or `COALESCED` / `FAILED`). | The webhook handler records `PENDING` and returns 204; the `@Scheduled` consumer drains the queue after `debounce-ms` (default 20s), dedupes against in-flight runs, dispatches via `beginAsyncForRefresh`, and `IngestionRunReaper` releases stale CLAIMED signals. |
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` (no `Z`). | Server interprets in user timezone. |
-| `type=TIME_OFF` / `type=HOLIDAY` entries are `IGNORED` by the engine (§25). | Otherwise they'd count as work → false-positive findings on PTO/holiday days. |
+| `type=TIME_OFF` / `type=HOLIDAY` entries are `IGNORED` by the engine (§25/§29). | They skip only their own duration, split the continuous-work chain, and block gap synthesis across PTO/holiday windows; mixed days still evaluate real WORK entries. |
 | `/api/*` is header-token-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook/api filters all fail-closed. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive`. |
 | Webhook idempotency = Redis SETNX, TTL ≥ 24h. | Clockify retries up to ~24h. |
@@ -210,16 +212,22 @@ src/main/resources/
   application.yaml      Env-driven Spring config (JDBC ssl/keepalive, Hikari tuning,
                         open-in-view=false, LOG_LEVEL_APP gating)
   application-dev.yaml  Local dev profile: pins DEBUG, plain-TCP localhost Postgres
-  db/migration/         V1__init through V10__refresh_signal_consumer
+  db/migration/         V1__init through V15__unique_running_ingestion_runs
                         (Flyway, additive only). V10 extends the
                         refresh_signals status CHECK constraint with
                         CLAIMED/CONSUMED/FAILED/COALESCED, adds the
                         ingestion_run_id back-pointer column, and a
                         partial index on PENDING for the consumer's poll.
+                        V11-V14 add user exemptions, approval/severity
+                        controls, workspace holidays/time off, and night-shift
+                        attribution. V15 retires pre-existing duplicate RUNNING rows,
+                        releases their CLAIMED signals, then adds a partial
+                        unique index preventing duplicate RUNNING ingests for
+                        the same workspace/date range.
   logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
   static/               sidebar.js + styles.css + icon.svg (64×64 designed mark)
 
-src/test/...            279 green (JDK 21 + Postgres + Redis Testcontainers).
+src/test/...            304 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Testcontainers pinned to 1.20.4 in pom.xml so the
                         bundled docker-java negotiates API ≥1.44 (required
                         by Docker 25+ / Colima 29.x engines).

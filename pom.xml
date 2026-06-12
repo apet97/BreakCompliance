@@ -13,7 +13,7 @@
 
     <groupId>me.apet97</groupId>
     <artifactId>break-compliance</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0</version>
     <packaging>jar</packaging>
     <name>Break Compliance</name>
     <description>Clockify marketplace add-on that reviews whether workspace users took required break time, built on the native addon-java-sdk.</description>

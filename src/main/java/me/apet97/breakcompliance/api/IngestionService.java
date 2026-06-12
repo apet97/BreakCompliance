@@ -34,8 +34,10 @@ import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffReposi
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -73,6 +75,7 @@ public class IngestionService {
     private final DetailedReportFetcher fetcher;
     private final TokenCodec codec;
     private final TransactionTemplate tx;
+    private final TransactionTemplate afterRollbackTx;
     private final Executor ingestExecutor;
     private final MeterRegistry meters;
     private final Timer runDuration;
@@ -104,6 +107,8 @@ public class IngestionService {
         this.fetcher = fetcher;
         this.codec = codec;
         this.tx = new TransactionTemplate(txManager);
+        this.afterRollbackTx = new TransactionTemplate(txManager);
+        this.afterRollbackTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.ingestExecutor = ingestExecutor;
         this.meters = meters;
         this.workspaceSettings = workspaceSettings;
@@ -137,8 +142,7 @@ public class IngestionService {
     }
 
     public IngestionRun ingest(String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
-        PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
-        Objects.requireNonNull(prepared, "prepareRun returned null");
+        PreparedRun prepared = prepareRunTransactional(workspaceId, from, to, reportsUrlOverride);
 
         List<Map<String, Object>> entries;
         try {
@@ -182,8 +186,7 @@ public class IngestionService {
      */
     public IngestionRun beginAsync(
             String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
-        PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
-        Objects.requireNonNull(prepared, "prepareRun returned null");
+        PreparedRun prepared = prepareRunTransactional(workspaceId, from, to, reportsUrlOverride);
         IngestionRun inFlight = runRepo
                 .findById(new IngestionRun.Pk(workspaceId, prepared.runId()))
                 .orElseThrow(() -> new IllegalStateException(
@@ -214,8 +217,7 @@ public class IngestionService {
             LocalDate to,
             String reportsUrlOverride,
             java.util.function.Consumer<String> afterFinalize) {
-        PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
-        Objects.requireNonNull(prepared, "prepareRun returned null");
+        PreparedRun prepared = prepareRunTransactional(workspaceId, from, to, reportsUrlOverride);
         IngestionRun inFlight = runRepo
                 .findById(new IngestionRun.Pk(workspaceId, prepared.runId()))
                 .orElseThrow(() -> new IllegalStateException(
@@ -244,6 +246,28 @@ public class IngestionService {
             }
         });
         return inFlight;
+    }
+
+    private PreparedRun prepareRunTransactional(
+            String workspaceId, LocalDate from, LocalDate to, String reportsUrlOverride) {
+        try {
+            PreparedRun prepared = tx.execute(status -> prepareRun(workspaceId, from, to, reportsUrlOverride));
+            return Objects.requireNonNull(prepared, "prepareRun returned null");
+        } catch (DataIntegrityViolationException e) {
+            throw mapRunningRunRaceAfterRollback(workspaceId, from, to, e);
+        }
+    }
+
+    private RuntimeException mapRunningRunRaceAfterRollback(
+            String workspaceId, LocalDate from, LocalDate to, DataIntegrityViolationException cause) {
+        IngestionRun existing = afterRollbackTx.execute(status -> runRepo
+                .findFirstByWorkspaceIdAndStatusAndDateRangeStartAndDateRangeEnd(
+                        workspaceId, IngestionStatus.RUNNING, from.toString(), to.toString())
+                .orElse(null));
+        if (existing != null) {
+            throw new IngestionRunInProgressException(existing.getId());
+        }
+        return cause;
     }
 
     /**
@@ -400,11 +424,8 @@ public class IngestionService {
         // Dedupe: refuse to start a second ingest for the same
         // (workspace, date range) while one is in-flight. Admins can
         // double-click "Refresh", and a webhook + manual trigger can
-        // overlap. The reaper handles the case where a RUNNING row is
-        // actually orphaned. Note: there's still a narrow race between
-        // this check and the row insert below — a duplicate could slip
-        // through, but at most one of them; not a correctness issue
-        // for break-compliance evaluation since the engine is idempotent.
+        // overlap. The DB partial unique index is the final guard for
+        // concurrent callers that pass this optimistic pre-check together.
         runRepo.findFirstByWorkspaceIdAndStatusAndDateRangeStartAndDateRangeEnd(
                         workspaceId, IngestionStatus.RUNNING, from.toString(), to.toString())
                 .ifPresent(existing -> {

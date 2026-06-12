@@ -1,6 +1,6 @@
 # Security — Break Compliance for Clockify
 
-_Last updated: 2026-05-13._
+_Last updated: 2026-06-12._
 
 ## Threat model
 
@@ -54,6 +54,10 @@ Specific threats handled:
 - **CodeQL** (`.github/workflows/codeql.yml`) runs the `security-extended` query suite on every PR + a weekly cron; results land in the repo's Security tab.
 
 ## Incident response
+
+Operational commands and incident playbooks live in
+[`docs/OPERATIONS.md`](OPERATIONS.md). Keep that runbook current with deploy,
+rollback, monitoring, key rotation, and data-erasure procedures.
 
 - **Suspected token leak:** rotate `INSTALLATION_TOKEN_KEY` (generate new 64-hex value, update Railway env var, redeploy). New encryptions use the new key id; existing rows can be re-encrypted via a one-off migration job or left as-is (the codec still decrypts old key ids while the old key remains mapped).
 - **Suspected database compromise:** uninstall the addon in affected workspaces (DELETED lifecycle clears tokens), rotate the key, restore Postgres from a known-clean snapshot.

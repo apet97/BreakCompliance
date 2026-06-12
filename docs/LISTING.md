@@ -100,11 +100,14 @@ full support contract.
 ## Screenshots (to attach to the marketplace listing)
 
 - `docs/evidence/clockify-installed-screen.png` — Add-on list with
-  Break Compliance installed. (Replace with a sidebar-active
-  screenshot before submission.)
-- Sidebar with preset chooser. *(Pending — take after the next live
-  install.)*
-- Settings tab with the ten threshold fields. *(Pending — same.)*
+  Break Compliance installed.
+- `docs/evidence/v0.2.0-sidebar-active-findings.png` — Sidebar with
+  active findings. *(Pending fresh v0.2.0 capture.)*
+- `docs/evidence/v0.2.0-sidebar-preset-chooser.png` — Preset chooser
+  preview cards. *(Pending fresh v0.2.0 capture.)*
+- `docs/evidence/v0.2.0-structured-settings.png` — Native Clockify
+  structured settings tab with the ten threshold fields. *(Pending
+  fresh v0.2.0 capture.)*
 
 ## Disclaimer block (required by Clockify marketplace review)
 

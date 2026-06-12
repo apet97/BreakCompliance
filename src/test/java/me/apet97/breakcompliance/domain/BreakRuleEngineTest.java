@@ -467,6 +467,58 @@ class BreakRuleEngineTest {
                 .contains(FindingCode.MISSING_REQUIRED_BREAK);
     }
 
+    @Test
+    void timeOffBetweenWorkEntries_doesNotCreateSyntheticBreakAndSplitsContinuousRun() {
+        WorkspaceSettings settings = workspaceSettings(240, 30, 0);
+        settings.setFallbackDetectionEnabled(true);
+        settings.setCustomMinBreakSegmentMinutes(5);
+        settings.setCustomMaxContinuousWorkMinutes(300);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                timeOffEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T14:00:00Z"),
+                workEntry("e3", "2026-05-10T14:00:00Z", "2026-05-10T18:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK)
+                .doesNotContain(FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED);
+        FindingDraft missing = findings.stream()
+                .filter(f -> f.code() == FindingCode.MISSING_REQUIRED_BREAK)
+                .findFirst()
+                .orElseThrow();
+        assertThat(missing.evidence()).containsEntry("syntheticBreakMinutes", 0);
+    }
+
+    @Test
+    void mixedWorkAndTimeOff_stillEvaluatesWorkMinutes() {
+        WorkspaceSettings settings = workspaceSettings(240, 15, 0);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z"),
+                timeOffEntry("e2", "2026-05-10T14:00:00Z", "2026-05-10T17:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).extracting(FindingDraft::code)
+                .contains(FindingCode.MISSING_REQUIRED_BREAK);
+    }
+
+    @Test
+    void pureTimeOffDay_producesNoFindings() {
+        WorkspaceSettings settings = workspaceSettings(240, 15, 0);
+
+        List<TimeEntry> entries = List.of(
+                timeOffEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T13:00:00Z"),
+                holidayEntry("e2", "2026-05-10T13:00:00Z", "2026-05-10T17:00:00Z"));
+
+        List<FindingDraft> findings = engine.evaluate(input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).isEmpty();
+    }
+
     // helpers
 
     private static WorkspaceSettings workspaceSettings(int workThreshold, int requiredBreak, int grace) {

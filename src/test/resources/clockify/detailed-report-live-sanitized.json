@@ -1,0 +1,54 @@
+{
+  "totals": [
+    {
+      "totalTime": 32400,
+      "entriesCount": 2
+    }
+  ],
+  "timeentries": [
+    {
+      "_id": "entry_regular_001",
+      "description": "Sanitized regular work entry",
+      "userId": "user_sanitized_001",
+      "userName": "Sanitized User",
+      "userEmail": "sanitized.user@example.invalid",
+      "type": "REGULAR",
+      "timeInterval": {
+        "start": "2026-05-06T08:00:00Z",
+        "end": "2026-05-06T13:00:00Z",
+        "duration": 18000,
+        "timeZone": "Europe/Belgrade",
+        "zonedStart": "2026-05-06T10:00:00",
+        "zonedEnd": "2026-05-06T15:00:00",
+        "offStart": 7200,
+        "offEnd": 7200
+      },
+      "projectId": "project_sanitized_001",
+      "taskId": null,
+      "tagIds": [],
+      "billable": false
+    },
+    {
+      "_id": "entry_time_off_001",
+      "description": "Sanitized time off entry",
+      "userId": "user_sanitized_001",
+      "userName": "Sanitized User",
+      "userEmail": "sanitized.user@example.invalid",
+      "type": "TIME_OFF",
+      "timeInterval": {
+        "start": "2026-05-07T08:00:00Z",
+        "end": "2026-05-07T12:00:00Z",
+        "duration": 14400,
+        "timeZone": "Europe/Belgrade",
+        "zonedStart": "2026-05-07T10:00:00",
+        "zonedEnd": "2026-05-07T14:00:00",
+        "offStart": 7200,
+        "offEnd": 7200
+      },
+      "projectId": null,
+      "taskId": null,
+      "tagIds": [],
+      "billable": false
+    }
+  ]
+}

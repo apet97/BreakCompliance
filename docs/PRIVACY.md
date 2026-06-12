@@ -1,10 +1,10 @@
 # Privacy Policy — Break Compliance for Clockify
 
-_Last updated: 2026-05-13._
+_Last updated: 2026-06-12._
 
 ## What Break Compliance is
 
-Break Compliance is a server-side add-on running on Java 21 / Spring Boot 3.3, deployed on Railway with managed Postgres and Redis. The browser-side iframe (sidebar + settings page) calls the add-on's own server; it never calls Clockify directly. The server calls Clockify on the workspace's behalf using the verified installation token issued at INSTALLED time.
+Break Compliance is a server-side add-on running on Java 21 / Spring Boot 3.3, deployed on Railway with managed Postgres and Redis. The browser-side sidebar iframe calls the add-on's own server; it never calls Clockify directly. Threshold fine-tuning uses Clockify's native structured-settings UI. The server calls Clockify on the workspace's behalf using the verified installation token issued at INSTALLED time.
 
 ## What we store
 
@@ -23,9 +23,9 @@ Break Compliance is a server-side add-on running on Java 21 / Spring Boot 3.3, d
 
 ### App data (Postgres, workspace-scoped)
 
-- `breakcompliance_workspace_settings` — admin-configured defaults (default template id, fallback detection toggle, timezone strategy).
-- `breakcompliance_rule_templates` — built-in presets seeded per workspace on first read + admin-created CUSTOM templates.
-- `breakcompliance_template_assignments` — user/group → template mappings.
+- `breakcompliance_workspace_settings` — admin-configured thresholds, active preset key, fallback detection toggle, timezone strategy, and validation warnings.
+- `breakcompliance_rule_templates` — legacy/back-compat preset table; current evaluation uses `workspace_settings`.
+- `breakcompliance_template_assignments` — legacy/back-compat user/group → template mappings; current evaluation ignores these rows.
 - `breakcompliance_ingestion_runs` — append-only audit of Detailed Report fetches (date range, status, entries processed, error code).
 - `breakcompliance_time_entries` — normalized Detailed Report rows (`source_entry_id`, user id, project id, start/end, duration, billable, tag names, raw JSON snapshot). **Source of truth lives in Clockify; this is a working copy used only for rule evaluation.**
 - `breakcompliance_findings` — rule-engine output (severity, code, message, evidence JSONB).
@@ -64,7 +64,7 @@ See `docs/DATA_RETENTION.md` for per-table policy.
 
 - **Right to know** — workspace admins see every row the add-on stored about their workspace via the Settings + Sidebar UI. Operator can produce a CSV/JSON export on request.
 - **Right to erasure** — uninstall the add-on. The DELETED lifecycle handler wipes every workspace-scoped row (12 tables) in one transaction and the installation cascade clears the encrypted token rows. No operator action is required. Verified live on 2026-05-13 — see `docs/LIVE_VALIDATION.md` §6.
-- **Right to rectification** — workspace admins can edit templates, assignments, and finding review notes directly through the Settings UI.
+- **Right to rectification** — workspace admins can edit thresholds in Clockify's native structured-settings UI, switch/reset presets in the sidebar, and update finding review notes in the sidebar.
 
 ## Contact
 

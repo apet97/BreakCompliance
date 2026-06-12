@@ -25,7 +25,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 279+ green. Postgres + Redis spin up via Testcontainers.
+# Expect 304 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 # Targeted run.
@@ -70,7 +70,7 @@ any API call shape.
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by 2026-05-11 live probe. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single `{id,value}` shape. Unknown shapes drift-log + return 200. |
 | Detailed-report response key is `timeentries` (ALL LOWERCASE). | Spec mislabels as `timeEntries`. Live API returns lowercase. |
 | Body dates are `yyyy-MM-dd'T'HH:mm:ss` (no `Z` suffix). | Server interprets in user timezone. |
-| `type=TIME_OFF`/`HOLIDAY` entries → `EntryClassifier.Kind.IGNORED` (§25). | Engine skips them; otherwise PTO/holiday days produce false-positive findings. |
+| `type=TIME_OFF`/`HOLIDAY` entries → `EntryClassifier.Kind.IGNORED` (§25/§29). | Engine skips only those entries, splits the continuous-work chain, blocks gap synthesis across them, and still evaluates same-day WORK. |
 | `/api/*` is `X-Addon-Token`-header-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook auth fail-closed via `AddonTokenAuthFilter` + `WebhookAuthFilter`. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive` banner. |
 | Webhook idempotency = Redis SETNX with ≥ 24h TTL. | Clockify retries up to ~24h. |
@@ -112,7 +112,7 @@ continuous-work run, feeds `longestQualifyingBreakMinutes`, reported on findings
 entries break the prev-work chain so no synthesis spans them. The 120-min ceiling is a
 hardcoded private constant (`MAX_GAP_AS_BREAK_MINUTES`) — gaps above that are treated
 as a new shift, not a break. Sidebar renders `Break: 30m · 30m detected` only when
-synthetic > 0.
+synthetic > 0. `IGNORED` entries are not credited as break minutes.
 
 ## Don'ts
 
@@ -121,7 +121,7 @@ synthetic > 0.
   `docs/clockify-marketplace/build/window-events.md`). The active-template chip,
   the **Switch…** button (sidebar-side preset chooser), and the collapsible "where do I
   fine-tune" hint are the documented affordances.
-- **No `window.open` for the native settings page.** Dev portal uses a catalog addon-id
+- **No new-window launch for the native settings page.** Dev portal uses a catalog addon-id
   we don't have from JWT claims (`claims.addonId` is the per-workspace installation id).
 - **Preset selection lives in the sidebar.** Don't re-add `appliedPresetKey` to the
   manifest — the field was removed because Clockify can't surface a backend-driven
@@ -297,3 +297,11 @@ synthetic > 0.
     +5 `FindingsControllerTest` review cases, +4
     `FindingsControllerTest` CSV cases, +3 `ClaimsNormalizerTest`
     userTimeZone, +2 `SessionControllerTest` userTimeZone).
+- **§29** — Marketplace submission hardening (this branch): Maven project version
+  aligned to `0.2.0`; sidebar/session settings deep links removed in favor of the
+  documented breadcrumb only; `TIME_OFF`/`HOLIDAY` ignored-entry semantics clarified
+  and pinned with tests; V15 retires any pre-existing duplicate RUNNING rows and
+  releases their CLAIMED signals before installing a partial unique index preventing
+  duplicate RUNNING ingests under concurrent starts; detailed-report pagination /
+  live-shape fixture tests added; operations and submission checklist docs added.
+  304 tests green on 2026-06-12.

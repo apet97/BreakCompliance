@@ -19,7 +19,7 @@ each into one of three categories:
 | --- | --- | --- |
 | **WORK** | A regular time entry — billable, project work, the default. | No. Adds to the work-minutes total that triggers a break requirement. |
 | **BREAK** | An entry with `type=BREAK` (Clockify's built-in break type) or whose project / tag matches a configured break label. | Yes. Adds to the break-minutes total. |
-| **IGNORED** | An entry with `type=TIME_OFF` or `type=HOLIDAY`. | Neither. The day is skipped entirely for that person. |
+| **IGNORED** | An entry with `type=TIME_OFF` or `type=HOLIDAY`. | Neither. The entry is skipped, splits the continuous-work chain, and blocks gap synthesis across it. |
 
 A finding fires when a person crosses the work-minutes threshold without
 enough qualifying break minutes underneath it. The interesting cases
@@ -78,22 +78,28 @@ Two boundary cases are deliberately excluded:
 
 A gap **between a WORK entry and an IGNORED entry** (or vice versa) is
 never synthesised — TIME_OFF / HOLIDAY entries break the heuristic's
-chain because they already mean "this person isn't working." Same for
-gaps between WORK and an explicit BREAK entry: the BREAK entry is the
-canonical record, so we don't double-count.
+chain because they already mean "this person isn't working." They also
+close the current continuous-work run without adding break minutes. Same
+for gaps between WORK and an explicit BREAK entry: the BREAK entry is
+the canonical record, so we don't double-count.
 
 ## 3. TIME_OFF and HOLIDAY entries
 
-When the engine sees an entry with `type=TIME_OFF` or `type=HOLIDAY` on
-a person's day, the **entire day** is skipped for that person — no
-work-minutes accumulated, no break requirement evaluated, no finding
-produced.
+When the engine sees an entry with `type=TIME_OFF` or `type=HOLIDAY`, it
+skips that entry. The ignored duration does not count as WORK, does not
+count as BREAK, and is not credited toward the required break minutes.
 
-The reason is simple: a person on PTO isn't on shift, so asking "did
-they take their meal break?" is meaningless. Without this exclusion,
-the engine would generate spurious `MISSING_REQUIRED_BREAK` findings
-on every PTO day (since the work-minutes total would be zero but no
-break would be recorded either).
+A day containing only PTO/holiday entries has no evaluated work and
+therefore produces no finding. A mixed day still evaluates the actual
+WORK entries on that day; PTO does not hide real work that was recorded
+before or after it. Ignored entries split the continuous-work chain and
+block the gap-as-break heuristic from synthesising a break across the
+PTO/holiday window.
+
+The reason is simple: a person on PTO isn't on shift during that entry,
+so that duration should not create a break requirement or satisfy one.
+Without this exclusion, the engine would generate spurious findings on
+PTO and statutory holiday entries.
 
 This is why PTO and statutory holidays should be recorded as their
 canonical Clockify type rather than as a regular WORK entry against a

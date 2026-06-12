@@ -10,8 +10,22 @@ the Clockify marketplace. The first marketplace submission ships as
 
 ## Unreleased
 
-_No unreleased changes yet — anything between marketplace submissions
-will land here first._
+### Changed
+
+- Marketplace-readiness hardening for the v0.2.0 submission artifact:
+  Maven project version now matches `0.2.0`, settings deep-link output
+  was removed from the sidebar/session contract, PTO/holiday semantics
+  are documented as entry-level skips, and the webhook refresh docs now
+  describe the active consumer/reaper flow.
+
+### Fixed
+
+- `TIME_OFF` / `HOLIDAY` entries now split the continuous-work run
+  without being credited as break minutes, preventing false max-
+  continuous findings across ignored Clockify entries.
+- Concurrent ingest starts for the same workspace/date range are now
+  protected by a partial unique index in addition to the service-level
+  pre-check.
 
 ## 0.2.0 — 2026-05-13 (P2 product polish)
 

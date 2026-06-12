@@ -94,12 +94,14 @@ Content-Type: application/json
 }
 ```
 
-### Pagination (per official docs)
+### Pagination (per official docs and live behavior)
 
 - Query params (in `detailedFilter` body, not the URL): `page` (1-indexed) and `pageSize`.
-- Response header `Last-Page: true` = final page; `false` = more available.
-- Current implementation stops when `entries.size() < PAGE_SIZE`. The `Last-Page` header
-  is the canonical stop condition — adopt it when convenient.
+- Response header `Last-Page: true` = final page; `false` = more available. This is
+  the canonical stop condition in `DetailedReportFetcher`.
+- If `Last-Page` is missing, the implementation falls back to
+  `entries.size() < PAGE_SIZE`. This preserves compatibility with older or regional
+  builds that omit the header on the final page.
 
 ### Auth
 
@@ -306,9 +308,11 @@ shape — the §24 fix accepts it).
 
 ---
 
-## 3. Inbound: time-entry webhook
+## 3. Inbound: time-entry webhooks
 
 `POST {our base}/webhook/new-time-entry`
+`POST {our base}/webhook/time-entry-updated`
+`POST {our base}/webhook/time-entry-deleted`
 
 Caller: Clockify, on NEW_TIME_ENTRY. Two auth checks:
 1. RS256 `Clockify-Signature` JWT (verified by SDK).
@@ -316,12 +320,26 @@ Caller: Clockify, on NEW_TIME_ENTRY. Two auth checks:
 3. (Third check) — the signature's authToken claim matches the stored per-webhook
    `authToken` from the INSTALLED payload. See `WebhookAuthFilter`.
 
-Idempotency: Redis SETNX keyed on `webhook:NEW_TIME_ENTRY:{sha256(body)}`, 24h TTL.
+Idempotency: Redis SETNX keyed on the workspace, event type, and body hash, 24h TTL.
 Duplicate deliveries return 204 immediately without re-processing.
 
 Receiver: `src/main/java/me/apet97/breakcompliance/addon/webhook/WebhookController.java`.
-Currently records a "refresh signal" so the sidebar can know to re-ingest; doesn't
-trigger live engine evaluation.
+
+Processing flow:
+
+1. `WebhookController` authenticates, dedupes, increments webhook metrics, extracts a
+   best-effort `dateHint` from `timeInterval.start`, and stores a `PENDING`
+   `breakcompliance_refresh_signals` row.
+2. `RefreshSignalConsumer` runs on a scheduled fixed delay (default 30s), drains
+   pending signals older than the debounce window (default 20s), groups them by
+   workspace, and computes the smallest safe date window from the hints.
+3. If a `RUNNING` `IngestionRun` already covers that workspace/window, the signals are
+   marked `COALESCED` and back-pointed with `ingestion_run_id`.
+4. Otherwise the consumer claims the signals, dispatches an async ingest through
+   `IngestionService.beginAsyncForRefresh`, re-evaluates findings after a successful
+   finalize, and marks the signals `CONSUMED`. Failures become `FAILED`.
+5. `IngestionRunReaper` marks stale `RUNNING` runs as `FAILED` and releases any
+   claimed signals back to `PENDING` so a later poll can recover.
 
 ---
 

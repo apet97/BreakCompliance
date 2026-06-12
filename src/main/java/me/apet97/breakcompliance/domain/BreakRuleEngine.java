@@ -352,11 +352,15 @@ public class BreakRuleEngine {
             EntryClassifier.Kind kind = EntryClassifier.classify(entry, fallbackEnabled);
             if (kind == EntryClassifier.Kind.IGNORED) {
                 // TIME_OFF / HOLIDAY entries are not work and not breaks —
-                // the user wasn't on the clock. Don't reset the continuous-work
-                // counter either (an IGNORED block that lands mid-day shouldn't
-                // accidentally satisfy a break requirement). Also drop the
-                // prevWorkEnd marker so the gap-as-break heuristic does not
-                // synthesise a break across PTO/holiday windows.
+                // the user wasn't on the clock. Close the current continuous
+                // work run, but don't credit the ignored duration as a break.
+                // Also drop the prevWorkEnd marker so the gap-as-break
+                // heuristic does not synthesise a break across PTO/holiday
+                // windows.
+                if (currentRunWork > maxContinuousWork) {
+                    maxContinuousWork = currentRunWork;
+                }
+                currentRunWork = 0;
                 prevWorkEndAt = null;
                 continue;
             }

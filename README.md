@@ -45,7 +45,7 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 │   └── util/                                         Webhook path normalizer
 ├── src/main/resources/
 │   ├── application.yaml                              Env-driven Spring config
-│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V10, additive only)
+│   ├── db/migration/V1__init.sql                     Flyway schema (V1–V11, additive only)
 │   ├── logback-spring.xml                            Token-redacting log pattern
 │   └── static/                                       sidebar.js, styles.css, icon.svg (64×64 designed mark)
 ├── docs/                                             Marketplace submission docs
@@ -97,3 +97,8 @@ GitHub Actions runs `mvn verify` on every push to `main` and every PR. No repo s
 
 Recommended scrape config + alert rules + Grafana dashboard layout in
 [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
+
+## Operations
+
+Production deploy, rollback, key rotation, monitoring, incident response,
+and data-erasure procedures live in `docs/OPERATIONS.md`.

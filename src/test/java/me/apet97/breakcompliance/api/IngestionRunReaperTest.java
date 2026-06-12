@@ -65,7 +65,11 @@ class IngestionRunReaperTest {
         seedSignal("s1", stuck.getId(), RefreshSignalStatus.CLAIMED);
         seedSignal("s2", stuck.getId(), RefreshSignalStatus.CLAIMED);
         // Plus a recent RUNNING that should NOT be reaped.
-        IngestionRun fresh = seedRun(IngestionStatus.RUNNING, Instant.now());
+        IngestionRun fresh = seedRun(
+                IngestionStatus.RUNNING,
+                Instant.now(),
+                "2026-05-08",
+                "2026-05-14");
 
         reaper.reapStuckRuns();
 
@@ -97,11 +101,19 @@ class IngestionRunReaperTest {
     }
 
     private IngestionRun seedRun(IngestionStatus status, Instant createdAt) {
+        return seedRun(status, createdAt, "2026-05-01", "2026-05-07");
+    }
+
+    private IngestionRun seedRun(
+            IngestionStatus status,
+            Instant createdAt,
+            String dateRangeStart,
+            String dateRangeEnd) {
         IngestionRun run = new IngestionRun();
         run.setWorkspaceId(WORKSPACE);
         run.setId(UUID.randomUUID().toString());
-        run.setDateRangeStart("2026-05-01");
-        run.setDateRangeEnd("2026-05-07");
+        run.setDateRangeStart(dateRangeStart);
+        run.setDateRangeEnd(dateRangeEnd);
         run.setStatus(status);
         run.setEntriesProcessed(0);
         run.setCreatedAt(createdAt);

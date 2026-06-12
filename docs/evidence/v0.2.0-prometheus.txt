@@ -1,0 +1,3 @@
+breakcompliance_ingest_run_duration_seconds_count{application="break-compliance"} 0
+breakcompliance_ingest_run_duration_seconds_sum{application="break-compliance"} 0.0
+breakcompliance_ingest_run_duration_seconds_max{application="break-compliance"} 0.0

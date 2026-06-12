@@ -12,9 +12,10 @@ import me.apet97.breakcompliance.persistence.entities.TimeEntry;
  * <p>Canonical Detailed Report {@code type} wins:
  * <ul>
  *   <li>{@code BREAK} → {@link Kind#BREAK}: counts toward qualifying-break minutes.</li>
- *   <li>{@code TIME_OFF}, {@code HOLIDAY} → {@link Kind#IGNORED}: skipped entirely by
- *       the engine; the user wasn't working, so neither work-threshold nor
- *       continuous-work calculations should include these minutes.
+ *   <li>{@code TIME_OFF}, {@code HOLIDAY} → {@link Kind#IGNORED}: the entry counts
+ *       as neither work nor break; the user wasn't working during these
+ *       minutes, so work-threshold and continuous-work calculations exclude
+ *       this duration.
  *       (Before this rule the engine misclassified PTO/holiday days as work
  *       and reported false-positive missing-break findings.)</li>
  *   <li>Any other explicit non-empty type (e.g. {@code REGULAR}) → {@link Kind#WORK}.</li>
@@ -38,7 +39,7 @@ public final class EntryClassifier {
     private static final Set<String> MARKERS = Set.of("break", "pause", "lunch", "rest");
     /**
      * Canonical Detailed Report {@code type} values that mean "the user was
-     * not working" — skipped entirely by the rule engine.
+     * not working" — the entry counts as neither work nor break.
      */
     private static final Set<String> IGNORED_TYPES = Set.of("TIME_OFF", "HOLIDAY");
 

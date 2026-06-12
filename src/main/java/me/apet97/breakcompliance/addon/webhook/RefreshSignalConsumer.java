@@ -55,8 +55,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * </ol>
  *
  * <p>A signal that stays {@code CLAIMED} forever indicates the run
- * crashed mid-flight (executor died, JVM restart). The stuck-run reaper
- * planned for Phase 3.1 will reset such signals back to {@code PENDING}.
+ * crashed mid-flight (executor died, JVM restart). {@code IngestionRunReaper}
+ * resets those signals back to {@code PENDING} when it marks the stale run
+ * {@code FAILED}.
  *
  * <p>The consumer is registered only when
  * {@code breakcompliance.scheduling.enabled=true} (default true). Tests
