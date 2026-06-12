@@ -4,7 +4,7 @@ _Last updated: 2026-06-12._
 
 ## What Break Compliance is
 
-Break Compliance is a server-side add-on running on Java 21 / Spring Boot 3.3, deployed on Railway with managed Postgres and Redis. The browser-side sidebar iframe calls the add-on's own server; it never calls Clockify directly. Threshold fine-tuning uses Clockify's native structured-settings UI. The server calls Clockify on the workspace's behalf using the verified installation token issued at INSTALLED time.
+Break Compliance is a server-side add-on running on Java 21 / Spring Boot 4.1, deployed on Railway with managed Postgres and Redis. The browser-side sidebar iframe calls the add-on's own server; it never calls Clockify directly. Threshold fine-tuning uses Clockify's native structured-settings UI. The server calls Clockify on the workspace's behalf using the verified installation token issued at INSTALLED time.
 
 ## What we store
 

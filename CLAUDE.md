@@ -1,6 +1,6 @@
 # Break Compliance — Clockify Add-on
 
-Java 21 / Spring Boot 3.3 marketplace add-on. Reviews whether users took required breaks.
+Java 21 / Spring Boot 4.1 marketplace add-on. Reviews whether users took required breaks.
 Manifest key `break-compliance-jvm`. BASIC plan. **Read-only** scopes:
 `TIME_ENTRY_READ`, `USER_READ`, `REPORTS_READ` (no `_WRITE`, ever — `WORKSPACE_READ`
 was dropped in P0 commit `029b0da` as unused).
@@ -36,6 +36,14 @@ Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44`
 identically under Docker Desktop and Colima — `DOCKER_HOST` is the only env var
 operators set externally (Docker Desktop default works without it; Colima users
 export `DOCKER_HOST=unix:///Users/.../.colima/default/docker.sock`).
+
+Spring Boot 4 modularized several integrations. Keep `spring-boot-flyway` with
+Flyway 12.8.x so migrations auto-apply, keep `spring-boot-jackson2` until the
+Clockify SDK/adapters move off Jackson 2 `ObjectMapper`, and use the Boot 4 test
+packages (`org.springframework.boot.webmvc.test.autoconfigure`,
+`org.springframework.boot.data.jpa.test.autoconfigure`,
+`org.springframework.boot.jdbc.test.autoconfigure`) plus Spring Framework's
+`@MockitoBean` / `@MockitoSpyBean`.
 
 ## Runtime config (Railway env vars)
 
@@ -241,6 +249,8 @@ src/main/resources/
 src/test/...            339 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:
                         find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+                        Spring Boot 4 test slices live in the webmvc/data-jpa/jdbc
+                        test modules; do not revert imports to Boot 3 packages.
                         Testcontainers pinned to 1.21.4 in pom.xml so the
                         bundled docker-java negotiates API ≥1.44 (required
                         by Docker 25+ / Colima 29.x engines).

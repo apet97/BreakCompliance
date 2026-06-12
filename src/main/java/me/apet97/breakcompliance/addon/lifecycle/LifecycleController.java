@@ -57,17 +57,18 @@ public class LifecycleController {
 
     @PostMapping(value = "/settings-updated", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> settingsUpdated(
-            HttpServletRequest request, @RequestBody(required = false) JsonNode payload) {
+            HttpServletRequest request, @RequestBody(required = false) Object payload) {
         NormalizedClaims claims = requireClaims(request);
+        JsonNode payloadNode = toJsonNode(payload);
         // Drift-log unknown top-level keys on the canonical wrapper shape so a
         // schema bump emits a one-shot WARN.
-        if (payload != null && payload.isObject()) {
+        if (payloadNode != null && payloadNode.isObject()) {
             driftLogger.check(
                     "lifecycle.settings-updated",
-                    SettingsUpdatedPayload.asObjectMap(payload, objectMapper),
+                    SettingsUpdatedPayload.asObjectMap(payloadNode, objectMapper),
                     KNOWN_SETTINGS_UPDATED_KEYS);
         }
-        List<Map<String, Object>> updates = SettingsUpdatedPayload.extractUpdates(payload, objectMapper);
+        List<Map<String, Object>> updates = SettingsUpdatedPayload.extractUpdates(payloadNode, objectMapper);
         installationService.handleSettingsUpdated(claims, updates);
         return ResponseEntity.ok().build();
     }
@@ -90,5 +91,12 @@ public class LifecycleController {
             throw new IllegalStateException("normalized claims missing — lifecycle auth filter not applied");
         }
         return claims;
+    }
+
+    private JsonNode toJsonNode(Object payload) {
+        if (payload == null) {
+            return null;
+        }
+        return objectMapper.valueToTree(payload);
     }
 }

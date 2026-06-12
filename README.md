@@ -5,7 +5,7 @@
 [![Privacy](https://img.shields.io/badge/docs-privacy-lightgrey)](docs/PRIVACY.md)
 [![Security](https://img.shields.io/badge/docs-security-lightgrey)](docs/SECURITY.md)
 
-Clockify marketplace add-on that reviews whether workspace users took required break time. Java 21 / Spring Boot 3.3 on the native [Clockify addon-java-sdk](https://github.com/clockify/addon-java-sdk), backed by PostgreSQL (durable tenant state) and Redis (webhook idempotency + per-workspace rate limiting). Designed for broad public-marketplace installation across many workspaces.
+Clockify marketplace add-on that reviews whether workspace users took required break time. Java 21 / Spring Boot 4.1 on the native [Clockify addon-java-sdk](https://github.com/clockify/addon-java-sdk), backed by PostgreSQL (durable tenant state) and Redis (webhook idempotency + per-workspace rate limiting). Designed for broad public-marketplace installation across many workspaces.
 
 **Read-only.** No write scopes. The addon never creates, edits, or deletes time entries, never posts to Clockify, never messages users. See `docs/PRIVACY.md`.
 
@@ -67,7 +67,7 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 
 ## Architecture
 
-- **Spring Boot 3.3 + Spring MVC** — all routes are `@RestController` classes; the SDK is used as a manifest builder (`ClockifyManifest.v1_3Builder()`) + JWT verifier (`ClockifySignatureParser`), not as a routing framework.
+- **Spring Boot 4.1 + Spring MVC** — all routes are `@RestController` classes; the SDK is used as a manifest builder (`ClockifyManifest.v1_3Builder()`) + JWT verifier (`ClockifySignatureParser`), not as a routing framework.
 - **PostgreSQL + Spring Data JPA + Flyway** — additive migrations through V15, composite primary keys with `workspace_id` leading tenant-scoped tables for schema-enforced isolation.
 - **Redis + Spring Data Redis (Lettuce)** — webhook idempotency (24-hour SETNX TTL keyed by `sha256(eventType||body)`) and per-workspace Clockify-API rate limiting (50 req/sec/workspace, fixed-window).
 - **AES-GCM-256 token codec** — every installation token and webhook auth token encrypted at rest; 12-byte IV per encrypt, `keyId` for rotation, fail-closed on any tamper.

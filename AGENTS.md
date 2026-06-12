@@ -80,6 +80,7 @@ any API call shape.
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive` banner. |
 | Webhook idempotency = Redis SETNX with ≥ 24h TTL. | Clockify retries up to ~24h. |
 | Flyway migrations are additive only. | DB shared across deploys; drops break rollback. Use `V<n>__add_*.sql`. |
+| Spring Boot 4 integration modules stay explicit: `spring-boot-flyway`, `spring-boot-jackson2`, `spring-boot-starter-webmvc-test`, `spring-boot-data-jpa-test`, `spring-boot-jdbc-test`. | Boot 4 split auto-config/test slices into modules; Jackson 2 remains needed for the Clockify SDK and adapter `ObjectMapper` code. |
 | Production `INSTALLATION_TOKEN_KEY` must be 64 hex chars **and not** legacy `…aa` or all-zero. | `CryptoConfig.validateActiveKey` fail-fasts at startup. |
 | JDBC URL keeps `sslmode=require` + `tcpKeepAlive=true`. `PG_SSLMODE` is an emergency env-knob, not a default to flip. | Railway drops idle TCP; without keepalive Hikari hands out half-dead sockets and the first query fails opaquely. |
 | Logger levels for `me.apet97.breakcompliance` come from `LOG_LEVEL_APP` (`application.yaml`). Don't hardcode `level="DEBUG"` in `logback-spring.xml`. | Production runs INFO by default; flip per-incident with `railway variables --set LOG_LEVEL_APP=DEBUG` (no redeploy). |
@@ -322,6 +323,11 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
   `window.prompt`; sidebar includes an admin audit panel; sidebar JS and CSS
   are split into first-party modules; CI checks all static JS modules;
   patch/minor deps staged (PostgreSQL 42.7.11, Lombok 1.18.46,
-  Testcontainers 1.21.4). Flyway 12.8.1 was tested and deferred because
-  Spring Boot 3.3.5 calls the removed `cleanOnValidationError(boolean)` API;
-  keep it with the future Boot migration branch. 339 tests expected.
+  Testcontainers 1.21.4). 339 tests expected.
+- **§31** — Deferred dependency migration completed: Spring Boot 4.1.0 +
+  Flyway 12.8.1. Boot 4's split modules are now explicit in `pom.xml`
+  (`spring-boot-flyway` for migration auto-config, `spring-boot-jackson2`
+  for Jackson 2 `ObjectMapper` compatibility with the Clockify SDK/adapters,
+  and webmvc/data-jpa/jdbc test modules for slice auto-config). Tests now use
+  Boot 4 test packages and Spring Framework `@MockitoBean` /
+  `@MockitoSpyBean`.

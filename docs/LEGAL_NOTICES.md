@@ -1,6 +1,6 @@
 # Legal Notices — Break Compliance for Clockify
 
-_Last updated: 2026-05-13._
+_Last updated: 2026-06-12._
 
 ## Advisory only — not legal advice
 
@@ -21,7 +21,7 @@ Break Compliance produces **advisory findings** about whether ingested time entr
 
 Major dependencies and their licenses:
 
-- **Spring Boot 3.3** (Apache 2.0) — application framework.
+- **Spring Boot 4.1** (Apache 2.0) — application framework.
 - **Hibernate ORM** (LGPL 2.1) — persistence layer.
 - **PostgreSQL JDBC driver** (BSD-2) — database driver.
 - **Flyway Community** (Apache 2.0) — schema migrations.
