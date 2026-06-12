@@ -2,14 +2,19 @@ package me.apet97.breakcompliance.addon.webhook;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
+import me.apet97.breakcompliance.clockify.HolidayFetcher;
+import me.apet97.breakcompliance.clockify.TimeOffFetcher;
+import me.apet97.breakcompliance.clockify.UserDirectoryFetcher;
 import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
@@ -95,13 +100,28 @@ class RefreshSignalConsumerTest {
     @MockitoBean
     DetailedReportFetcher fetcher;
 
+    @MockitoBean
+    HolidayFetcher holidayFetcher;
+
+    @MockitoBean
+    TimeOffFetcher timeOffFetcher;
+
+    @MockitoBean
+    UserDirectoryFetcher userDirectoryFetcher;
+
     @BeforeEach
     void clean() {
         // Stub the Clockify call so executeRun's finalize commits a clean
         // empty result; we're testing dispatch + status transitions, not
         // ingest mechanics.
-        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
+        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
                 .thenReturn(List.of());
+        Mockito.when(holidayFetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(List.of());
+        Mockito.when(timeOffFetcher.fetchApproved(anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(List.of());
+        Mockito.when(userDirectoryFetcher.fetchActive(anyString(), anyString(), anyString()))
+                .thenReturn(Map.of());
 
         runs.deleteAll();
         signals.deleteAll();

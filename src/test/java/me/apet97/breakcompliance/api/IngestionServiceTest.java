@@ -3,6 +3,9 @@ package me.apet97.breakcompliance.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -77,6 +80,109 @@ class IngestionServiceTest {
                 .containsExactly(
                         TransactionDefinition.PROPAGATION_REQUIRED,
                         TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
+
+    @Test
+    void executeRun_keepsRunRunningUntilSuppressionRefreshReturns() {
+        IngestionRun run = runningRun("run-1");
+        DetailedReportFetcher fetcher = mock(DetailedReportFetcher.class);
+        SuppressionCacheRefresher suppression = mock(SuppressionCacheRefresher.class);
+        IngestionRunRepository runRepo = mock(IngestionRunRepository.class);
+        TimeEntryUpserter upserter = mock(TimeEntryUpserter.class);
+        IngestionService service = serviceForExecuteRun(fetcher, runRepo, upserter, suppression);
+
+        when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
+                .thenReturn(List.of());
+        when(runRepo.findById(new IngestionRun.Pk("ws-test", "run-1")))
+                .thenReturn(Optional.of(run));
+        when(runRepo.saveAndFlush(any(IngestionRun.class))).thenAnswer(inv -> inv.getArgument(0));
+        doAnswer(inv -> {
+            assertThat(run.getStatus()).isEqualTo(IngestionStatus.RUNNING);
+            assertThat(run.getEntriesProcessed()).isZero();
+            return null;
+        }).when(suppression).refresh(
+                "ws-test",
+                "addon-token",
+                LocalDate.parse("2026-05-01"),
+                LocalDate.parse("2026-05-07"));
+
+        service.executeRun(
+                "ws-test",
+                "run-1",
+                "addon-token",
+                "https://reports.api.clockify.me",
+                LocalDate.parse("2026-05-01"),
+                LocalDate.parse("2026-05-07"));
+
+        assertThat(run.getStatus()).isEqualTo(IngestionStatus.COMPLETED);
+    }
+
+    @Test
+    void executeRun_marksCompletedAfterSuppressionRefreshFailure() {
+        IngestionRun run = runningRun("run-1");
+        DetailedReportFetcher fetcher = mock(DetailedReportFetcher.class);
+        SuppressionCacheRefresher suppression = mock(SuppressionCacheRefresher.class);
+        IngestionRunRepository runRepo = mock(IngestionRunRepository.class);
+        TimeEntryUpserter upserter = mock(TimeEntryUpserter.class);
+        IngestionService service = serviceForExecuteRun(fetcher, runRepo, upserter, suppression);
+
+        when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
+                .thenReturn(List.of());
+        when(runRepo.findById(new IngestionRun.Pk("ws-test", "run-1")))
+                .thenReturn(Optional.of(run));
+        when(runRepo.saveAndFlush(any(IngestionRun.class))).thenAnswer(inv -> inv.getArgument(0));
+        doAnswer(inv -> {
+            assertThat(run.getStatus()).isEqualTo(IngestionStatus.RUNNING);
+            throw new RuntimeException("suppression unavailable");
+        }).when(suppression).refresh(
+                "ws-test",
+                "addon-token",
+                LocalDate.parse("2026-05-01"),
+                LocalDate.parse("2026-05-07"));
+
+        service.executeRun(
+                "ws-test",
+                "run-1",
+                "addon-token",
+                "https://reports.api.clockify.me",
+                LocalDate.parse("2026-05-01"),
+                LocalDate.parse("2026-05-07"));
+
+        assertThat(run.getStatus()).isEqualTo(IngestionStatus.COMPLETED);
+    }
+
+    private static IngestionService serviceForExecuteRun(
+            DetailedReportFetcher fetcher,
+            IngestionRunRepository runRepo,
+            TimeEntryUpserter upserter,
+            SuppressionCacheRefresher suppression) {
+        InstallationRepository installationRepo = mock(InstallationRepository.class);
+        TokenCodec codec = mock(TokenCodec.class);
+        return new IngestionService(
+                installationRepo,
+                runRepo,
+                fetcher,
+                codec,
+                new RecordingTxManager(),
+                Runnable::run,
+                new SimpleMeterRegistry(),
+                mock(WorkspaceSettingsRepository.class),
+                upserter,
+                suppression);
+    }
+
+    private static IngestionRun runningRun(String id) {
+        IngestionRun run = new IngestionRun();
+        run.setWorkspaceId("ws-test");
+        run.setId(id);
+        run.setDateRangeStart("2026-05-01");
+        run.setDateRangeEnd("2026-05-07");
+        run.setStatus(IngestionStatus.RUNNING);
+        run.setEntriesProcessed(0);
+        Instant now = Instant.now();
+        run.setCreatedAt(now);
+        run.setCompletedAt(now);
+        return run;
     }
 
     private static IngestionRun existingRun(String id) {

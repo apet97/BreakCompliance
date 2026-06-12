@@ -9,11 +9,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
 import me.apet97.breakcompliance.addon.auth.TestJwtForger;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
+import me.apet97.breakcompliance.clockify.HolidayFetcher;
+import me.apet97.breakcompliance.clockify.TimeOffFetcher;
+import me.apet97.breakcompliance.clockify.UserDirectoryFetcher;
 import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
@@ -87,8 +91,23 @@ class IngestionControllerTest {
     @MockitoBean
     DetailedReportFetcher fetcher;
 
+    @MockitoBean
+    HolidayFetcher holidayFetcher;
+
+    @MockitoBean
+    TimeOffFetcher timeOffFetcher;
+
+    @MockitoBean
+    UserDirectoryFetcher userDirectoryFetcher;
+
     @BeforeEach
     void cleanState() {
+        Mockito.when(holidayFetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(List.of());
+        Mockito.when(timeOffFetcher.fetchApproved(anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(List.of());
+        Mockito.when(userDirectoryFetcher.fetchActive(anyString(), anyString(), anyString()))
+                .thenReturn(Map.of());
         runRepo.deleteAll();
         installationRepo.deleteAll();
         seedInstallation();

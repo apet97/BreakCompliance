@@ -6,6 +6,7 @@ export const state = {
     customEnd: "",
     view: "pivot",
     findings: [],
+    findingsRange: null,
     lastRun: null,
     lastRunAt: null,
     lastRunRange: null,

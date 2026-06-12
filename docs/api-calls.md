@@ -337,7 +337,9 @@ Processing flow:
    marked `COALESCED` and back-pointed with `ingestion_run_id`.
 4. Otherwise the consumer claims the signals, dispatches an async ingest through
    `IngestionService.beginAsyncForRefresh`, re-evaluates findings after a successful
-   finalize, and marks the signals `CONSUMED`. Failures become `FAILED`.
+   completion, and marks the signals `CONSUMED`. Completion is exposed only after
+   detailed-report entries are persisted and the holiday/time-off suppression
+   refresh attempt returns. Failures become `FAILED`.
 5. `IngestionRunReaper` marks stale `RUNNING` runs as `FAILED` and releases any
    claimed signals back to `PENDING` so a later poll can recover.
 
@@ -427,7 +429,10 @@ a run from a different workspace returns 404 regardless of guessability.
 }
 ```
 
-`status` cycles `RUNNING → COMPLETED | FAILED`. On `FAILED` the sidebar maps
+`status` cycles `RUNNING → COMPLETED | FAILED`. `COMPLETED` means persisted
+entries and the best-effort suppression refresh attempt are both finished; the
+sidebar should not evaluate or show "All clear" from only an in-memory empty
+findings array. On `FAILED` the sidebar maps
 `errorCode` to user-readable copy (`ClockifyApi:401` → "Reports API unavailable
 in this workspace", others → "Ingestion failed (\<code\>)").
 

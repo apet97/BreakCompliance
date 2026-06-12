@@ -42,7 +42,7 @@ lowercase convention. Tags are listed under each entry.
 | `breakcompliance.webhook.received` | counter | `event` | Authenticated webhook deliveries. Event values: `NEW_TIME_ENTRY`, `TIME_ENTRY_UPDATED`, `TIME_ENTRY_DELETED`, plus P3.1: `TIME_OFF_REQUEST_APPROVED`, `TIME_OFF_REQUEST_REJECTED`, `TIME_OFF_REQUEST_WITHDRAWN`. |
 | `breakcompliance.webhook.duplicate` | counter | `event` | Webhook deliveries skipped by Redis SETNX dedupe. A sustained spike means Clockify is retrying — investigate response latency. |
 | `breakcompliance.refresh.signals.processed` | counter | `outcome` | Refresh-signal outcomes: `dispatched`, `coalesced`, `no_installation`, `inactive`, `failed`. |
-| `breakcompliance.ingest.run.duration` | timer | — | End-to-end ingest-run duration. Successes only; failed runs go to `breakcompliance.ingest.run.failed`. |
+| `breakcompliance.ingest.run.duration` | timer | — | End-to-end successful ingest duration through entry persistence, suppression-refresh attempt, and completion marker. Failed runs go to `breakcompliance.ingest.run.failed`. |
 | `breakcompliance.ingest.entries.processed` | counter | — | Time entries upserted into Postgres during finalize. |
 | `breakcompliance.ingest.run.failed` | counter | `reason` | Failed ingest runs. The tag value is the upstream class name or HTTP status (e.g. `ClockifyApi:401`). |
 | `breakcompliance.clockify.api.429` | counter | — | (P4.6) Clockify API 429 responses caught by the per-workspace retry loop. Sustained increment = workload sharing an API key OR per-workspace rate limit needs tuning. |

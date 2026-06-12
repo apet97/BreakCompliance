@@ -123,10 +123,10 @@ admin complaints.
   - Touches: `api/IngestionService.java`, new
     `api/UserNameReconciler.java`.
 
-- [x] **P2.4 [verified — already in code] Empty-state copy**
-  - `[]` findings + `runs/latest` is COMPLETED ⇒ "No findings — every shift in
-    this range complies with your active preset (X)." replacing the current blank
-    panel.
+- [x] **P2.4 [shipped] Empty-state copy + latest-run findings load**
+  - `[]` findings + `runs/latest` is COMPLETED ⇒ an "All clear" state only after
+    the sidebar has loaded `/api/findings` for that displayed range. A fresh
+    iframe open must not infer success from the module's initial empty array.
   - Touches: `static/sidebar.js` (results renderer).
 
 - [x] **P2.5 [shipped] Threshold preview on hover**
@@ -302,7 +302,7 @@ admin complaints.
 
 ## Verification (per item)
 
-1. **Unit + Testcontainers tests pass.** Current baseline: 339 green. Each new
+1. **Unit + Testcontainers tests pass.** Current baseline: 341 green. Each new
    behaviour gets at least one focused test.
    ```sh
    JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \

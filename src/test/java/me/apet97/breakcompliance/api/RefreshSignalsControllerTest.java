@@ -1,6 +1,7 @@
 package me.apet97.breakcompliance.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,6 +16,9 @@ import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
 import me.apet97.breakcompliance.addon.auth.TestJwtForger;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
+import me.apet97.breakcompliance.clockify.HolidayFetcher;
+import me.apet97.breakcompliance.clockify.TimeOffFetcher;
+import me.apet97.breakcompliance.clockify.UserDirectoryFetcher;
 import me.apet97.breakcompliance.config.AsyncConfig;
 import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import me.apet97.breakcompliance.persistence.crypto.EncryptedToken;
@@ -88,8 +92,23 @@ class RefreshSignalsControllerTest {
     @MockitoBean
     DetailedReportFetcher fetcher;
 
+    @MockitoBean
+    HolidayFetcher holidayFetcher;
+
+    @MockitoBean
+    TimeOffFetcher timeOffFetcher;
+
+    @MockitoBean
+    UserDirectoryFetcher userDirectoryFetcher;
+
     @BeforeEach
     void cleanState() {
+        Mockito.when(holidayFetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(List.of());
+        Mockito.when(timeOffFetcher.fetchApproved(anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(List.of());
+        Mockito.when(userDirectoryFetcher.fetchActive(anyString(), anyString(), anyString()))
+                .thenReturn(Map.of());
         signalsRepo.deleteAll();
         installationRepo.deleteAll();
         seedInstallation();
@@ -117,7 +136,7 @@ class RefreshSignalsControllerTest {
 
     @Test
     void run_adminAndValidRange_returns202WithRunIdAndPollUrl() throws Exception {
-        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any()))
+        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
                 .thenReturn(List.of());
 
         mockMvc.perform(post("/api/refresh-signals/run")

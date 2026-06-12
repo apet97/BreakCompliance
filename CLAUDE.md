@@ -29,7 +29,7 @@ find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**339 tests expected** (339 green target for §30 after CSP/adapter/audit hardening).
+**341 tests expected** (§32 after async completion/sidebar boot hardening).
 Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
@@ -153,6 +153,7 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 | Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Without the fallback, the failure mode is silent (zero rows → no findings → no error). |
 | `lifecycle.deleted` is guarded by `iat < installedAt - 30s` rejection (P0 commit `029b0da`). | Clockify retries up to ~24h; a stale DELETED arriving after a reinstall would otherwise wipe the fresh install. |
 | `IngestionService.prepareRun` throws `IngestionRunInProgressException` (→ controller 409) if a RUNNING run for the same `(workspaceId, dateRange)` exists. V15 also enforces this with a partial unique index, retires pre-existing duplicate RUNNING rows, and releases CLAIMED signals attached to retired duplicates. | Admin double-click "Refresh" or webhook+admin overlap can't queue duplicate ingests, even under DB-level concurrency. |
+| `IngestionRun.status=COMPLETED` is written only after detailed-report entries are persisted and the holiday/time-off suppression refresh attempt returns. | Sidebar evaluation and refresh-signal callbacks must not observe a completed run while suppression data is still stale; best-effort suppression failures still complete, but only after the failed attempt is logged. |
 | Refresh-signal consumer state machine: `PENDING → CLAIMED → CONSUMED` (or `COALESCED` / `FAILED`). | The webhook handler records `PENDING` and returns 204; the `@Scheduled` consumer drains the queue after `debounce-ms` (default 20s), dedupes against in-flight runs, dispatches via `beginAsyncForRefresh`, and `IngestionRunReaper` releases stale CLAIMED signals. |
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` (no `Z`). | Server interprets in user timezone. |
 | `type=TIME_OFF` / `type=HOLIDAY` entries are `IGNORED` by the engine (§25/§29). | They skip only their own duration, split the continuous-work chain, and block gap synthesis across PTO/holiday windows; mixed days still evaluate real WORK entries. |
@@ -196,17 +197,21 @@ src/main/java/me/apet97/breakcompliance/
                   controllers + AddonTokenAuthFilter + InstallationInactiveException +
                   IngestionRunInProgressException + IngestionRunReaper (@Scheduled
                   stuck-run recovery).
-                  IngestionService runs in 3 phases (prepare/fetch/finalize), dispatched
-                  async via ingestExecutor; sidebar polls /api/ingest/runs/{id} for status.
+                  IngestionService runs prepare/fetch/persist, then refreshes suppression
+                  cache before marking the run COMPLETED. Dispatched async via
+                  ingestExecutor; sidebar polls /api/ingest/runs/{id} for status.
                   beginAsyncForRefresh(workspaceId, from, to, reportsUrl, Consumer<runId>)
-                  is the consumer-callable variant — callback receives the runId so the
-                  consumer can mark CLAIMED signals CONSUMED.
+                  is the consumer-callable variant — callback receives the runId only
+                  after executeRun returns, so CLAIMED signals are marked CONSUMED after
+                  suppression refresh has attempted.
                   PresetController serves GET /api/presets + POST /api/presets/apply for
                   the sidebar-driven preset chooser (native settings only holds the 10
                   per-field thresholds).
                   IngestRunController also exposes GET /api/ingest/runs/latest (most recent
                   COMPLETED run for the workspace, or 204) — drives the sidebar's
                   "Last checked Xm ago" + "Pending refresh" staleness indicators (P2 #2).
+                  The sidebar must load /api/findings for that latest range before
+                  rendering an "All clear" empty state.
                   FindingsController also exposes GET /api/findings/export?format=csv
                   (RFC 4180 attachment, P2 #3) and POST /api/findings/{id}/review
                   (admin-gated OPEN/ACKNOWLEDGED/OVERRIDDEN upsert with optional note,
@@ -246,7 +251,7 @@ src/main/resources/
   static/               sidebar.js, sidebar/*.js, sidebar/css/*.css, styles.css,
                         theme-init.js, icon.svg (64×64 designed mark)
 
-src/test/...            339 green expected (JDK 21 + Postgres + Redis Testcontainers).
+src/test/...            341 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:
                         find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
                         Spring Boot 4 test slices live in the webmvc/data-jpa/jdbc

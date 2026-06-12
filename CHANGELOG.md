@@ -20,6 +20,12 @@ the Clockify marketplace. The first marketplace submission ships as
 
 ### Fixed
 
+- Async ingest runs no longer expose `COMPLETED` before holiday/time-off
+  suppression refresh has attempted, preventing sidebar evaluations and
+  refresh-signal callbacks from racing stale suppression data.
+- A freshly opened sidebar now loads persisted findings for the latest completed
+  run before it can show an "All clear" empty state, and attaches to an existing
+  in-flight run on `409 ingest_in_progress`.
 - `TIME_OFF` / `HOLIDAY` entries now split the continuous-work run
   without being credited as break minutes, preventing false max-
   continuous findings across ignored Clockify entries.

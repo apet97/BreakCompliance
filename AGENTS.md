@@ -26,7 +26,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 339 green. Postgres + Redis spin up via Testcontainers.
+# Expect 341 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -78,6 +78,7 @@ any API call shape.
 | `type=TIME_OFF`/`HOLIDAY` entries → `EntryClassifier.Kind.IGNORED` (§25/§29). | Engine skips only those entries, splits the continuous-work chain, blocks gap synthesis across them, and still evaluates same-day WORK. |
 | `/api/*` is `X-Addon-Token`-header-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook auth fail-closed via `AddonTokenAuthFilter` + `WebhookAuthFilter`. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive` banner. |
+| Async ingests stay `RUNNING` until detailed-report entries are persisted and the holiday/time-off suppression refresh attempt returns. | The sidebar and refresh-signal consumer must not evaluate or mark webhook signals consumed while suppression data is still stale. Best-effort suppression failures still complete, but only after the failed refresh attempt is logged. |
 | Webhook idempotency = Redis SETNX with ≥ 24h TTL. | Clockify retries up to ~24h. |
 | Flyway migrations are additive only. | DB shared across deploys; drops break rollback. Use `V<n>__add_*.sql`. |
 | Spring Boot 4 integration modules stay explicit: `spring-boot-flyway`, `spring-boot-jackson2`, `spring-boot-starter-webmvc-test`, `spring-boot-data-jpa-test`, `spring-boot-jdbc-test`. | Boot 4 split auto-config/test slices into modules; Jackson 2 remains needed for the Clockify SDK and adapter `ObjectMapper` code. |
@@ -323,7 +324,7 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
   `window.prompt`; sidebar includes an admin audit panel; sidebar JS and CSS
   are split into first-party modules; CI checks all static JS modules;
   patch/minor deps staged (PostgreSQL 42.7.11, Lombok 1.18.46,
-  Testcontainers 1.21.4). 339 tests expected.
+  Testcontainers 1.21.4). 339 tests expected at that point.
 - **§31** — Deferred dependency migration completed: Spring Boot 4.1.0 +
   Flyway 12.8.1. Boot 4's split modules are now explicit in `pom.xml`
   (`spring-boot-flyway` for migration auto-config, `spring-boot-jackson2`
@@ -331,3 +332,10 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
   and webmvc/data-jpa/jdbc test modules for slice auto-config). Tests now use
   Boot 4 test packages and Spring Framework `@MockitoBean` /
   `@MockitoSpyBean`.
+- **§32** — Adversarial cleanup: `IngestionService` no longer marks a run
+  `COMPLETED` before the holiday/time-off suppression refresh attempt returns,
+  so sidebar evaluation and refresh-signal callbacks do not observe stale
+  suppression data. Sidebar boot now loads persisted findings for the latest
+  completed run before showing "All clear", `409 ingest_in_progress` attaches
+  to the existing run id, duplicate admin-role JS was removed, and async Spring
+  tests mock supplemental Clockify fetchers. 341 tests green on 2026-06-12.

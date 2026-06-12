@@ -140,7 +140,7 @@ public class IngestionService {
             return failed;
         }
 
-        IngestionRun completed = tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+        tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
         // P1.1 / P1.2 — refresh suppression cache after a successful sync
         // ingest, mirroring the async path. Best-effort.
         try {
@@ -149,6 +149,7 @@ public class IngestionService {
             log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
                     workspaceId, e.getClass().getSimpleName());
         }
+        IngestionRun completed = tx.execute(status -> completeRun(workspaceId, prepared.runId()));
         return completed;
     }
 
@@ -285,11 +286,7 @@ public class IngestionService {
             return;
         }
         try {
-            IngestionRun finalized = tx.execute(status -> finalizeRun(workspaceId, runId, entries));
-            sample.stop(runDuration);
-            if (finalized != null) {
-                meters.counter(MetricsConfig.INGEST_ENTRIES_PROCESSED).increment(finalized.getEntriesProcessed());
-            }
+            tx.execute(status -> finalizeRun(workspaceId, runId, entries));
         } catch (RuntimeException e) {
             tx.execute(status -> markRunFailed(workspaceId, runId, "Finalize:" + e.getClass().getSimpleName()));
             meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", "Finalize:" + e.getClass().getSimpleName())
@@ -308,6 +305,20 @@ public class IngestionService {
         } catch (RuntimeException e) {
             log.info("ingestion.suppression.refresh-failed workspace={} reason={}",
                     workspaceId, e.getClass().getSimpleName());
+        }
+
+        try {
+            IngestionRun completed = tx.execute(status -> completeRun(workspaceId, runId));
+            sample.stop(runDuration);
+            if (completed != null) {
+                meters.counter(MetricsConfig.INGEST_ENTRIES_PROCESSED).increment(completed.getEntriesProcessed());
+            }
+        } catch (RuntimeException e) {
+            tx.execute(status -> markRunFailed(workspaceId, runId, "Complete:" + e.getClass().getSimpleName()));
+            meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", "Complete:" + e.getClass().getSimpleName())
+                    .increment();
+            sample.stop(runDuration);
+            log.warn("ingestion.async.failed.complete workspace={} reason={}", workspaceId, e.getClass().getSimpleName(), e);
         }
     }
 
@@ -378,10 +389,18 @@ public class IngestionService {
                 batchCounter = 0;
             }
         }
-        run.setStatus(IngestionStatus.COMPLETED);
         run.setEntriesProcessed(processed);
+        return runRepo.saveAndFlush(run);
+    }
+
+    private IngestionRun completeRun(String workspaceId, String runId) {
+        IngestionRun run = runRepo
+                .findById(new IngestionRun.Pk(workspaceId, runId))
+                .orElseThrow(() -> new IllegalStateException(
+                        "ingestion run vanished before completion marker: " + runId));
+        run.setStatus(IngestionStatus.COMPLETED);
         run.setCompletedAt(Instant.now());
-        log.info("ingestion.completed workspace={} entries={}", workspaceId, processed);
+        log.info("ingestion.completed workspace={} entries={}", workspaceId, run.getEntriesProcessed());
         return runRepo.saveAndFlush(run);
     }
 

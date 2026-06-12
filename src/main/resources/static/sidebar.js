@@ -108,6 +108,30 @@ function computeDateRange() {
     return { start: state.customStart, end: state.customEnd };
 }
 
+function rememberFindingsRange(range, options = {}) {
+    const openOnly = Boolean(options.openOnly ?? range?.openOnly);
+    state.findingsRange = range?.start && range?.end
+        ? { start: range.start, end: range.end, openOnly }
+        : null;
+}
+
+function findingsLoadedForRange(range) {
+    return Boolean(range?.start && range?.end
+        && state.findingsRange?.start === range.start
+        && state.findingsRange?.end === range.end
+        && Boolean(state.findingsRange?.openOnly) === Boolean(range.openOnly));
+}
+
+async function loadFindingsForRange(range, options = {}) {
+    const openOnly = Boolean(options.openOnly ?? range.openOnly);
+    const query = { dateRangeStart: range.start, dateRangeEnd: range.end };
+    if (openOnly) query.openOnly = "true";
+    const body = await api("/api/findings", { query });
+    state.findings = Array.isArray(body?.findings) ? body.findings : [];
+    rememberFindingsRange(range, { openOnly });
+    return state.findings;
+}
+
 function showBanner(kind, message = "") {
     const banner = el("status-banner");
     if (kind === "hidden") {
@@ -503,7 +527,7 @@ function renderAuditLog() {
         loaded: state.audit.loaded,
         loading: state.audit.loading,
         range: state.audit.range ?? currentFindingsRange(),
-        isAdmin: isAdminRole(),
+        isAdmin: isAdmin(),
         onRefresh: () => loadAuditLog(),
     });
 }
@@ -552,11 +576,21 @@ function renderResults() {
     renderExportButton();
     renderUserFilter();
     if (state.findings.length === 0) {
-        if (state.lastRun) {
+        if (state.lastRunRange?.openOnly && findingsLoadedForRange(state.lastRunRange)) {
+            container.appendChild(create("div", { className: "empty-state ok" }, [
+                create("p", { className: "empty-title", text: "No open findings." }),
+                create("p", { className: "empty-detail", text: "The backlog view has no unreviewed break-compliance findings in this range." }),
+            ]));
+        } else if (state.lastRun && findingsLoadedForRange(state.lastRunRange)) {
             // Successful run, just no violations — celebrate the empty list.
             container.appendChild(create("div", { className: "empty-state ok" }, [
                 create("p", { className: "empty-title", text: "All clear in this range." }),
                 create("p", { className: "empty-detail", text: `Checked ${state.lastRun.entriesProcessed} time ${state.lastRun.entriesProcessed === 1 ? "entry" : "entries"} — no break-compliance issues found.` }),
+            ]));
+        } else if (state.lastRun) {
+            container.appendChild(create("div", { className: "empty-state" }, [
+                create("p", { className: "empty-title", text: "Latest check is available." }),
+                create("p", { className: "empty-detail", text: "Findings for that range have not loaded yet. Refresh to reload the latest compliance results." }),
             ]));
         } else {
             container.appendChild(create("div", { className: "empty-state" }, [
@@ -701,15 +735,6 @@ function renderPivot(container) {
     container.appendChild(scroll);
 }
 
-// Workspace-admin guard for review writes — mirrors the backend's
-// RequestValidator.requireAdmin so non-admins see a disabled button with
-// a clear tooltip instead of a 403 round-trip. The session payload (and
-// only the session payload) carries workspaceRole.
-function isAdminRole() {
-    const role = String(state.session?.workspaceRole ?? "").toUpperCase();
-    return role === "ADMIN" || role === "OWNER";
-}
-
 // Cycle a finding through OPEN -> ACKNOWLEDGED -> OVERRIDDEN -> OPEN.
 // Non-OPEN transitions can carry an optional audit note captured through
 // the first-party review dialog module.
@@ -754,6 +779,7 @@ async function cycleReview(findingId, currentStatus) {
 function renderChecklist(container) {
     const findingsView = visibleFindings();
     const byUser = new Map();
+    const admin = isAdmin();
     for (const f of findingsView) {
         if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
         const byDate = byUser.get(f.userId);
@@ -812,10 +838,10 @@ function renderChecklist(container) {
                     title: "Cycle this finding's review state (admin only)",
                 });
                 reviewBtn.type = "button";
-                reviewBtn.disabled = !isAdminRole();
-                if (!isAdminRole()) reviewBtn.title = "Workspace admin required to review findings";
+                reviewBtn.disabled = !admin;
+                if (!admin) reviewBtn.title = "Workspace admin required to review findings";
                 reviewBtn.addEventListener("click", () => {
-                    if (!isAdminRole()) return;
+                    if (!admin) return;
                     cycleReview(f.id, reviewStatus);
                 });
                 li.appendChild(reviewBtn);
@@ -902,11 +928,8 @@ function setLoadingMessage(text) {
 async function loadOpenFindings(range) {
     setLoading(true);
     setLoadingMessage(`Loading open findings ${range.start} → ${range.end}…`);
-    let listResult;
     try {
-        listResult = await api("/api/findings", {
-            query: { dateRangeStart: range.start, dateRangeEnd: range.end, openOnly: "true" },
-        });
+        await loadFindingsForRange(range, { openOnly: true });
     } catch (err) {
         setLoading(false);
         showBanner("err", err instanceof HttpError
@@ -914,8 +937,7 @@ async function loadOpenFindings(range) {
             : "Loading open findings failed.");
         return;
     }
-    state.findings = listResult.findings;
-    state.lastRunRange = { start: range.start, end: range.end };
+    state.lastRunRange = { start: range.start, end: range.end, openOnly: true };
     state.audit.loaded = false;
     state.audit.entries = [];
     state.audit.range = range;
@@ -957,24 +979,37 @@ async function runCompliance() {
         });
         runId = startResponse.run.id;
     } catch (err) {
-        setLoading(false);
-        setRunButtonState(false);
         if (err instanceof HttpError) {
             const code = String(err.body?.error ?? err.message);
-            if (err.status === 503 && code === "installation_inactive") {
+            if (err.status === 409 && code === "ingest_in_progress" && err.body?.existingRunId) {
+                runId = String(err.body.existingRunId);
+                setLoadingMessage(`Waiting for existing check ${range.start} → ${range.end}…`);
+            } else if (err.status === 503 && code === "installation_inactive") {
+                setLoading(false);
+                setRunButtonState(false);
                 showBanner("err", err.body?.message
                     ?? "This workspace's add-on is currently inactive.");
+                return;
             } else if (err.status === 503 && code === "installation_not_found") {
+                setLoading(false);
+                setRunButtonState(false);
                 showBanner("err",
                     "Add-on not installed for this workspace yet. Re-install from the marketplace and try again.");
+                return;
             } else {
+                setLoading(false);
+                setRunButtonState(false);
                 showBanner("err",
                     `Could not start ingestion: ${code}.`);
+                return;
             }
+        }
+        if (!runId) {
+            setLoading(false);
+            setRunButtonState(false);
+            showBanner("err", "Unexpected ingestion failure.");
             return;
         }
-        showBanner("err", "Unexpected ingestion failure.");
-        return;
     }
 
     let runFinal;
@@ -1023,13 +1058,8 @@ async function runCompliance() {
         return;
     }
 
-    let listResult;
     try {
-        const query = { dateRangeStart: range.start, dateRangeEnd: range.end };
-        // P2.8 — "All open" preset asks the backend to hide already-handled
-        // findings so the list paints the actual remaining backlog.
-        if (range.openOnly) query.openOnly = "true";
-        listResult = await api("/api/findings", { query });
+        await loadFindingsForRange(range, { openOnly: range.openOnly });
     } catch (err) {
         setLoading(false);
         setRunButtonState(false);
@@ -1039,10 +1069,9 @@ async function runCompliance() {
         return;
     }
 
-    state.findings = listResult.findings;
     state.lastRun = { entriesProcessed, findingsCreated: evalResult.findingsCreated };
     state.lastRunAt = new Date();
-    state.lastRunRange = { start: range.start, end: range.end };
+    state.lastRunRange = { start: range.start, end: range.end, openOnly: Boolean(range.openOnly) };
     state.audit.loaded = false;
     state.audit.entries = [];
     state.audit.range = range;
@@ -1079,6 +1108,7 @@ function renderSettingsHint() {
 
 async function loadInitialData() {
     const statusNode = el("session-status");
+    let latestFindingsLoadFailed = false;
     try {
         // Parallel: session info + preset catalog. Both are needed before
         // the active-template chip can render its label and the
@@ -1095,6 +1125,15 @@ async function loadInitialData() {
         ]);
         state.session = session;
         applyLatestRunSnapshot(latestRun);
+        if (state.lastRunRange) {
+            try {
+                await loadFindingsForRange(state.lastRunRange);
+            } catch (err) {
+                state.findings = [];
+                rememberFindingsRange(null);
+                latestFindingsLoadFailed = true;
+            }
+        }
         state.pendingRefreshAt = computePendingRefreshFromSignals(signals);
         statusNode.hidden = true;
         statusNode.textContent = "";
@@ -1108,6 +1147,9 @@ async function loadInitialData() {
         renderDiagnostics();
         renderResults(); // first-paint empty state
         renderAuditLog();
+        if (latestFindingsLoadFailed) {
+            showBanner("warn", "Latest check loaded, but findings could not be loaded. Click Refresh to retry.");
+        }
     } catch (err) {
         statusNode.hidden = false;
         statusNode.textContent = "Not connected — try reloading the addon.";
