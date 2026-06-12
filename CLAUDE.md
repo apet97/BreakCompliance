@@ -29,7 +29,7 @@ find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**341 tests expected** (§32 after async completion/sidebar boot hardening).
+**352 tests expected** (§33 after DB/report/auth hardening).
 Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
@@ -143,10 +143,12 @@ popover, a **Matches preset / Customized — Reset?** pill next to it, and a
 **Switch…** button that opens the preset chooser. Fine-tune individual fields
 at: **Workspace Settings → Add-ons → Break Compliance → ⋯ → Settings**.
 
-## Outbound Clockify call
+## Outbound Clockify calls
 
-One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
-(`DetailedReportFetcher`). Shapes + per-env URL pattern in `docs/api-calls.md`.
+Four read-only calls: the Detailed Report source of truth plus the three
+suppression/directory refreshes documented in `docs/api-calls.md`. Do not add
+another outbound endpoint without a documented false-positive class and a
+live-probed shape.
 
 ## Hard rules (don't break these)
 
@@ -157,10 +159,10 @@ One call: `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 | `X-Addon-Token` header (not `Authorization`) for outbound. | Clockify rejects `Authorization`. |
 | Threshold fields = native structured-settings; preset selection = sidebar. | Clockify renders each native field independently and never re-fetches siblings after a change, so a backend-driven cross-field write isn't visible until reload. Sidebar lets us preview, confirm, and apply atomically. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` (§24). | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single-object shapes; unknown shapes drift-log + 200. |
-| Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Without the fallback, the failure mode is silent (zero rows → no findings → no error). |
+| Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback and throws when neither key is an array. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Missing/invalid entry arrays must fail loud, not look like an empty workspace. |
 | `lifecycle.deleted` is guarded by `iat < installedAt - 30s` rejection (P0 commit `029b0da`). | Clockify retries up to ~24h; a stale DELETED arriving after a reinstall would otherwise wipe the fresh install. |
 | `IngestionService.prepareRun` throws `IngestionRunInProgressException` (→ controller 409) if a RUNNING run for the same `(workspaceId, dateRange)` exists. V15 also enforces this with a partial unique index, retires pre-existing duplicate RUNNING rows, and releases CLAIMED signals attached to retired duplicates. | Admin double-click "Refresh" or webhook+admin overlap can't queue duplicate ingests, even under DB-level concurrency. |
-| `IngestionRun.status=COMPLETED` is written only after detailed-report entries are persisted and the holiday/time-off suppression refresh attempt returns. | Sidebar evaluation and refresh-signal callbacks must not observe a completed run while suppression data is still stale; best-effort suppression failures still complete, but only after the failed attempt is logged. |
+| `IngestionRun.status=COMPLETED` is written only after detailed-report entries are persisted and holiday, time-off, and user-directory refresh attempts return. | Sidebar evaluation and refresh-signal callbacks must not observe a completed run while suppression data is still stale; best-effort suppression failures still complete, and one supplemental failure must not skip the others. |
 | Refresh-signal consumer state machine: `PENDING → CLAIMED → CONSUMED` (or `COALESCED` / `FAILED`). | The webhook handler records `PENDING` and returns 204; the `@Scheduled` consumer drains the queue after `debounce-ms` (default 20s), dedupes against in-flight runs, dispatches via `beginAsyncForRefresh`, and `IngestionRunReaper` releases stale CLAIMED signals. |
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` (no `Z`). | Server interprets in user timezone. |
 | `type=TIME_OFF` / `type=HOLIDAY` entries are `IGNORED` by the engine (§25/§29). | They skip only their own duration, split the continuous-work chain, and block gap synthesis across PTO/holiday windows; mixed days still evaluate real WORK entries. |
@@ -242,7 +244,7 @@ src/main/resources/
                         open-in-view=false, LOG_LEVEL_APP gating)
   application-dev.yaml  Local dev profile: pins DEBUG, plain-TCP localhost Postgres,
                         and opts into local Clockify base URLs for WireMock/dev probes
-  db/migration/         V1__init through V15__unique_running_ingestion_runs
+  db/migration/         V1__init through V16__add_workspace_holiday_scope_key
                         (Flyway, additive only). V10 extends the
                         refresh_signals status CHECK constraint with
                         CLAIMED/CONSUMED/FAILED/COALESCED, adds the
@@ -253,12 +255,14 @@ src/main/resources/
                         attribution. V15 retires pre-existing duplicate RUNNING rows,
                         releases their CLAIMED signals, then adds a partial
                         unique index preventing duplicate RUNNING ingests for
-                        the same workspace/date range.
+                        the same workspace/date range. V16 adds the
+                        workspace-holiday scope_key so applies_to_user_id can
+                        stay null for workspace-wide holidays.
   logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
   static/               sidebar.js, sidebar/*.js, sidebar/css/*.css, styles.css,
                         theme-init.js, icon.svg (64×64 designed mark)
 
-src/test/...            341 green expected (JDK 21 + Postgres + Redis Testcontainers).
+src/test/...            352 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:
                         find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
                         Spring Boot 4 test slices live in the webmvc/data-jpa/jdbc

@@ -26,7 +26,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 341 green. Postgres + Redis spin up via Testcontainers.
+# Expect 352 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -73,12 +73,12 @@ any API call shape.
 | `/sidebar` must not render inline scripts under `script-src 'self'`; theme bootstrap lives in `/theme-init.js`. | Inline scripts are CSP-blocked in the iframe and cause dark-mode theme flicker. |
 | Settings = native structured-settings only. No `/settings` iframe. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by 2026-05-11 live probe. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single `{id,value}` shape. Unknown shapes drift-log + return 200. |
-| Detailed-report response key is `timeentries` (ALL LOWERCASE). | Spec mislabels as `timeEntries`. Live API returns lowercase. |
+| Detailed-report response key is `timeentries` (ALL LOWERCASE); `timeEntries` is accepted defensively, but missing/non-array entry keys fail loud. | Spec mislabels as `timeEntries`. Live API returns lowercase. Silent empty reports create false "all clear" compliance output. |
 | Body dates are `yyyy-MM-dd'T'HH:mm:ss` (no `Z` suffix). | Server interprets in user timezone. |
 | `type=TIME_OFF`/`HOLIDAY` entries → `EntryClassifier.Kind.IGNORED` (§25/§29). | Engine skips only those entries, splits the continuous-work chain, blocks gap synthesis across them, and still evaluates same-day WORK. |
 | `/api/*` is `X-Addon-Token`-header-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook auth fail-closed via `AddonTokenAuthFilter` + `WebhookAuthFilter`. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive` banner. |
-| Async ingests stay `RUNNING` until detailed-report entries are persisted and the holiday/time-off suppression refresh attempt returns. | The sidebar and refresh-signal consumer must not evaluate or mark webhook signals consumed while suppression data is still stale. Best-effort suppression failures still complete, but only after the failed refresh attempt is logged. |
+| Async ingests stay `RUNNING` until detailed-report entries are persisted and holiday, time-off, and user-directory refresh attempts return. | The sidebar and refresh-signal consumer must not evaluate or mark webhook signals consumed while suppression data is still stale. Best-effort suppression failures still complete, and one supplemental failure must not skip the others. |
 | Webhook idempotency = Redis SETNX with ≥ 24h TTL. | Clockify retries up to ~24h. |
 | Flyway migrations are additive only. | DB shared across deploys; drops break rollback. Use `V<n>__add_*.sql`. |
 | Spring Boot 4 integration modules stay explicit: `spring-boot-flyway`, `spring-boot-jackson2`, `spring-boot-starter-webmvc-test`, `spring-boot-data-jpa-test`, `spring-boot-jdbc-test`. | Boot 4 split auto-config/test slices into modules; Jackson 2 remains needed for the Clockify SDK and adapter `ObjectMapper` code. |
@@ -341,3 +341,10 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
   completed run before showing "All clear", `409 ingest_in_progress` attaches
   to the existing run id, duplicate admin-role JS was removed, and async Spring
   tests mock supplemental Clockify fetchers. 341 tests green on 2026-06-12.
+- **§33** — Quality hardening: V16 adds a non-null `scope_key` identity for
+  workspace holidays so `applies_to_user_id = null` can persist workspace-wide
+  holidays; detailed-report parsing fails loud on missing entry arrays and page
+  cap exhaustion; supplemental holiday/time-off/user-directory refreshes are
+  independent attempts; sidebar token `iat` replay checks now accept `Date`,
+  NumericDate numbers, and numeric strings; Redis repositories are disabled
+  because Redis is template-backed only. 352 tests green on 2026-06-13.

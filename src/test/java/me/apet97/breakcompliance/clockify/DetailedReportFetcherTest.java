@@ -1,6 +1,7 @@
 package me.apet97.breakcompliance.clockify;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -218,6 +219,17 @@ class DetailedReportFetcherTest {
     }
 
     @Test
+    void missingEntriesKeyThrowsInsteadOfReturningEmptyWorkspace() {
+        mockResponse("{\"totals\": []}");
+
+        assertThatThrownBy(() -> fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07")))
+                .isInstanceOf(ClockifyApiException.class)
+                .hasMessageContaining("failed to parse detailed report");
+    }
+
+    @Test
     void parsesTypedFieldsWhileRetainingRawPayload() {
         mockResponse("""
                 {
@@ -371,6 +383,17 @@ class DetailedReportFetcherTest {
         assertThat(entries).hasSize(199);
         Mockito.verify(api, Mockito.times(1))
                 .postWithHeaders(any(), any(), any(), any(), any(), eq(String.class));
+    }
+
+    @Test
+    void fullPagesWithoutFinalSignalThrowAtMaxPageCap() {
+        mockResponseWithLastPage(pageWithEntries(200, "full"), "false");
+
+        assertThatThrownBy(() -> fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07")))
+                .isInstanceOf(ClockifyApiException.class)
+                .hasMessageContaining("page cap");
     }
 
     @Test

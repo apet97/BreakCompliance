@@ -90,6 +90,24 @@ class ManifestContractTest {
     }
 
     @Test
+    void manifest_sidebarComponentIsAdminOnly() throws Exception {
+        MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
+
+        JsonNode sidebar = null;
+        for (JsonNode component : root.get("components")) {
+            if ("sidebar".equalsIgnoreCase(component.get("type").asText())) {
+                sidebar = component;
+                break;
+            }
+        }
+
+        assertThat(sidebar).isNotNull();
+        assertThat(sidebar.get("path").asText()).isEqualTo("/sidebar");
+        assertThat(sidebar.get("accessLevel").asText()).isEqualTo("ADMINS");
+    }
+
+    @Test
     void manifest_declaresIconPathAndSingleSettingsTab() throws Exception {
         MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());

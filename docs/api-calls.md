@@ -11,7 +11,7 @@ workspace `65b382b606de527a7ee2b60e`). Probe-lab evidence at
 
 ---
 
-## 1. Outbound: Detailed Report (the only call we make)
+## 1. Outbound: Detailed Report (source-of-truth report call)
 
 `POST {reportsUrl}/v1/workspaces/{workspaceId}/reports/detailed`
 
@@ -102,6 +102,10 @@ Content-Type: application/json
 - If `Last-Page` is missing, the implementation falls back to
   `entries.size() < PAGE_SIZE`. This preserves compatibility with older or regional
   builds that omit the header on the final page.
+- If neither `timeentries` nor `timeEntries` is present as an array, the fetcher
+  fails loudly instead of treating the workspace as empty. If every page is full
+  and no final-page signal is ever observed, the hard page cap throws rather than
+  silently truncating the report.
 
 ### Auth
 
@@ -116,6 +120,7 @@ encrypted `breakcompliance_installations.auth_token` column (decrypt via
 |---|---|
 | 200 + `timeentries` parses | Iterate entries, upsert each into `breakcompliance_time_entries`. |
 | 200 + parse fail | Throw `ClockifyApiException("failed to parse detailed report", 0, e)` — the run is recorded as FAILED for admin audit. |
+| 200 + missing entries array / page-cap exhaustion | Throw `ClockifyApiException` — fail-loud rather than returning false "all clear" findings. |
 | 401 | `ClockifyApi.executeWithRetry` throws `ClockifyApiException(message, 401, e)`. `IngestionController` maps to HTTP 503 with `{error: "reports_unavailable", message: …}` so the sidebar shows a friendly banner instead of an opaque error. |
 | 429 | Retry honoring `Retry-After` (seconds or HTTP-date), capped at 30s, max 4 retries. |
 | 5xx | Retry with exponential backoff (1s → 2s → 4s, cap 30s), max 4 retries. |

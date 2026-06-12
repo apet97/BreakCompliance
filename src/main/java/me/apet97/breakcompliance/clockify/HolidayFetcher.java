@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * P1.1 — fetches workspace holidays in a date range from
- * {@code GET /v1/workspaces/{wsId}/holidays/in-period?start=&end=}.
+ * {@code GET /v1/workspaces/{wsId}/holidays}.
  *
  * <p>Response shape (live, dev portal 2026-05): an array of holiday
  * objects, each carrying {@code id}, {@code name}, a

@@ -34,9 +34,9 @@ never sends Clockify messages, and never adds outbound write scopes.
 - Only one RUNNING ingest may exist for the same `(workspaceId, dateRange)`; V15
   enforces this with a partial unique index and startup cleanup.
 - A run is not `COMPLETED` until detailed-report entries are persisted and the
-  holiday/time-off suppression refresh attempt returns. Refresh-signal callbacks
-  and sidebar evaluation rely on that ordering to avoid false positives from
-  stale suppression data.
+  holiday, time-off, and user-directory refresh attempts return. Refresh-signal
+  callbacks and sidebar evaluation rely on that ordering to avoid false
+  positives from stale suppression data.
 - Flyway migrations are additive. Do not drop columns/tables in deployable
   migrations.
 
@@ -52,4 +52,4 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
   mvn -B -ntp -DskipTests package
 ```
 
-Expected test baseline after the §32 cleanup pass: 341 green.
+Expected test baseline after the §33 hardening pass: 352 green.

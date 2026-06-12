@@ -15,11 +15,13 @@ import me.apet97.breakcompliance.persistence.entities.TargetType;
 import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
 import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.TemplateAssignmentRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +58,9 @@ class CrossWorkspaceIsolationTest {
 
     @Autowired
     FindingRepository findingRepo;
+
+    @Autowired
+    WorkspaceHolidayRepository holidayRepo;
 
     @Test
     void workspaceSettings_areIsolated() {
@@ -133,6 +138,22 @@ class CrossWorkspaceIsolationTest {
         assertThat(b).hasSize(1);
     }
 
+    @Test
+    void workspaceWideHoliday_withNullAppliesToUserId_roundTrips() {
+        WorkspaceHoliday workspaceWide = newHoliday("ws-a", "holiday-1", null);
+        WorkspaceHoliday userScoped = newHoliday("ws-a", "holiday-1", "user-1");
+
+        holidayRepo.saveAndFlush(workspaceWide);
+        holidayRepo.saveAndFlush(userScoped);
+
+        List<WorkspaceHoliday> holidays = holidayRepo.findByWorkspaceIdAndDateBetween(
+                "ws-a", LocalDate.parse("2026-05-10"), LocalDate.parse("2026-05-10"));
+
+        assertThat(holidays).hasSize(2);
+        assertThat(holidays).extracting(WorkspaceHoliday::getAppliesToUserId)
+                .containsExactlyInAnyOrder(null, "user-1");
+    }
+
     private WorkspaceSettings newSettings(String workspaceId) {
         WorkspaceSettings s = new WorkspaceSettings();
         s.setWorkspaceId(workspaceId);
@@ -198,5 +219,16 @@ class CrossWorkspaceIsolationTest {
         f.setEvidence(Map.of("seed", true));
         f.setCreatedAt(Instant.now());
         return f;
+    }
+
+    private WorkspaceHoliday newHoliday(String workspaceId, String sourceId, String appliesToUserId) {
+        WorkspaceHoliday h = new WorkspaceHoliday();
+        h.setWorkspaceId(workspaceId);
+        h.setSourceId(sourceId);
+        h.setDate(LocalDate.parse("2026-05-10"));
+        h.setAppliesToUserId(appliesToUserId);
+        h.setName("Founders Day");
+        h.setIngestedAt(Instant.now());
+        return h;
     }
 }

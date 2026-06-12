@@ -66,8 +66,18 @@ class SuppressionCacheRefresher {
         String backendUrl = install.getBackendUrl();
         Instant now = Instant.now();
 
-        refreshHolidays(workspaceId, backendUrl, token, from, to, now);
-        refreshTimeOff(workspaceId, backendUrl, token, from, to, now);
+        try {
+            refreshHolidays(workspaceId, backendUrl, token, from, to, now);
+        } catch (RuntimeException e) {
+            log.info("ingestion.holidays.refresh-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+        }
+        try {
+            refreshTimeOff(workspaceId, backendUrl, token, from, to, now);
+        } catch (RuntimeException e) {
+            log.info("ingestion.timeoff.refresh-failed workspace={} reason={}",
+                    workspaceId, e.getClass().getSimpleName());
+        }
         reconcileUserDirectory(workspaceId, backendUrl, token);
     }
 

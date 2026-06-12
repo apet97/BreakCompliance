@@ -30,10 +30,8 @@ import org.springframework.stereotype.Component;
  * 2026-05-11 against {@code reports.api.clockify.me} with a valid X-Api-Key
  * returned {@code "timeentries"} (along with {@code "totals"}). The spec is
  * wrong; the live API is right. We still accept {@code timeEntries} as a
- * defensive fallback — if Clockify ever migrates the live API to match the
- * spec, the failure mode without this fallback would be silent (the parser
- * would see {@code timeentries} as missing → return zero entries → "looks
- * like an empty workspace" with no error surfaced).
+ * defensive fallback. If neither key is present as an array, the fetcher
+ * throws instead of returning a false "empty workspace" result.
  */
 @Component
 public class DetailedReportFetcher {
@@ -93,7 +91,10 @@ public class DetailedReportFetcher {
                 throw new ClockifyApiException("failed to parse detailed report", 0, e);
             }
             JsonNode entries = entriesNode(root);
-            if (!entries.isArray() || entries.isEmpty()) {
+            if (entries == null) {
+                throw new ClockifyApiException("failed to parse detailed report: missing timeentries array", 0);
+            }
+            if (entries.isEmpty()) {
                 break;
             }
             for (JsonNode entry : entries) {
@@ -124,6 +125,9 @@ public class DetailedReportFetcher {
             }
             page++;
         }
+        if (page > MAX_PAGES) {
+            throw new ClockifyApiException("detailed report page cap reached without final page signal", 0);
+        }
         return all;
     }
 
@@ -137,14 +141,20 @@ public class DetailedReportFetcher {
      * call site still trips.
      */
     private static JsonNode entriesNode(JsonNode root) {
-        JsonNode lower = root.path("timeentries");
-        if (lower.isArray() && !lower.isEmpty()) {
+        JsonNode lower = root.get("timeentries");
+        JsonNode camel = root.get("timeEntries");
+        if (lower != null && lower.isArray() && !lower.isEmpty()) {
             return lower;
         }
-        JsonNode camel = root.path("timeEntries");
-        if (camel.isArray() && !camel.isEmpty()) {
+        if (camel != null && camel.isArray() && !camel.isEmpty()) {
             return camel;
         }
-        return lower.isMissingNode() ? camel : lower;
+        if (lower != null && lower.isArray()) {
+            return lower;
+        }
+        if (camel != null && camel.isArray()) {
+            return camel;
+        }
+        return null;
     }
 }

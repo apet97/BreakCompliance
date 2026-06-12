@@ -23,6 +23,8 @@ spring:
     locations: classpath:db/migration
   data:
     redis:
+      repositories:
+        enabled: false
       host: ${REDISHOST:${REDIS_HOST:localhost}}
       port: ${REDISPORT:${REDIS_PORT:6379}}
       # Empty default lets local dev (no-auth Redis from `brew services start redis`)

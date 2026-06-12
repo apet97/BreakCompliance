@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Date;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.ClaimsNormalizer;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
@@ -103,11 +104,11 @@ public class AddonTokenAuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isIatAcceptable(Map<String, Object> claims, String path) {
-        Object iatObj = claims.get("iat");
-        if (!(iatObj instanceof Number)) {
+        Instant iatInstant = iatInstant(claims.get("iat"));
+        if (iatInstant == null) {
             return true; // missing iat → don't reject; honored only when present
         }
-        long iat = ((Number) iatObj).longValue();
+        long iat = iatInstant.getEpochSecond();
         long now = Instant.now().getEpochSecond();
         long skew = securityProps.iatClockSkewSeconds();
         long maxAge = securityProps.sidebarTokenMaxIatAgeSeconds();
@@ -121,5 +122,22 @@ public class AddonTokenAuthFilter extends OncePerRequestFilter {
             return false;
         }
         return true;
+    }
+
+    private static Instant iatInstant(Object value) {
+        if (value instanceof Date d) {
+            return d.toInstant();
+        }
+        if (value instanceof Number n) {
+            return Instant.ofEpochSecond(n.longValue());
+        }
+        if (value instanceof String s && !s.isBlank()) {
+            try {
+                return Instant.ofEpochSecond(Long.parseLong(s.trim()));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 }
