@@ -90,13 +90,15 @@ any API call shape.
 
 ## Settings model (current)
 
-Split surface: native structured-settings owns ten admin-only fields for per-threshold
-fine-tuning; sidebar owns the preset chooser. The dropdown was removed from the manifest
-because Clockify's native UI renders each field independently and never re-fetches
-siblings on change — so backend-driven cross-field writes (the previous "preset-as-loader"
-pattern) weren't visible without a page reload. All eleven values still land on
-`WorkspaceSettings.customXxx` columns (the `custom_` prefix is historical — the
-`customPolicyEnabled` flag no longer gates evaluation; always-on).
+Split surface: native structured-settings owns 17 admin-only fields: ten break-policy
+fields plus seven operational/admin controls (`exemptUserIds`,
+`refreshDebounceSeconds`, `excludeUnsubmittedEntries`, the three severity override
+fields, and `nightShiftAttribution`). The sidebar owns the preset chooser. The dropdown
+was removed from the manifest because Clockify's native UI renders each field
+independently and never re-fetches siblings on change — so backend-driven cross-field
+writes (the previous "preset-as-loader" pattern) weren't visible without a page reload.
+Persisted values still land on `WorkspaceSettings` columns (the `custom_` prefix is
+historical — the `customPolicyEnabled` flag no longer gates evaluation; always-on).
 
 Preset selection: sidebar → `POST /api/presets/apply {presetKey}` →
 `InstallationService.applyPreset(workspaceId, presetKey)` overwrites all 8 threshold

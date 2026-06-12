@@ -285,12 +285,21 @@ function activePresetFromCatalog() {
     return state.presetCatalog.find(p => p.key === key) ?? null;
 }
 
+function clearCustomizedPillInteraction(pill) {
+    pill.removeAttribute("role");
+    pill.removeAttribute("aria-label");
+    pill.tabIndex = -1;
+    pill.onclick = null;
+    pill.onkeydown = null;
+}
+
 function renderCustomizedPill() {
     const pill = el("customized-pill");
     const activePreset = activePresetFromCatalog();
     const activeTemplate = state.session?.activeTemplate;
     if (!activePreset || !activeTemplate) {
         pill.hidden = true;
+        clearCustomizedPillInteraction(pill);
         return;
     }
     const divergent = fieldsThatDivergeFromPreset(activeTemplate, activePreset);
@@ -298,22 +307,28 @@ function renderCustomizedPill() {
         pill.hidden = false;
         pill.className = "customized-pill matches";
         pill.textContent = "Matches preset";
-        pill.removeAttribute("role");
-        pill.onclick = null;
+        clearCustomizedPillInteraction(pill);
     } else if (!isAdmin()) {
         // Non-admins see the informational "Customized" label without the
         // clickable Reset affordance — the apply endpoint would 403 anyway.
         pill.hidden = false;
         pill.className = "customized-pill diverged";
         pill.textContent = "Customized";
-        pill.removeAttribute("role");
-        pill.onclick = null;
+        clearCustomizedPillInteraction(pill);
     } else {
         pill.hidden = false;
         pill.className = "customized-pill diverged";
         pill.textContent = `Customized · Reset to ${activePreset.label}?`;
         pill.setAttribute("role", "button");
-        pill.onclick = () => applyPreset(activePreset.key, { skipDivergenceConfirm: true });
+        pill.setAttribute("aria-label", `Reset customized thresholds to ${activePreset.label}`);
+        pill.tabIndex = 0;
+        const resetToPreset = () => applyPreset(activePreset.key, { skipDivergenceConfirm: true });
+        pill.onclick = resetToPreset;
+        pill.onkeydown = event => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            resetToPreset();
+        };
     }
 }
 
@@ -926,6 +941,7 @@ function setLoadingMessage(text) {
 // P2.8 — read-only fetch path for the "All open" preset. Reuses the
 // findings list endpoint with openOnly=true; no ingest, no evaluate.
 async function loadOpenFindings(range) {
+    showBanner("hidden");
     setLoading(true);
     setLoadingMessage(`Loading open findings ${range.start} → ${range.end}…`);
     try {
@@ -1182,17 +1198,21 @@ function wireEvents() {
     // preset if no run has happened yet.
     el("refresh-btn").addEventListener("click", () => {
         if (!isAdmin()) return;
+        // Also refresh the session info so the active-template chip picks
+        // up any threshold/preset change from the structured-settings page.
+        api("/api/session")
+            .then(s => { state.session = s; renderActiveTemplate(); renderCustomizedPill(); renderValidationWarnings(); renderSettingsHint(); })
+            .catch(() => { /* non-fatal — runCompliance will surface its own errors */ });
+        if (state.lastRunRange?.openOnly) {
+            void loadOpenFindings(state.lastRunRange);
+            return;
+        }
         if (state.lastRunRange) {
             state.preset = "custom_range";
             state.customStart = state.lastRunRange.start;
             state.customEnd = state.lastRunRange.end;
             updateFormFromState();
         }
-        // Also refresh the session info so the active-template chip picks
-        // up any threshold/preset change from the structured-settings page.
-        api("/api/session")
-            .then(s => { state.session = s; renderActiveTemplate(); renderCustomizedPill(); renderValidationWarnings(); renderSettingsHint(); })
-            .catch(() => { /* non-fatal — runCompliance will surface its own errors */ });
         runCompliance();
     });
 

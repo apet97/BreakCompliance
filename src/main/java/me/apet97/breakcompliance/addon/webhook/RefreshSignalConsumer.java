@@ -51,7 +51,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>Otherwise dispatches a fresh async ingest via
  *       {@link IngestionService#beginAsyncForRefresh} with a post-finalize
  *       callback that re-evaluates findings and transitions the signals
- *       to {@code CONSUMED}.</li>
+ *       to {@code CONSUMED}, or {@code FAILED} if evaluation fails after
+ *       ingest completes.</li>
  * </ol>
  *
  * <p>A signal that stays {@code CLAIMED} forever indicates the run
@@ -73,6 +74,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class RefreshSignalConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(RefreshSignalConsumer.class);
+    private static final Duration MIN_CONFIGURABLE_DEBOUNCE = Duration.ofSeconds(5);
 
     private final RefreshSignalRepository signals;
     private final IngestionRunRepository runs;
@@ -114,11 +116,13 @@ public class RefreshSignalConsumer {
 
     @Scheduled(fixedDelayString = "${breakcompliance.refresh.poll-interval-ms:30000}")
     public void pollAndDispatch() {
-        // The naive cutoff uses the application-default debounce; per
-        // P3.3 each workspace can opt into a longer / shorter window via
-        // WorkspaceSettings.customRefreshDebounceSeconds, so re-filter
-        // signal-by-signal once we know which workspace it belongs to.
-        Instant cutoff = Instant.now().minus(debounce);
+        // Fetch every signal that could be old enough for any supported
+        // workspace override, then re-filter signal-by-signal once the
+        // workspace-specific debounce is known.
+        Duration queryDebounce = debounce.compareTo(MIN_CONFIGURABLE_DEBOUNCE) < 0
+                ? debounce
+                : MIN_CONFIGURABLE_DEBOUNCE;
+        Instant cutoff = Instant.now().minus(queryDebounce);
         List<RefreshSignal> pending = tx.execute(status -> signals
                 .findByStatusAndReceivedAtBeforeOrderByWorkspaceIdAscReceivedAtAsc(
                         RefreshSignalStatus.PENDING, cutoff));
@@ -231,9 +235,20 @@ public class RefreshSignalConsumer {
                     window.to(),
                     install.getReportsUrl(),
                     runId -> {
-                        findings.evaluateAndReplace(workspaceId, window.from(), window.to());
-                        tx.executeWithoutResult(s -> signals.updateStatusAndRunId(
-                                workspaceId, signalIds, RefreshSignalStatus.CONSUMED, runId));
+                        try {
+                            findings.evaluateAndReplace(workspaceId, window.from(), window.to());
+                            tx.executeWithoutResult(s -> signals.updateStatusAndRunId(
+                                    workspaceId, signalIds, RefreshSignalStatus.CONSUMED, runId));
+                        } catch (RuntimeException e) {
+                            tx.executeWithoutResult(s -> signals.updateStatusAndRunId(
+                                    workspaceId, signalIds, RefreshSignalStatus.FAILED, runId));
+                            meters.counter(
+                                            MetricsConfig.REFRESH_SIGNALS_PROCESSED,
+                                            "outcome",
+                                            "evaluate_failed")
+                                    .increment(signalIds.size());
+                            throw e;
+                        }
                     });
         } catch (InstallationInactiveException e) {
             tx.executeWithoutResult(status -> signals.updateStatus(

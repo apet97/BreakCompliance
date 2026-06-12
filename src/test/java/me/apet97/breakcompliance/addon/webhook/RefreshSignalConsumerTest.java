@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
+import me.apet97.breakcompliance.api.FindingsService;
 import me.apet97.breakcompliance.clockify.DetailedReportFetcher;
 import me.apet97.breakcompliance.clockify.HolidayFetcher;
 import me.apet97.breakcompliance.clockify.TimeOffFetcher;
@@ -26,9 +27,11 @@ import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
 import me.apet97.breakcompliance.persistence.entities.RefreshSignal;
 import me.apet97.breakcompliance.persistence.entities.RefreshSignalSource;
 import me.apet97.breakcompliance.persistence.entities.RefreshSignalStatus;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
 import me.apet97.breakcompliance.persistence.repositories.RefreshSignalRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -58,14 +61,15 @@ import org.springframework.test.context.TestPropertySource;
  * {@link SyncTaskExecutor} so the dispatched ingest+finalize+evaluate
  * cycle completes inline.
  *
- * <p>Debounce is shrunk to 100 ms here so we can seed signals that
- * immediately qualify as "drained" without test sleeps.
+ * <p>The global debounce stays at the production 20s default; tests that
+ * need already-drainable signals seed old rows explicitly, and one case
+ * covers a shorter workspace-level override.
  */
 @SpringBootTest(properties = "spring.main.allow-bean-definition-overriding=true")
 @Import({PostgresTestcontainersConfig.class, TestClockifyKeyConfig.class})
 @TestPropertySource(properties = {
         "breakcompliance.scheduling.enabled=true",
-        "breakcompliance.refresh.debounce-ms=100",
+        "breakcompliance.refresh.debounce-ms=20000",
         "breakcompliance.refresh.poll-interval-ms=600000"
 })
 class RefreshSignalConsumerTest {
@@ -95,6 +99,9 @@ class RefreshSignalConsumerTest {
     InstallationRepository installations;
 
     @Autowired
+    WorkspaceSettingsRepository workspaceSettings;
+
+    @Autowired
     TokenCodec codec;
 
     @MockitoBean
@@ -109,6 +116,9 @@ class RefreshSignalConsumerTest {
     @MockitoBean
     UserDirectoryFetcher userDirectoryFetcher;
 
+    @MockitoBean
+    FindingsService findings;
+
     @BeforeEach
     void clean() {
         // Stub the Clockify call so executeRun's finalize commits a clean
@@ -122,9 +132,12 @@ class RefreshSignalConsumerTest {
                 .thenReturn(List.of());
         Mockito.when(userDirectoryFetcher.fetchActive(anyString(), anyString(), anyString()))
                 .thenReturn(Map.of());
+        Mockito.when(findings.evaluateAndReplace(anyString(), any(), any()))
+                .thenReturn(List.of());
 
         runs.deleteAll();
         signals.deleteAll();
+        workspaceSettings.deleteAll();
         installations.deleteAll();
 
         Installation install = new Installation();
@@ -142,9 +155,9 @@ class RefreshSignalConsumerTest {
 
     @Test
     void pollAndDispatch_drainsPendingSignalsIntoSingleRun() throws Exception {
-        seedSignal("a", "NEW_TIME_ENTRY", "2026-05-09", Instant.now().minusSeconds(5));
-        seedSignal("b", "TIME_ENTRY_UPDATED", "2026-05-10", Instant.now().minusSeconds(4));
-        seedSignal("c", "TIME_ENTRY_DELETED", null, Instant.now().minusSeconds(3));
+        seedSignal("a", "NEW_TIME_ENTRY", "2026-05-09", Instant.now().minusSeconds(30));
+        seedSignal("b", "TIME_ENTRY_UPDATED", "2026-05-10", Instant.now().minusSeconds(29));
+        seedSignal("c", "TIME_ENTRY_DELETED", null, Instant.now().minusSeconds(28));
 
         consumer.pollAndDispatch();
 
@@ -163,7 +176,7 @@ class RefreshSignalConsumerTest {
 
     @Test
     void pollAndDispatch_freshSignalsBelowDebounceWindowAreSkipped() {
-        // Signal received "just now" — within the 100 ms debounce window.
+        // Signal received "just now" — within the 20s global debounce window.
         seedSignal("fresh", "NEW_TIME_ENTRY", "2026-05-10", Instant.now());
 
         consumer.pollAndDispatch();
@@ -172,6 +185,34 @@ class RefreshSignalConsumerTest {
         assertThat(runs.count()).isZero();
         RefreshSignal s = signals.findByWorkspaceIdOrderByReceivedAtDesc(WORKSPACE).get(0);
         assertThat(s.getStatus()).isEqualTo(RefreshSignalStatus.PENDING);
+    }
+
+    @Test
+    void pollAndDispatch_usesShorterWorkspaceDebounceWhenConfigured() {
+        saveSettingsWithRefreshDebounce(5);
+        seedSignal("short", "NEW_TIME_ENTRY", "2026-05-10", Instant.now().minusSeconds(6));
+
+        consumer.pollAndDispatch();
+
+        assertThat(runs.count()).isEqualTo(1);
+        RefreshSignal s = signals.findByWorkspaceIdOrderByReceivedAtDesc(WORKSPACE).get(0);
+        assertThat(s.getStatus()).isEqualTo(RefreshSignalStatus.CONSUMED);
+    }
+
+    @Test
+    void pollAndDispatch_marksSignalsFailedWhenEvaluationFailsAfterIngestCompletes() {
+        Mockito.when(findings.evaluateAndReplace(anyString(), any(), any()))
+                .thenThrow(new IllegalStateException("boom"));
+        seedSignal("evaluate-fails", "NEW_TIME_ENTRY", "2026-05-10", Instant.now().minusSeconds(30));
+
+        consumer.pollAndDispatch();
+
+        List<IngestionRun> allRuns = runs.findByWorkspaceIdOrderByCreatedAtDesc(WORKSPACE);
+        assertThat(allRuns).hasSize(1);
+        assertThat(allRuns.get(0).getStatus()).isEqualTo(IngestionStatus.COMPLETED);
+        RefreshSignal s = signals.findByWorkspaceIdOrderByReceivedAtDesc(WORKSPACE).get(0);
+        assertThat(s.getStatus()).isEqualTo(RefreshSignalStatus.FAILED);
+        assertThat(s.getIngestionRunId()).isEqualTo(allRuns.get(0).getId());
     }
 
     @Test
@@ -191,7 +232,7 @@ class RefreshSignalConsumerTest {
         inflight.setCompletedAt(now);
         runs.saveAndFlush(inflight);
 
-        seedSignal("dup", "NEW_TIME_ENTRY", "2026-05-10", Instant.now().minusSeconds(2));
+        seedSignal("dup", "NEW_TIME_ENTRY", "2026-05-10", Instant.now().minusSeconds(30));
 
         consumer.pollAndDispatch();
 
@@ -213,5 +254,15 @@ class RefreshSignalConsumerTest {
         s.setReceivedAt(receivedAt);
         s.setStatus(RefreshSignalStatus.PENDING);
         signals.saveAndFlush(s);
+    }
+
+    private void saveSettingsWithRefreshDebounce(int seconds) {
+        WorkspaceSettings settings = new WorkspaceSettings();
+        settings.setWorkspaceId(WORKSPACE);
+        settings.setCustomRefreshDebounceSeconds(seconds);
+        Instant now = Instant.now();
+        settings.setCreatedAt(now);
+        settings.setUpdatedAt(now);
+        workspaceSettings.saveAndFlush(settings);
     }
 }

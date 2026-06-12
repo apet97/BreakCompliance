@@ -203,8 +203,24 @@
   gap: 4px;
   font-size: 12px;
 }
-.toggle-option { display: flex; align-items: center; cursor: pointer; }
-.toggle-option input[type="radio"] { display: none; }
+.toggle-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.toggle-option input[type="radio"] {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 .toggle-option span {
   padding: 4px 12px;
   border-radius: 4px;
@@ -217,6 +233,11 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
+}
+.toggle-option input[type="radio"]:focus-visible + span {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--accent-ring);
 }
 
 /* Status states */

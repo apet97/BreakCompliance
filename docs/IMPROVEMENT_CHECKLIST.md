@@ -72,8 +72,8 @@ admin complaints.
   - Touches: `clockify/TimeOffFetcher.java` (new), `domain/BreakRuleEngine.java`,
     `api/IngestionService.java`.
 
-- [!] **P1.3 Approval-state filter on detailed report** — deferred (needs new setting + migration)
-  - New admin setting `excludeUnsubmittedEntries` (CHECKBOX, default false). When
+- [x] **P1.3 Approval-state filter on detailed report** — shipped (setting + detailed-report body filter)
+  - Admin setting `excludeUnsubmittedEntries` (CHECKBOX, default false). When
     true, send `"approvalState": "APPROVED"` in the detailed-report body. Avoids
     flagging entries the user is still editing.
   - Touches: `clockify/DetailedReportFetcher.java`, manifest field.
@@ -192,7 +192,7 @@ admin complaints.
 - [!] **P4.1 [live-blocked] Sidebar + settings screenshots**
   - `LISTING.md` marks both as pending. Capture (a) sidebar with preset chooser
     open + a sample finding; (b) Workspace Settings → Add-ons → Break Compliance
-    → Settings showing all ten fields. Store under `docs/screenshots/`.
+    → Settings showing all 17 native fields. Store under `docs/screenshots/`.
 
 - [!] **P4.2 [live-blocked] Engine finding-output JSON capture**
   - Capture a real `GET /api/findings` response from production against the

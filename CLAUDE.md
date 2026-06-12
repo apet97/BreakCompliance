@@ -80,8 +80,8 @@ from a controller method body will throw `LazyInitializationException`.
 
 ## Settings model — split surface: threshold fields native, preset chooser sidebar (§18 / §22 / §24 / §26)
 
-**Native structured-settings tab "Break Compliance"** — 10 admin-only fields
-for fine-tuning individual thresholds:
+**Native structured-settings tab "Break Compliance"** — 17 admin-only fields:
+10 break-policy fields plus 7 operational/admin controls:
 
 | Field | Type | Default |
 |---|---|---|
@@ -95,6 +95,13 @@ for fine-tuning individual thresholds:
 | `secondBreakThresholdMinutes` | NUMBER | 0 (disabled — placeholder "0 = disabled") |
 | `timezoneStrategy` | DROPDOWN required | `Use entry's local time zone` |
 | `fallbackDetectionEnabled` | CHECKBOX | false (ON: 5–120 min gap between two consecutive WORK entries on the same day counts as a qualifying break — see Engine note below) |
+| `exemptUserIds` | TXT | blank |
+| `refreshDebounceSeconds` | NUMBER | 0 (use default 20s; accepted range 5–300) |
+| `excludeUnsubmittedEntries` | CHECKBOX | false |
+| `severityOverrideMissingBreak` | DROPDOWN | `VIOLATION` |
+| `severityOverrideInsufficientBreak` | DROPDOWN | `VIOLATION` |
+| `severityOverrideMaxContinuous` | DROPDOWN | `VIOLATION` |
+| `nightShiftAttribution` | DROPDOWN | `start-day` |
 
 **Sidebar preset chooser** owns `appliedPresetKey` (entity column unchanged).
 Reason: Clockify's native settings UI renders each field independently and
@@ -205,8 +212,8 @@ src/main/java/me/apet97/breakcompliance/
                   after executeRun returns, so CLAIMED signals are marked CONSUMED after
                   suppression refresh has attempted.
                   PresetController serves GET /api/presets + POST /api/presets/apply for
-                  the sidebar-driven preset chooser (native settings only holds the 10
-                  per-field thresholds).
+                  the sidebar-driven preset chooser (native settings hold the 17
+                  individual admin fields, not the preset selector).
                   IngestRunController also exposes GET /api/ingest/runs/latest (most recent
                   COMPLETED run for the workspace, or 204) — drives the sidebar's
                   "Last checked Xm ago" + "Pending refresh" staleness indicators (P2 #2).
