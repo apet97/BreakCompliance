@@ -31,6 +31,7 @@ import {
     severityClass,
 } from "./sidebar/date-range.js";
 import { clearChildren, create, el } from "./sidebar/dom.js";
+import { applyFindingsCountToLastRun, diagnosticMetricRows } from "./sidebar/diagnostics.js";
 import { downloadFindingsCsv as downloadFindingsCsvFile } from "./sidebar/findings-export.js";
 import { displayUserName, reviewBadgeClass, reviewBadgeText, statusIconMeta } from "./sidebar/findings-rendering.js";
 import { loadI18n, t } from "./sidebar/i18n.js";
@@ -181,14 +182,12 @@ function renderDiagnostics() {
         return;
     }
     node.hidden = false;
-    node.appendChild(create("div", undefined, [
-        create("div", { className: "label", text: "Entries ingested" }),
-        create("div", { className: "value", text: String(state.lastRun.entriesProcessed) }),
-    ]));
-    node.appendChild(create("div", undefined, [
-        create("div", { className: "label", text: "Findings created" }),
-        create("div", { className: "value", text: String(state.lastRun.findingsCreated) }),
-    ]));
+    for (const row of diagnosticMetricRows(state.lastRun)) {
+        node.appendChild(create("div", undefined, [
+            create("div", { className: "label", text: row.label }),
+            create("div", { className: "value", text: row.value }),
+        ]));
+    }
 }
 
 function renderLastChecked() {
@@ -1153,6 +1152,7 @@ async function loadInitialData() {
         if (state.lastRunRange) {
             try {
                 await loadFindingsForRange(state.lastRunRange);
+                applyFindingsCountToLastRun(state);
             } catch (err) {
                 state.findings = [];
                 rememberFindingsRange(null);

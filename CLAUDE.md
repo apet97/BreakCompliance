@@ -26,6 +26,8 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
   mvn -B -ntp test
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+
+NODE_OPTIONS=--no-warnings node --test src/test/js/sidebar-diagnostics.test.mjs
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
@@ -291,6 +293,8 @@ src/main/resources/
 src/test/...            368 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:
                         find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+                        Focused sidebar behavior gate:
+                        NODE_OPTIONS=--no-warnings node --test src/test/js/sidebar-diagnostics.test.mjs
                         Spring Boot 4 test slices live in the webmvc/data-jpa/jdbc
                         test modules; do not revert imports to Boot 3 packages.
                         Testcontainers pinned to 1.21.4 in pom.xml so the

@@ -30,8 +30,9 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 
 1. From this directory: `mvn verify`
 2. Check static sidebar modules: `find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check`
-3. Run locally: `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
-4. Smoke test: `curl http://localhost:8080/healthz` → `{"status":"ok"}` and `curl http://localhost:8080/manifest` → manifest JSON.
+3. Run focused sidebar behavior tests: `NODE_OPTIONS=--no-warnings node --test src/test/js/sidebar-diagnostics.test.mjs`
+4. Run locally: `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
+5. Smoke test: `curl http://localhost:8080/healthz` → `{"status":"ok"}` and `curl http://localhost:8080/manifest` → manifest JSON.
 
 ## Project layout
 

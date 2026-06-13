@@ -53,6 +53,8 @@ never sends Clockify messages, and never adds outbound write scopes.
 ```sh
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 
+NODE_OPTIONS=--no-warnings node --test src/test/js/sidebar-diagnostics.test.mjs
+
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
 

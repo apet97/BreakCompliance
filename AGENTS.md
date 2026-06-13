@@ -26,10 +26,11 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 367 green. Postgres + Redis spin up via Testcontainers.
+# Expect 368 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+NODE_OPTIONS=--no-warnings node --test src/test/js/sidebar-diagnostics.test.mjs
 
 # Targeted run.
 mvn -B -ntp test -Dtest='LifecycleControllerTest,BreakRuleEngineTest'
@@ -200,7 +201,7 @@ suppression for PTO; partial-day requests must leave same-day work visible.
 
 ## When you change behavior
 
-1. Update tests (`src/test/java/me/apet97/breakcompliance/...`).
+1. Update tests (`src/test/java/me/apet97/breakcompliance/...` or `src/test/js/...`).
 2. Update `CLAUDE.md` if the settings model, hard rules, or build steps change.
 3. Update `docs/api-calls.md` if any outbound or inbound API shape changes.
 4. Commit message format: `type(scope): short summary` (matching `fix(reports): …`,
@@ -402,3 +403,8 @@ suppression for PTO; partial-day requests must leave same-day work visible.
   concrete `MessageSource` in production. `/api/findings/evaluate` no longer
   500s when the engine emits `finding.*` text, and the app-context regression
   pins all current finding message keys. 368 tests green on 2026-06-14.
+- **§38** — Sidebar diagnostics repair: first-load/latest-run hydration now
+  fills `findingsCreated` from the persisted findings list after it loads, and
+  the diagnostics renderer omits unknown values instead of printing `null`.
+  Added the repo's first focused Node sidebar behavior test at
+  `src/test/js/sidebar-diagnostics.test.mjs`.
