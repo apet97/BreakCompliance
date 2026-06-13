@@ -242,10 +242,11 @@ admin complaints.
 
 - [x] **P5.3 [shipped] i18n scaffolding**
   - Route finding messages through Spring `MessageSource`; ship
-    `messages_en.properties` only for now. Sidebar copy moves to
-    `static/i18n/en.json`. Future locales drop in without code changes.
-  - Touches: `domain/BreakRuleEngine.java`, `messages_en.properties`,
-    `static/i18n/en.json`, and `static/sidebar/i18n.js`.
+    `messages.properties` as the root fallback plus `messages_en.properties` as
+    the English locale for now. Sidebar copy moves to `static/i18n/en.json`.
+    Future locales drop in without code changes.
+  - Touches: `domain/BreakRuleEngine.java`, `messages.properties`,
+    `messages_en.properties`, `static/i18n/en.json`, and `static/sidebar/i18n.js`.
 
 - [x] **P5.4 [shipped] Typed detailed-report DTO**
   - `DetailedReportFetcher` returns local `DetailedReportEntry` records with
@@ -305,7 +306,7 @@ admin complaints.
 
 ## Verification (per item)
 
-1. **Unit + Testcontainers tests pass.** Current baseline: 366 green. Each new
+1. **Unit + Testcontainers tests pass.** Current baseline: 368 green. Each new
    behaviour gets at least one focused test.
    ```sh
    JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \

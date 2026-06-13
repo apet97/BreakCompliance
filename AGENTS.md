@@ -91,7 +91,7 @@ any API call shape.
 | `/manifest` must advertise `schemaVersion: "1.5"` when serving structured settings. | The Java SDK 1.5.3 builders stop before schema 1.5, so `ManifestController` normalizes the served JSON. Clockify's dev portal rejects object settings under older schema validation. |
 | Native TXT setting defaults must be at least one character. | Clockify schema 1.5 rejects empty string `value`; `exemptUserIds` uses a single-space sentinel and `InstallationService` maps blank strings to null. |
 | Settings = native structured-settings only. No `/settings` iframe. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
-| Finding messages route through Spring `MessageSource` (`messages_en.properties`) and retain the same persisted English output for now. | Future localization must not change finding codes, severities, evidence shape, CSV columns, or historical findings. |
+| Finding messages route through Spring `MessageSource` (`messages.properties` root fallback + `messages_en.properties` English locale) and retain the same persisted English output for now. | The root bundle is required for Spring Boot to auto-configure a real `MessageSource`; future localization must not change finding codes, severities, evidence shape, CSV columns, or historical findings. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by 2026-05-11 live probe. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single `{id,value}` shape. Unknown shapes drift-log + return 200. |
 | Detailed-report response key is `timeentries` (ALL LOWERCASE); `timeEntries` is accepted defensively, but blank/null bodies and missing/non-array entry keys fail loud. | Spec mislabels as `timeEntries`. Live API returns lowercase. Silent empty reports create false "all clear" compliance output. |
 | Body dates are `yyyy-MM-dd'T'HH:mm:ss` (no `Z` suffix). | Server interprets in user timezone. |
@@ -397,3 +397,8 @@ suppression for PTO; partial-day requests must leave same-day work visible.
   validation. Optional TXT defaults now satisfy schema minLength; `exemptUserIds`
   stays semantically blank through the existing blank-string parser. 367 tests
   green on 2026-06-14.
+- **§37** — MessageSource runtime repair: added the root `messages.properties`
+  fallback alongside `messages_en.properties` so Spring Boot auto-configures a
+  concrete `MessageSource` in production. `/api/findings/evaluate` no longer
+  500s when the engine emits `finding.*` text, and the app-context regression
+  pins all current finding message keys. 368 tests green on 2026-06-14.

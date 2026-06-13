@@ -29,7 +29,7 @@ find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**367 tests expected** (§36 after manifest schema repair).
+**368 tests expected** (§37 after MessageSource runtime repair).
 Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
@@ -140,9 +140,10 @@ template resolution; the `breakcompliance_rule_templates` +
 additively).
 
 Finding messages are generated through Spring `MessageSource` from
-`messages_en.properties` (English only for now). The persisted `message` column
-and CSV `message` output stay unchanged; future locale work must not change
-finding codes, severity, evidence shape, or API/CSV columns.
+`messages.properties` (root fallback, required for Boot auto-configuration) and
+`messages_en.properties` (English locale, only locale for now). The persisted
+`message` column and CSV `message` output stay unchanged; future locale work
+must not change finding codes, severity, evidence shape, or API/CSV columns.
 
 **Gap-as-break heuristic** (`fallbackDetectionEnabled=true`,
 `BreakRuleEngine.evaluateSegments`): when two consecutive `WORK`-classified
@@ -287,7 +288,7 @@ src/main/resources/
   static/               sidebar.js, sidebar/*.js, sidebar/css/*.css, styles.css,
                         theme-init.js, i18n/en.json, icon.svg (64×64 designed mark)
 
-src/test/...            366 green expected (JDK 21 + Postgres + Redis Testcontainers).
+src/test/...            368 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:
                         find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
                         Spring Boot 4 test slices live in the webmvc/data-jpa/jdbc
