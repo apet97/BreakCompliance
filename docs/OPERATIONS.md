@@ -1,6 +1,6 @@
 # Operations Runbook — Break Compliance
 
-_Last updated: 2026-06-13._
+_Last updated: 2026-06-14._
 
 Break Compliance is a read-only Clockify marketplace add-on hosted on Railway.
 This runbook is for deploys, rollbacks, monitoring, key rotation, incident
@@ -63,9 +63,12 @@ or Clockify API keys into this repository.
    railway logs --service BreakCompliance
    ```
 
-Pass criteria: `/healthz` returns 200, manifest scopes are exactly
-`REPORTS_READ`, `TIME_ENTRY_READ`, `USER_READ`, and logs show no token/JWT
-material.
+Pass criteria: `/healthz` returns 200, manifest `schemaVersion` is exactly
+`1.5`, manifest scopes are exactly `REPORTS_READ`, `TIME_ENTRY_READ`,
+`USER_READ`, and logs show no token/JWT material. `schemaVersion: "1.5"` is
+required because the manifest uses native structured-settings; older schema
+validation can reject the `settings` object as if only a self-hosted settings
+path string were allowed.
 
 ## Rollback
 

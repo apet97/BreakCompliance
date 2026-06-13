@@ -29,7 +29,7 @@ find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**366 tests expected** (§35 after plan-queue refresh).
+**367 tests expected** (§36 after manifest schema repair).
 Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
@@ -111,7 +111,7 @@ from a controller method body will throw `LazyInitializationException`.
 | `secondBreakThresholdMinutes` | NUMBER | 0 (disabled — placeholder "0 = disabled") |
 | `timezoneStrategy` | DROPDOWN required | `Use entry's local time zone` |
 | `fallbackDetectionEnabled` | CHECKBOX | false (ON: 5–120 min gap between two consecutive WORK entries on the same day counts as a qualifying break — see Engine note below) |
-| `exemptUserIds` | TXT | blank |
+| `exemptUserIds` | TXT | blank (served as a single-space schema sentinel; parsed as blank/null) |
 | `refreshDebounceSeconds` | NUMBER | 0 (use default 20s; accepted range 5–300) |
 | `excludeUnsubmittedEntries` | CHECKBOX | false |
 | `severityOverrideMissingBreak` | DROPDOWN | `VIOLATION` |
@@ -178,6 +178,8 @@ live-probed shape.
 | Read `backendUrl`/`reportsUrl` from JWT claims — never hardcode. | Dev portal uses `/report/v1/…`; production `reports.api.clockify.me/v1/…`. JWT has the env-correct URL. |
 | Production Clockify base URLs must be HTTPS `*.clockify.me`; local HTTP URLs require the explicit dev/test opt-in property. | Prevents a tampered JWT from steering outbound calls to localhost or arbitrary hosts. |
 | `X-Addon-Token` header (not `Authorization`) for outbound. | Clockify rejects `Authorization`. |
+| `/manifest` must advertise `schemaVersion: "1.5"` when serving structured settings. | The Java SDK 1.5.3 builders stop before schema 1.5, so `ManifestController` normalizes the served JSON. Clockify's dev portal rejects object settings under older schema validation. |
+| Native TXT setting defaults must be at least one character. | Clockify schema 1.5 rejects empty string `value`; `exemptUserIds` uses a single-space sentinel and `InstallationService` already maps blank strings to null. |
 | Threshold fields = native structured-settings; preset selection = sidebar. | Clockify renders each native field independently and never re-fetches siblings after a change, so a backend-driven cross-field write isn't visible until reload. Sidebar lets us preview, confirm, and apply atomically. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` (§24). | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single-object shapes; unknown shapes drift-log + 200. |
 | Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback and throws when the body is blank/null or neither key is an array. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Missing/invalid entry arrays and blank bodies must fail loud, not look like an empty workspace. |
@@ -219,7 +221,8 @@ src/main/java/me/apet97/breakcompliance/
                   + SettingsUpdatedPayload (object/array/single shape parser)
                   + WorkspaceDataDeletionService (DELETED wipe)
                   + PayloadDriftLogger (one-shot WARN on unknown keys)
-    manifest/     ManifestController (Gson serialises the SDK manifest)
+    manifest/     ManifestController (Gson serialises the SDK manifest and
+                  pins served schemaVersion to 1.5 for structured settings)
     ui/           SidebarHtmlController serves the iframe HTML shell
     webhook/      NEW/UPDATED/DELETED time-entry + Redis SETNX (24h TTL) + RefreshSignalService
                   (records PENDING signals with dateHint from timeInterval.start) +

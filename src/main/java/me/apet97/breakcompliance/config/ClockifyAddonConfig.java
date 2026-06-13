@@ -22,13 +22,13 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
- * Builds the v1.3 Clockify manifest at startup and exposes it as a Spring
- * bean. Routes are served by Spring {@code @RestController}s; the SDK acts as
- * a manifest builder + JWT verifier, not a routing framework. After the
- * builder produces the manifest we manually populate its lifecycle, webhook
- * and component lists (the SDK's {@code ClockifyAddon.registerXxx} helpers
- * mutate these same lists; we mirror that effect without using the SDK's
- * routing facade so Clockify sees the resources we actually serve).
+ * Builds the Clockify manifest at startup and exposes it as a Spring bean.
+ * Routes are served by Spring {@code @RestController}s; the SDK acts as a
+ * manifest builder + JWT verifier, not a routing framework. After the builder
+ * produces the manifest we manually populate its lifecycle, webhook and
+ * component lists (the SDK's {@code ClockifyAddon.registerXxx} helpers mutate
+ * these same lists; we mirror that effect without using the SDK's routing
+ * facade so Clockify sees the resources we actually serve).
  */
 @Configuration
 @EnableConfigurationProperties({BreakComplianceManifestProperties.class, BreakComplianceClockifyProperties.class})
@@ -247,7 +247,9 @@ public class ClockifyAddonConfig {
                 .name("Exempt user ids")
                 .allowAdmins()
                 .asTxt()
-                .value("")
+                // Schema 1.5 rejects empty string defaults; SETTINGS_UPDATED
+                // already treats blank strings as null for this optional field.
+                .value(" ")
                 .placeholder("Comma-separated Clockify user ids")
                 .description("Optional. User ids listed here are skipped during evaluation — useful for execs, contractors, or anyone whose schedule isn't subject to the workspace's break policy.")
                 .build();

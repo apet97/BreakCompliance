@@ -26,7 +26,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 366 green. Postgres + Redis spin up via Testcontainers.
+# Expect 367 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -88,6 +88,8 @@ any API call shape.
 | `X-Addon-Token` header (not `Authorization`) for outbound Clockify. | Clockify rejects `Authorization`. |
 | `/sidebar` must not render inline scripts under `script-src 'self'`; theme bootstrap lives in `/theme-init.js`. | Inline scripts are CSP-blocked in the iframe and cause dark-mode theme flicker. |
 | Sidebar i18n dictionaries are same-origin static JSON only (`/i18n/en.json` today). | Keeps CSP simple and avoids leaking iframe/session context to remote translation services. |
+| `/manifest` must advertise `schemaVersion: "1.5"` when serving structured settings. | The Java SDK 1.5.3 builders stop before schema 1.5, so `ManifestController` normalizes the served JSON. Clockify's dev portal rejects object settings under older schema validation. |
+| Native TXT setting defaults must be at least one character. | Clockify schema 1.5 rejects empty string `value`; `exemptUserIds` uses a single-space sentinel and `InstallationService` maps blank strings to null. |
 | Settings = native structured-settings only. No `/settings` iframe. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
 | Finding messages route through Spring `MessageSource` (`messages_en.properties`) and retain the same persisted English output for now. | Future localization must not change finding codes, severities, evidence shape, CSV columns, or historical findings. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by 2026-05-11 live probe. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single `{id,value}` shape. Unknown shapes drift-log + return 200. |
@@ -118,6 +120,8 @@ independently and never re-fetches siblings on change — so backend-driven cros
 writes (the previous "preset-as-loader" pattern) weren't visible without a page reload.
 Persisted values still land on `WorkspaceSettings` columns (the `custom_` prefix is
 historical — the `customPolicyEnabled` flag no longer gates evaluation; always-on).
+`exemptUserIds` is semantically blank by default, but the manifest emits a single
+space because Clockify's schema requires TXT defaults to have `minLength: 1`.
 
 Preset selection: sidebar → `POST /api/presets/apply {presetKey}` →
 `InstallationService.applyPreset(workspaceId, presetKey)` overwrites all 8 threshold
@@ -387,3 +391,9 @@ suppression for PTO; partial-day requests must leave same-day work visible.
   `MessageSource`; sidebar high-visibility copy loads from same-origin
   `/i18n/en.json`; marketplace proof docs record 2026-06-14 local verification
   and explicit live-evidence skips. 366 tests green on 2026-06-14.
+- **§36** — Manifest schema repair: `/manifest` pins served JSON to
+  `schemaVersion: "1.5"` because SDK 1.5.3 does not expose a 1.5 builder and
+  Clockify's dev portal rejects structured `settings` under older schema
+  validation. Optional TXT defaults now satisfy schema minLength; `exemptUserIds`
+  stays semantically blank through the existing blank-string parser. 367 tests
+  green on 2026-06-14.

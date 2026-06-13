@@ -45,6 +45,7 @@ class ManifestContractTest {
     @Test
     void manifest_topLevelFieldsMatchTs() throws Exception {
         mockMvc.perform(get("/manifest"))
+                .andExpect(jsonPath("$.schemaVersion").value("1.5"))
                 .andExpect(jsonPath("$.key").value("break-compliance-jvm"))
                 .andExpect(jsonPath("$.name").value("Break Compliance"))
                 .andExpect(jsonPath("$.minimalSubscriptionPlan").value("BASIC"))
@@ -127,6 +128,23 @@ class ManifestContractTest {
         JsonNode tab = tabs.get(0);
         assertThat(tab.get("id").asText()).isEqualTo("breakCompliance");
         assertThat(tab.get("name").asText()).isEqualTo("Break Compliance");
+    }
+
+    @Test
+    void manifest_settingsDefaultsSatisfySchemaMinLength() throws Exception {
+        MvcResult result = mockMvc.perform(get("/manifest")).andReturn();
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
+
+        JsonNode tabSettings = root.get("settings").get("tabs").get(0).get("settings");
+        assertThat(tabSettings.isArray()).isTrue();
+        for (JsonNode setting : tabSettings) {
+            JsonNode value = setting.get("value");
+            if (value != null && value.isTextual()) {
+                assertThat(value.asText())
+                        .as("setting %s default value", setting.get("id").asText())
+                        .hasSizeGreaterThanOrEqualTo(1);
+            }
+        }
     }
 
     @Test

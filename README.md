@@ -67,8 +67,8 @@ The Clockify Java SDK is **vendored** under `repo/com/cake/clockify/` and consum
 
 ## Architecture
 
-- **Spring Boot 4.1 + Spring MVC** — all routes are `@RestController` classes; the SDK is used as a manifest builder (`ClockifyManifest.v1_3Builder()`) + JWT verifier (`ClockifySignatureParser`), not as a routing framework.
-- **PostgreSQL + Spring Data JPA + Flyway** — additive migrations through V15, composite primary keys with `workspace_id` leading tenant-scoped tables for schema-enforced isolation.
+- **Spring Boot 4.1 + Spring MVC** — all routes are `@RestController` classes; the SDK is used as a manifest builder + JWT verifier (`ClockifySignatureParser`), not as a routing framework. `ManifestController` pins served JSON to `schemaVersion: "1.5"` so Clockify validates the native structured-settings object.
+- **PostgreSQL + Spring Data JPA + Flyway** — additive migrations through V16, composite primary keys with `workspace_id` leading tenant-scoped tables for schema-enforced isolation.
 - **Redis + Spring Data Redis (Lettuce)** — webhook idempotency (24-hour SETNX TTL keyed by `sha256(eventType||body)`) and per-workspace Clockify-API rate limiting (50 req/sec/workspace, fixed-window).
 - **AES-GCM-256 token codec** — every installation token and webhook auth token encrypted at rest; 12-byte IV per encrypt, `keyId` for rotation, fail-closed on any tamper.
 - **3-check webhook auth** — RS256 signature, event-type header match, stored per-webhook authToken comparison.

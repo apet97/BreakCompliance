@@ -6,12 +6,13 @@ Use this as the paste-ready release checklist for Clockify marketplace review.
 
 | Item | Status |
 |---|---|
-| Code SHA validated | Local plan-queue worktree verification complete on 2026-06-14 from pre-commit base `2c969bb`; final pushed SHA is Git history. Same-SHA Railway deployment evidence still pending because no deploy was approved in this thread. |
+| Code SHA validated | Local manifest-schema repair verification complete on 2026-06-14 from pre-commit base `a60a420`; final pushed SHA is Git history. Same-SHA Railway deployment evidence still pending because no deploy was approved in this thread. |
 | App version | `0.2.0` |
-| Test command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp test` — 366 tests, 0 failures/errors/skips |
+| Test command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp test` — 367 tests, 0 failures/errors/skips |
 | Package command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp -DskipTests package` — built `target/break-compliance-0.2.0.jar` (75M repackaged jar) |
 | Live base URL | `https://breakcompliance-production.up.railway.app` observed 200 on 2026-06-14; environment observation only until same-SHA deploy |
 | Manifest URL | `https://breakcompliance-production.up.railway.app/manifest` observed on 2026-06-14; environment observation only until same-SHA deploy |
+| Manifest schema | Same-SHA deploy must serve `schemaVersion: "1.5"` and validate against `https://api.clockify.me/api/addons/manifest-schema?version=1.5` |
 | Manifest scopes | Observed exactly `REPORTS_READ`, `TIME_ENTRY_READ`, `USER_READ`; no `_WRITE`, no `WORKSPACE_READ` |
 | Privacy URL/doc | `docs/PRIVACY.md` |
 | Security URL/doc | `docs/SECURITY.md` |
@@ -27,7 +28,8 @@ Use this as the paste-ready release checklist for Clockify marketplace review.
 - Full JDK 21 test suite passes in a Docker/Testcontainers-ready environment.
 - `mvn -B -ntp -DskipTests package` succeeds and produces the 0.2.0 jar.
 - `/healthz` returns 200 for the deployed service.
-- Live `/manifest` scopes match the three read-only scopes above.
+- Live `/manifest` advertises schema `1.5`, validates against Clockify's
+  schema 1.5, and scopes match the three read-only scopes above.
 - Listing copy stays advisory: "potential break-compliance issues", never legal
   compliance guaranteed.
 - No real Clockify, Railway, database, or user secrets are committed.

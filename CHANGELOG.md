@@ -20,6 +20,9 @@ the Clockify marketplace. The first marketplace submission ships as
 
 ### Fixed
 
+- Served manifest JSON now advertises Clockify manifest schema `1.5`, and
+  optional TXT settings avoid empty-string defaults, so the developer portal
+  accepts the native structured-settings object during add-on install.
 - Approved time-off cache rows now enter evaluation as synthetic, non-persisted
   `TIME_OFF` intervals instead of suppressing the entire user-day, so
   partial-day PTO no longer hides same-day work outside the approved window.
