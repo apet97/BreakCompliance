@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import jakarta.persistence.EntityManager;
 import me.apet97.breakcompliance.addon.auth.TestClockifyKeyConfig;
 import me.apet97.breakcompliance.addon.auth.TestJwtForger;
 import me.apet97.breakcompliance.clockify.ClockifyApiException;
@@ -26,8 +27,10 @@ import me.apet97.breakcompliance.persistence.entities.Installation;
 import me.apet97.breakcompliance.persistence.entities.InstallationStatus;
 import me.apet97.breakcompliance.persistence.entities.IngestionRun;
 import me.apet97.breakcompliance.persistence.entities.IngestionStatus;
+import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.repositories.IngestionRunRepository;
 import me.apet97.breakcompliance.persistence.repositories.InstallationRepository;
+import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -86,6 +89,12 @@ class IngestionControllerTest {
     IngestionRunRepository runRepo;
 
     @Autowired
+    EntityManager entityManager;
+
+    @Autowired
+    TimeEntryRepository timeEntryRepo;
+
+    @Autowired
     TokenCodec codec;
 
     @MockitoBean
@@ -108,6 +117,7 @@ class IngestionControllerTest {
                 .thenReturn(List.of());
         Mockito.when(userDirectoryFetcher.fetchActive(anyString(), anyString(), anyString()))
                 .thenReturn(Map.of());
+        timeEntryRepo.deleteAll();
         runRepo.deleteAll();
         installationRepo.deleteAll();
         seedInstallation();
@@ -136,6 +146,53 @@ class IngestionControllerTest {
         org.assertj.core.api.Assertions.assertThat(runs).hasSize(1);
         org.assertj.core.api.Assertions.assertThat(runs.get(0).getStatus())
                 .isEqualTo(IngestionStatus.COMPLETED);
+    }
+
+    @Test
+    void detailedReport_emptyCurrentReportRemovesCachedEntriesInRange() throws Exception {
+        TimeEntry stale = cachedEntry("deleted-entry-1", "2026-05-03T09:00:00Z", "2026-05-03T14:00:00Z");
+        timeEntryRepo.saveAndFlush(stale);
+
+        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/api/ingest/detailed-report")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.run.status").value("COMPLETED"));
+
+        org.assertj.core.api.Assertions.assertThat(timeEntryRepo.findByWorkspaceIdAndStartAtBetween(
+                        TestJwtForger.DEFAULT_WORKSPACE_ID,
+                        Instant.parse("2026-05-01T00:00:00Z"),
+                        Instant.parse("2026-05-08T00:00:00Z")))
+                .isEmpty();
+    }
+
+    @Test
+    void detailedReport_reconcileLeavesCachedEntriesOutsideRange() throws Exception {
+        timeEntryRepo.save(cachedEntry("inside-entry", "2026-05-03T09:00:00Z", "2026-05-03T14:00:00Z"));
+        timeEntryRepo.saveAndFlush(cachedEntry("outside-entry", "2026-04-30T09:00:00Z", "2026-04-30T14:00:00Z"));
+
+        Mockito.when(fetcher.fetch(anyString(), anyString(), anyString(), any(), any(), anyBoolean()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/api/ingest/detailed-report")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateRangeStart\":\"2026-05-01\",\"dateRangeEnd\":\"2026-05-07\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.run.status").value("COMPLETED"));
+
+        entityManager.clear();
+
+        org.assertj.core.api.Assertions.assertThat(timeEntryRepo.findById(
+                        new TimeEntry.Pk(TestJwtForger.DEFAULT_WORKSPACE_ID, "outside-entry")))
+                .isPresent();
+        org.assertj.core.api.Assertions.assertThat(timeEntryRepo.findById(
+                        new TimeEntry.Pk(TestJwtForger.DEFAULT_WORKSPACE_ID, "inside-entry")))
+                .isEmpty();
     }
 
     @Test
@@ -230,5 +287,23 @@ class IngestionControllerTest {
         install.setInstalledAt(now);
         install.setUpdatedAt(now);
         installationRepo.save(install);
+    }
+
+    private static TimeEntry cachedEntry(String sourceEntryId, String startIso, String endIso) {
+        Instant start = Instant.parse(startIso);
+        Instant end = Instant.parse(endIso);
+        TimeEntry entry = new TimeEntry();
+        entry.setWorkspaceId(TestJwtForger.DEFAULT_WORKSPACE_ID);
+        entry.setSourceEntryId(sourceEntryId);
+        entry.setUserId("user-a");
+        entry.setUserName("User A");
+        entry.setStartAt(start);
+        entry.setEndAt(end);
+        entry.setDurationSeconds(java.time.Duration.between(start, end).toSeconds());
+        entry.setBillable(false);
+        entry.setTags(List.of());
+        entry.setRaw(Map.of("type", "REGULAR"));
+        entry.setIngestedAt(Instant.parse("2026-05-01T00:00:00Z"));
+        return entry;
     }
 }

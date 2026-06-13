@@ -19,15 +19,13 @@ next pass).
 
 ## Sweep status (PR "gardening" / branch `claude/addon-improvement-checklist-Lbzsq`)
 
-**Shipped in this sweep (29 of 33 items):**
+**Shipped in this sweep (30 of 34 items):**
 P1.1, P1.2, P1.3, P1.4 (evidence + setting), P1.5, P1.6 (UTC strategy
 added), P2.1 (backend filter + sidebar dropdown), P2.2, P2.3, P2.4
 (verified), P2.5, P2.6, P2.7 (focus rings + aria-label), P2.8, P2.9,
 P3.1 (approved/rejected/withdrawn time-off webhooks), P3.3, P3.4, P4.3,
-P4.4, P4.5, P4.6 (metric only), P5.1, P5.4, P5.5, P5.6, P6.1, P6.2, P6.3.
-
-**Still deferred — code refactors that touch every caller:**
-P5.3 (i18n).
+P4.4, P4.5, P4.6 (metric only), P5.1, P5.3, P5.4, P5.5, P5.6, P6.1,
+P6.2, P6.3.
 
 **Live-blocked — requires a Clockify dev install + manual screenshot capture
 or 30-day production metric history:**
@@ -242,11 +240,12 @@ admin complaints.
   - Touches: `addon/lifecycle/InstallationService.java`,
     `config/MetricsConfig.java`.
 
-- [!] **P5.3 [deferred] i18n scaffolding**
+- [x] **P5.3 [shipped] i18n scaffolding**
   - Route finding messages through Spring `MessageSource`; ship
     `messages_en.properties` only for now. Sidebar copy moves to
     `static/i18n/en.json`. Future locales drop in without code changes.
-  - Touches: `domain/BreakRuleEngine.java`, new resource bundle.
+  - Touches: `domain/BreakRuleEngine.java`, `messages_en.properties`,
+    `static/i18n/en.json`, and `static/sidebar/i18n.js`.
 
 - [x] **P5.4 [shipped] Typed detailed-report DTO**
   - `DetailedReportFetcher` returns local `DetailedReportEntry` records with
@@ -306,7 +305,7 @@ admin complaints.
 
 ## Verification (per item)
 
-1. **Unit + Testcontainers tests pass.** Current baseline: 341 green. Each new
+1. **Unit + Testcontainers tests pass.** Current baseline: 366 green. Each new
    behaviour gets at least one focused test.
    ```sh
    JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \

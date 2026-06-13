@@ -45,10 +45,10 @@ public class SidebarHtmlController {
               <body>
                 <div class="app-container" role="application" aria-label="Break Compliance">
                   <header class="app-header">
-                    <h1>Break Compliance</h1>
+                    <h1 data-i18n="app.title">Break Compliance</h1>
                     <p id="session-status" class="session-status" aria-live="polite" hidden></p>
                     <div class="active-template-row">
-                      <span class="control-label">Active preset</span>
+                      <span class="control-label" data-i18n="preset.activeLabel">Active preset</span>
                       <button
                         id="active-template-chip"
                         class="active-template-chip"
@@ -67,13 +67,14 @@ public class SidebarHtmlController {
                         type="button"
                         aria-expanded="false"
                         aria-controls="preset-chooser"
+                        data-i18n="preset.switch"
                       >Switch…</button>
                       <div id="active-template-details" class="active-template-details" role="dialog" aria-label="Active template thresholds" hidden></div>
                     </div>
                     <div id="preset-chooser" class="preset-chooser" role="region" aria-label="Choose a preset" hidden></div>
                     <p id="admin-required-note" class="admin-required-note" role="note" hidden>
                       <span class="admin-required-glyph" aria-hidden="true">🔒</span>
-                      Workspace admin required to refresh data and change settings. You can still browse existing findings.
+                      <span data-i18n="admin.required">Workspace admin required to refresh data and change settings. You can still browse existing findings.</span>
                     </p>
                     <div class="settings-link-row">
                       <details id="settings-hint-fallback" class="settings-hint" hidden>
@@ -83,31 +84,31 @@ public class SidebarHtmlController {
                     </div>
                     <div class="header-controls">
                       <div class="control-group">
-                        <label for="date-preset-select">Date Range</label>
+                        <label for="date-preset-select" data-i18n="dateRange.label">Date Range</label>
                         <select id="date-preset-select">
-                          <option value="today">Today</option>
-                          <option value="this_week" selected>This Week</option>
-                          <option value="last_week">Last Week</option>
-                          <option value="last_2_weeks">Last 2 Weeks</option>
-                          <option value="last_month">Last Month</option>
-                          <option value="all_open">All Open (last 90 days)</option>
-                          <option value="custom_range">Custom Range</option>
+                          <option value="today" data-i18n="dateRange.today">Today</option>
+                          <option value="this_week" data-i18n="dateRange.thisWeek" selected>This Week</option>
+                          <option value="last_week" data-i18n="dateRange.lastWeek">Last Week</option>
+                          <option value="last_2_weeks" data-i18n="dateRange.lastTwoWeeks">Last 2 Weeks</option>
+                          <option value="last_month" data-i18n="dateRange.lastMonth">Last Month</option>
+                          <option value="all_open" data-i18n="dateRange.allOpen">All Open (last 90 days)</option>
+                          <option value="custom_range" data-i18n="dateRange.custom">Custom Range</option>
                         </select>
                       </div>
                       <div id="custom-range-inputs" class="control-group custom-range-group" hidden>
                         <div class="date-range-row">
                           <div class="date-input-group">
-                            <label for="custom-start-date">From</label>
+                            <label for="custom-start-date" data-i18n="dateRange.from">From</label>
                             <input type="date" id="custom-start-date">
                           </div>
                           <div class="date-input-group">
-                            <label for="custom-end-date">To</label>
+                            <label for="custom-end-date" data-i18n="dateRange.to">To</label>
                             <input type="date" id="custom-end-date">
                           </div>
                         </div>
                       </div>
                       <div class="button-row">
-                        <button id="run-btn" class="btn-primary" type="button">Check Compliance</button>
+                        <button id="run-btn" class="btn-primary" type="button" data-i18n="action.check">Check Compliance</button>
                         <button id="refresh-btn" class="btn-icon" type="button" title="Re-run the last check" aria-label="Refresh">↻</button>
                       </div>
                     </div>
@@ -121,19 +122,19 @@ public class SidebarHtmlController {
                   </div>
                   <div class="results-toolbar">
                     <fieldset class="view-toggle" aria-label="View mode">
-                      <legend class="sr-only">View</legend>
-                      <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span>Pivot Table</span></label>
-                      <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span>Checklist</span></label>
+                      <legend class="sr-only" data-i18n="view.label">View</legend>
+                      <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span data-i18n="view.pivot">Pivot Table</span></label>
+                      <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span data-i18n="view.checklist">Checklist</span></label>
                     </fieldset>
                     <select id="user-filter-select" class="user-filter-select" aria-label="Filter findings by user" hidden></select>
                     <button id="export-csv-btn" class="btn-link export-csv-btn" type="button" hidden title="Download the current findings list as a CSV file">
-                      <span aria-hidden="true">⬇</span> Export CSV
+                      <span aria-hidden="true">⬇</span> <span data-i18n="export.csv">Export CSV</span>
                     </button>
                   </div>
                   <div id="loading" class="loading" role="status" aria-live="polite" hidden>
                     <div class="loading-spinner" aria-hidden="true"></div>
-                    <span>Checking compliance…</span>
-                    <button id="cancel-ingest-btn" class="btn-link" type="button">Cancel</button>
+                    <span data-i18n="loading.checking">Checking compliance…</span>
+                    <button id="cancel-ingest-btn" class="btn-link" type="button" data-i18n="action.cancel">Cancel</button>
                   </div>
                   <div id="results-container" class="results-container" aria-live="polite"></div>
                   <section id="audit-panel" class="audit-panel" aria-labelledby="audit-panel-title" hidden></section>

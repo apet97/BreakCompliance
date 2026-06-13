@@ -15,6 +15,15 @@ public interface TimeEntryRepository extends JpaRepository<TimeEntry, TimeEntry.
 
     List<TimeEntry> findByWorkspaceIdAndUserId(String workspaceId, String userId);
 
+    @Modifying
+    @Transactional
+    @Query("delete from TimeEntry t where t.workspaceId = :workspaceId "
+            + "and t.startAt >= :fromInclusive and t.startAt < :toExclusive")
+    int deleteByWorkspaceIdAndStartAtGreaterThanEqualAndStartAtLessThan(
+            @Param("workspaceId") String workspaceId,
+            @Param("fromInclusive") Instant fromInclusive,
+            @Param("toExclusive") Instant toExclusive);
+
     /**
      * P2.3 — refresh the cached userName column whenever the workspace's
      * directory has a different name for the same userId. Bulk update is

@@ -121,11 +121,10 @@ public class ClockifyAddonConfig {
 
     private static ClockifySettings buildStructuredSettings() {
         // Single-tab settings: the workspace has ONE active rule template,
-        // always evaluated. The preset dropdown is a "load values" trigger —
-        // picking a preset overwrites the threshold fields with that preset's
-        // recommended values on save. Admins then fine-tune any individual
-        // field. Each subsequent save without changing the preset just
-        // persists the admin's manual edits.
+        // always evaluated. Native structured-settings owns individual threshold
+        // fields only. Preset selection deliberately lives in the sidebar iframe,
+        // where the app can preview the preset and persist all threshold changes in
+        // one backend transaction.
 
         // Preset and timezone dropdowns emit the user-visible label as the
         // stored value — Clockify's structured-settings DSL only accepts

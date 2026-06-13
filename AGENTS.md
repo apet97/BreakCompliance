@@ -26,7 +26,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 362 green. Postgres + Redis spin up via Testcontainers.
+# Expect 366 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -71,7 +71,9 @@ any API call shape.
 | Production Clockify base URLs must be HTTPS `*.clockify.me`; `http://localhost` requires the explicit dev/test opt-in property. | Prevents tampered JWT claims from steering outbound calls to localhost or arbitrary hosts. |
 | `X-Addon-Token` header (not `Authorization`) for outbound Clockify. | Clockify rejects `Authorization`. |
 | `/sidebar` must not render inline scripts under `script-src 'self'`; theme bootstrap lives in `/theme-init.js`. | Inline scripts are CSP-blocked in the iframe and cause dark-mode theme flicker. |
+| Sidebar i18n dictionaries are same-origin static JSON only (`/i18n/en.json` today). | Keeps CSP simple and avoids leaking iframe/session context to remote translation services. |
 | Settings = native structured-settings only. No `/settings` iframe. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
+| Finding messages route through Spring `MessageSource` (`messages_en.properties`) and retain the same persisted English output for now. | Future localization must not change finding codes, severities, evidence shape, CSV columns, or historical findings. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by 2026-05-11 live probe. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single `{id,value}` shape. Unknown shapes drift-log + return 200. |
 | Detailed-report response key is `timeentries` (ALL LOWERCASE); `timeEntries` is accepted defensively, but blank/null bodies and missing/non-array entry keys fail loud. | Spec mislabels as `timeEntries`. Live API returns lowercase. Silent empty reports create false "all clear" compliance output. |
 | Body dates are `yyyy-MM-dd'T'HH:mm:ss` (no `Z` suffix). | Server interprets in user timezone. |
@@ -362,3 +364,10 @@ suppression for PTO; partial-day requests must leave same-day work visible.
   blank/null Detailed Report bodies fail loud; DSAR exports include actor audit
   logs; lifecycle deletion tests and emergency SQL cover workspace holiday and
   time-off cache tables. 362 tests green on 2026-06-13.
+- **§35** — Plan-queue refresh: detailed-report ingests reconcile the cached
+  `time_entries` range before persisting the fresh page set so deleted Clockify
+  rows disappear locally; stale comments were aligned with synthetic partial-day
+  `TIME_OFF`; finding messages now route through English-only Spring
+  `MessageSource`; sidebar high-visibility copy loads from same-origin
+  `/i18n/en.json`; marketplace proof docs record 2026-06-14 local verification
+  and explicit live-evidence skips. 366 tests green on 2026-06-14.

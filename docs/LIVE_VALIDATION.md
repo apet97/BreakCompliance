@@ -1,5 +1,62 @@
 # Live validation — Break Compliance
 
+## v0.2.0 plan-queue refresh — 2026-06-14 local proof
+
+This pass implements the 2026-06-13 fresh plan queue on top of pre-commit
+base `2c969bb`: time-entry cache reconciliation, stale comment cleanup,
+English-only i18n scaffolding, and marketplace proof-packet refresh. A Git
+commit cannot include its own final SHA, so this section records the exact
+working-tree proof; the pushed commit SHA is the Git history for this change.
+
+Local environment:
+
+- JDK 21 from `/opt/homebrew/opt/openjdk@21`.
+- Docker/Testcontainers available through Docker Desktop at
+  `unix:///var/run/docker.sock` (Docker Server 28.3.2 / API 1.51).
+- No Railway deployment was performed in this run; the operator requested a
+  `main` push, not a Railway deploy.
+- `/tmp/clockify-livetest.env` was missing, so live Clockify install,
+  webhook-driven ingest, sidebar screenshots, structured-settings screenshots,
+  and uninstall cleanup refreshes were skipped rather than fabricated.
+
+Local artifact proof:
+
+```sh
+git rev-parse --short HEAD
+# 2c969bb (pre-commit base for this working-tree proof)
+
+find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+# exit 0, no output
+
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
+  mvn -B -ntp test
+# Tests run: 366, Failures: 0, Errors: 0, Skipped: 0
+
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
+  mvn -B -ntp -DskipTests package
+# BUILD SUCCESS; built target/break-compliance-0.2.0.jar (75M)
+```
+
+Public endpoint observations captured without deploying:
+
+```sh
+curl -fsS https://breakcompliance-production.up.railway.app/healthz
+# {"status":"ok"}
+
+curl -fsS https://breakcompliance-production.up.railway.app/manifest \
+  | jq '{schemaVersion, key, scopes}'
+# schemaVersion 1.3, key break-compliance-jvm,
+# scopes TIME_ENTRY_READ, USER_READ, REPORTS_READ
+```
+
+Treat those public endpoint checks as **environment observation only**, not
+proof that this plan-queue worktree is deployed. Before marketplace
+submission, deploy intentionally and capture fresh same-SHA health, manifest,
+install, sidebar, webhook refresh, CSV/review, metrics, screenshots, and
+uninstall cleanup evidence.
+
+---
+
 ## v0.2.0 audit-remediation refresh — 2026-06-13 status
 
 This remediation worktree started from commit `13734eb`
@@ -250,8 +307,8 @@ docker version
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 \
 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect for v0.2.0 after the 2026-06-13 remediation:
-# Tests run: 362, Failures: 0, Errors: 0, BUILD SUCCESS
+# Expect for v0.2.0 after the 2026-06-14 plan-queue refresh:
+# Tests run: 366, Failures: 0, Errors: 0, BUILD SUCCESS
 
 # 3. Probe the live deploy.
 curl -isS https://breakcompliance-production.up.railway.app/healthz

@@ -17,10 +17,10 @@ import org.springframework.stereotype.Component;
  * {@code POST /v1/workspaces/{wsId}/time-off/requests} (the SEARCH variant;
  * the {@code GET} on the same path returns 405 per OpenAPI).
  *
- * <p>Engine treats every (userId, date) that overlaps an APPROVED window
- * as suppressed — same effect as a Clockify {@code type=TIME_OFF} entry,
- * but works even when the workspace doesn't auto-create entries for
- * approved requests.
+ * <p>Approved requests are cached with exact instants. Evaluation clips each
+ * overlapping interval to the requested range and appends a synthetic,
+ * non-persisted {@code type=TIME_OFF} entry, so partial-day PTO does not hide
+ * same-day work outside the approved interval.
  */
 @Component
 public class TimeOffFetcher {

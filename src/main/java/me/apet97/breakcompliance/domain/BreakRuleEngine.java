@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -21,6 +22,9 @@ import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.MessageSource;
+import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.stereotype.Component;
 
 /**
@@ -51,6 +55,25 @@ public class BreakRuleEngine {
     // consecutive WORK entries is treated as a new shift / long absence,
     // not a workplace break — so we don't credit it toward break minutes.
     private static final int MAX_GAP_AS_BREAK_MINUTES = 120;
+
+    private final MessageSource messages;
+
+    public BreakRuleEngine() {
+        this(defaultMessageSource());
+    }
+
+    @Autowired
+    public BreakRuleEngine(MessageSource messages) {
+        this.messages = Objects.requireNonNull(messages, "messages");
+    }
+
+    private static MessageSource defaultMessageSource() {
+        ResourceBundleMessageSource source = new ResourceBundleMessageSource();
+        source.setBasename("messages");
+        source.setDefaultEncoding("UTF-8");
+        source.setFallbackToSystemLocale(false);
+        return source;
+    }
 
     public List<FindingDraft> evaluate(BreakRuleEngineInput input) {
         List<DayBucket> buckets = bucketEntries(input);
@@ -92,8 +115,7 @@ public class BreakRuleEngine {
                             template.getId(),
                             missingSev,
                             FindingCode.MISSING_REQUIRED_BREAK,
-                            "Worked " + segments.workMinutes + " minutes (threshold " + active.thresholdMinutes
-                                    + ") with no qualifying break.",
+                            message("finding.missing_required_break", segments.workMinutes, active.thresholdMinutes),
                             evidence));
                 } else if (effectiveBreakMinutes < active.requiredBreakMinutes) {
                     out.add(new FindingDraft(
@@ -103,8 +125,9 @@ public class BreakRuleEngine {
                             template.getId(),
                             insufficientSev,
                             FindingCode.INSUFFICIENT_BREAK_DURATION,
-                            "Qualifying break minutes " + effectiveBreakMinutes + " below required "
-                                    + active.requiredBreakMinutes + ".",
+                            message("finding.insufficient_break_duration",
+                                    effectiveBreakMinutes,
+                                    active.requiredBreakMinutes),
                             evidence));
                 }
             }
@@ -123,8 +146,9 @@ public class BreakRuleEngine {
                         template.getId(),
                         continuousSev,
                         FindingCode.MAX_CONTINUOUS_WORK_EXCEEDED,
-                        "Continuous work " + segments.maxContinuousWorkMinutes + " minutes exceeds maximum "
-                                + template.getMaxContinuousWorkMinutesBeforeBreak() + ".",
+                        message("finding.max_continuous_work_exceeded",
+                                segments.maxContinuousWorkMinutes,
+                                template.getMaxContinuousWorkMinutesBeforeBreak()),
                         evidence));
             }
         }
@@ -134,6 +158,10 @@ public class BreakRuleEngine {
                 .thenComparing(FindingDraft::userId)
                 .thenComparing(d -> d.code().name()));
         return out;
+    }
+
+    private String message(String key, Object... args) {
+        return messages.getMessage(key, args, Locale.ENGLISH);
     }
 
     /**

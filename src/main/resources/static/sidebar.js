@@ -33,6 +33,7 @@ import {
 import { clearChildren, create, el } from "./sidebar/dom.js";
 import { downloadFindingsCsv as downloadFindingsCsvFile } from "./sidebar/findings-export.js";
 import { displayUserName, reviewBadgeClass, reviewBadgeText, statusIconMeta } from "./sidebar/findings-rendering.js";
+import { loadI18n, t } from "./sidebar/i18n.js";
 import { describeIngestFailure, pollIngestionRun } from "./sidebar/ingest-polling.js";
 import { fieldsThatDivergeFromPreset, PRESET_LABELS, TIMEZONE_LABELS } from "./sidebar/presets.js";
 import { requestReviewNote } from "./sidebar/review-dialog.js";
@@ -159,10 +160,18 @@ function setLoading(on) {
 function setRunButtonState(busy) {
     const btn = el("run-btn");
     btn.disabled = busy;
-    btn.textContent = busy ? "Checking…" : "Check Compliance";
+    btn.textContent = busy ? t("action.checking") : t("action.check");
 }
 
 // ─────────────────── Rendering ───────────────────
+
+function applyStaticTranslations(root = document) {
+    root.querySelectorAll("[data-i18n]").forEach((node) => {
+        const key = node.getAttribute("data-i18n");
+        if (!key) return;
+        node.textContent = t(key);
+    });
+}
 
 function renderDiagnostics() {
     const node = el("diagnostics");
@@ -190,7 +199,7 @@ function renderLastChecked() {
         return;
     }
     node.hidden = false;
-    node.textContent = `Last checked ${formatRelativeTime(state.lastRunAt)}`;
+    node.textContent = t("status.lastChecked", { relative: formatRelativeTime(state.lastRunAt) });
 }
 
 function renderPendingRefreshPill() {
@@ -202,7 +211,7 @@ function renderPendingRefreshPill() {
         return;
     }
     pill.hidden = false;
-    pill.textContent = `Pending refresh · webhook ${formatRelativeTime(state.pendingRefreshAt)}`;
+    pill.textContent = t("status.pendingRefresh", { relative: formatRelativeTime(state.pendingRefreshAt) });
     pill.title = "Data has changed in Clockify since the last refresh. Click Refresh to pull the latest entries.";
 }
 
@@ -258,7 +267,7 @@ function renderValidationWarnings() {
     }
     clearChildren(node);
     node.hidden = false;
-    node.appendChild(create("p", { className: "settings-warning-title", text: "Settings need a fix" }));
+    node.appendChild(create("p", { className: "settings-warning-title", text: t("settings.warningTitle") }));
     const list = create("ul", { className: "settings-warning-list" });
     for (const w of warnings) {
         const text = (w && typeof w === "object" && typeof w.message === "string")
@@ -267,7 +276,7 @@ function renderValidationWarnings() {
         list.appendChild(create("li", { text }));
     }
     node.appendChild(list);
-    node.appendChild(create("p", { className: "settings-warning-foot", text: "Reopen the settings page (⋯ → Settings on the add-on) to fix these, then re-run Check Compliance." }));
+    node.appendChild(create("p", { className: "settings-warning-foot", text: t("settings.warningFoot") }));
 }
 
 // ─────────────────── Preset chooser ───────────────────
@@ -1338,8 +1347,15 @@ function initAuthAndMessenger() {
     }, TOKEN_REFRESH_INTERVAL_MS);
 }
 
-function init() {
+async function init() {
     document.title = ADDON_TITLE;
+    try {
+        await loadI18n("en");
+        document.title = t("app.title");
+        applyStaticTranslations();
+    } catch (err) {
+        console.warn("i18n.load.failed", err);
+    }
     wireEvents();
     wireVisibilityChange();
     startLastCheckedTicker();
@@ -1348,7 +1364,7 @@ function init() {
 
 initAuthAndMessenger();
 if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", () => { void init(); });
 } else {
-    init();
+    void init();
 }

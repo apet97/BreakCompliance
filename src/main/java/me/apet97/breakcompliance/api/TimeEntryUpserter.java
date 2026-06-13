@@ -1,6 +1,8 @@
 package me.apet97.breakcompliance.api;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import me.apet97.breakcompliance.clockify.DetailedReportEntry;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
@@ -13,6 +15,13 @@ class TimeEntryUpserter {
 
     TimeEntryUpserter(TimeEntryRepository timeEntryRepo) {
         this.timeEntryRepo = timeEntryRepo;
+    }
+
+    int deleteRange(String workspaceId, LocalDate from, LocalDate to) {
+        Instant fromInclusive = from.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant toExclusive = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return timeEntryRepo.deleteByWorkspaceIdAndStartAtGreaterThanEqualAndStartAtLessThan(
+                workspaceId, fromInclusive, toExclusive);
     }
 
     boolean upsert(String workspaceId, DetailedReportEntry raw, Instant ingestedAt) {

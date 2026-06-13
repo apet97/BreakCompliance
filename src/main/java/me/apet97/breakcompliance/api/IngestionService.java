@@ -41,8 +41,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       {@code IngestionRun} row in {@code RUNNING} state.
  *   <li><b>fetch</b> (no txn) — the long HTTP call to Clockify's reports
  *       endpoint. Can take 30s+ with retries.
- *   <li><b>finalize</b> (txn) — upsert {@link TimeEntry} rows in batches
- *       and mark the run {@code COMPLETED} or {@code FAILED}.
+ *   <li><b>finalize</b> (txn) — replace cached {@link TimeEntry} rows for
+ *       the refreshed range, upsert rows in batches, and mark the run
+ *       {@code COMPLETED} or {@code FAILED}.
  * </ol>
  *
  * <p>Why three phases: under multi-tenant load, holding a Hikari
@@ -140,7 +141,7 @@ public class IngestionService {
             return failed;
         }
 
-        tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries));
+        tx.execute(status -> finalizeRun(workspaceId, prepared.runId(), entries, from, to));
         // P1.1 / P1.2 — refresh suppression cache after a successful sync
         // ingest, mirroring the async path. Best-effort.
         try {
@@ -286,7 +287,7 @@ public class IngestionService {
             return;
         }
         try {
-            tx.execute(status -> finalizeRun(workspaceId, runId, entries));
+            tx.execute(status -> finalizeRun(workspaceId, runId, entries, from, to));
         } catch (RuntimeException e) {
             tx.execute(status -> markRunFailed(workspaceId, runId, "Finalize:" + e.getClass().getSimpleName()));
             meters.counter(MetricsConfig.INGEST_RUN_FAILED, "reason", "Finalize:" + e.getClass().getSimpleName())
@@ -369,11 +370,20 @@ public class IngestionService {
     }
 
     private IngestionRun finalizeRun(
-            String workspaceId, String runId, List<DetailedReportEntry> entries) {
+            String workspaceId,
+            String runId,
+            List<DetailedReportEntry> entries,
+            LocalDate from,
+            LocalDate to) {
         IngestionRun run = runRepo
                 .findById(new IngestionRun.Pk(workspaceId, runId))
                 .orElseThrow(() -> new IllegalStateException(
                         "ingestion run vanished between prepare and finalize: " + runId));
+        int deleted = timeEntryUpserter.deleteRange(workspaceId, from, to);
+        if (deleted > 0) {
+            log.info("ingestion.cache.reconciled workspace={} runId={} deleted={}", workspaceId, runId, deleted);
+        }
+        timeEntryUpserter.flush();
         int processed = 0;
         int batchCounter = 0;
         Instant ingestedAt = Instant.now();

@@ -14,6 +14,9 @@ never sends Clockify messages, and never adds outbound write scopes.
 - Native structured settings own threshold fields; the sidebar owns preset
   selection because Clockify's settings UI does not refresh sibling fields after
   a backend preset write.
+- Finding text is generated through Spring `MessageSource` using the
+  English-only `messages_en.properties` bundle; the sidebar's high-visibility
+  shell copy is loaded from first-party `/i18n/en.json`.
 - `RuleTemplate`, `TemplateAssignment`, and `GroupMembership` tables remain for
   backward-compatible deletion and historical data, but current engine input
   does not use them.
@@ -32,7 +35,8 @@ never sends Clockify messages, and never adds outbound write scopes.
 - `/api/*` accepts `X-Addon-Token` only. `/sidebar` may accept `?auth_token=`
   for initial iframe navigation and then scrubs it from the URL.
 - `script-src 'self'` is intentional. `/sidebar` must not render inline scripts;
-  first-paint theme bootstrap lives in `/theme-init.js`.
+  first-paint theme bootstrap lives in `/theme-init.js`, and i18n dictionaries
+  are same-origin static JSON assets.
 - Only one RUNNING ingest may exist for the same `(workspaceId, dateRange)`; V15
   enforces this with a partial unique index and startup cleanup.
 - A run is not `COMPLETED` until detailed-report entries are persisted and the
@@ -54,4 +58,4 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
   mvn -B -ntp -DskipTests package
 ```
 
-Expected test baseline after the §34 audit-remediation pass: 362 green.
+Expected test baseline after the §35 plan-queue refresh: 366 green.

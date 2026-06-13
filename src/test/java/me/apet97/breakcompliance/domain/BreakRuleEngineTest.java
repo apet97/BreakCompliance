@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
@@ -14,6 +15,7 @@ import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.support.StaticMessageSource;
 
 /**
  * §18 — the engine evaluates each user-day bucket against a synthetic
@@ -38,6 +40,63 @@ class BreakRuleEngineTest {
 
         assertThat(findings).extracting(FindingDraft::code)
                 .contains(FindingCode.MISSING_REQUIRED_BREAK);
+    }
+
+    @Test
+    void findingMessages_useInjectedMessageSource() {
+        StaticMessageSource messages = new StaticMessageSource();
+        messages.addMessage("finding.missing_required_break", Locale.ENGLISH, "custom missing {0}/{1}");
+        BreakRuleEngine translatedEngine = new BreakRuleEngine(messages);
+        WorkspaceSettings settings = workspaceSettings(240, 15, 5);
+        settings.setCustomMaxContinuousWorkMinutes(600);
+        List<TimeEntry> entries = List.of(
+                workEntry("e1", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")); // 300 min
+
+        List<FindingDraft> findings = translatedEngine.evaluate(
+                input(settings, entries, "2026-05-10", "2026-05-10"));
+
+        assertThat(findings).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo(FindingCode.MISSING_REQUIRED_BREAK);
+            assertThat(finding.message()).isEqualTo("custom missing 300/240");
+        });
+    }
+
+    @Test
+    void defaultEnglishMessages_remainStable() {
+        WorkspaceSettings missingSettings = workspaceSettings(240, 15, 5);
+        missingSettings.setCustomMaxContinuousWorkMinutes(600);
+        List<FindingDraft> missing = engine.evaluate(input(
+                missingSettings,
+                List.of(workEntry("missing", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")),
+                "2026-05-10",
+                "2026-05-10"));
+        assertThat(missing).singleElement().satisfies(finding ->
+                assertThat(finding.message()).isEqualTo(
+                        "Worked 300 minutes (threshold 240) with no qualifying break."));
+
+        WorkspaceSettings insufficientSettings = workspaceSettings(240, 15, 0);
+        insufficientSettings.setCustomMaxContinuousWorkMinutes(600);
+        List<FindingDraft> insufficient = engine.evaluate(input(
+                insufficientSettings,
+                List.of(
+                        workEntry("insufficient-work", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z"),
+                        breakEntry("insufficient-break", "2026-05-10T14:00:00Z", "2026-05-10T14:10:00Z")),
+                "2026-05-10",
+                "2026-05-10"));
+        assertThat(insufficient).singleElement().satisfies(finding ->
+                assertThat(finding.message()).isEqualTo(
+                        "Qualifying break minutes 10 below required 15."));
+
+        WorkspaceSettings continuousSettings = workspaceSettings(600, 15, 0);
+        continuousSettings.setCustomMaxContinuousWorkMinutes(240);
+        List<FindingDraft> continuous = engine.evaluate(input(
+                continuousSettings,
+                List.of(workEntry("continuous", "2026-05-10T09:00:00Z", "2026-05-10T14:00:00Z")),
+                "2026-05-10",
+                "2026-05-10"));
+        assertThat(continuous).singleElement().satisfies(finding ->
+                assertThat(finding.message()).isEqualTo(
+                        "Continuous work 300 minutes exceeds maximum 240."));
     }
 
     @Test
