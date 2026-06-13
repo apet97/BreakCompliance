@@ -15,8 +15,8 @@ import lombok.Setter;
 
 /**
  * P1.2 — cached approved time-off rows populated by {@code TimeOffFetcher}.
- * Engine suppresses findings for the (userId, date) span between
- * {@link #startAt} and {@link #endAt} inclusive.
+ * Evaluation converts these rows into synthetic {@code TIME_OFF} entries
+ * clipped to the requested date range.
  *
  * <p>Stored verbatim from the Clockify response so a workspace with
  * partial-day requests (rare but possible) doesn't lose precision via a

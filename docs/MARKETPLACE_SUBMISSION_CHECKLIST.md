@@ -1,17 +1,17 @@
 # Marketplace Submission Checklist
 
-_Last updated: 2026-06-12._
+_Last updated: 2026-06-13._
 
 Use this as the paste-ready release checklist for Clockify marketplace review.
 
 | Item | Status |
 |---|---|
-| Code SHA validated | Local branch verification complete on 2026-06-12; same-SHA Railway deployment evidence still pending |
+| Code SHA validated | Local remediation worktree verification complete on 2026-06-13 from base `13734eb`; same-SHA Railway deployment evidence still pending |
 | App version | `0.2.0` |
-| Test command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp test` — 304 tests, 0 failures/errors/skips |
+| Test command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp test` — 362 tests, 0 failures/errors/skips |
 | Package command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp -DskipTests package` — built `target/break-compliance-0.2.0.jar` |
-| Live base URL | `https://breakcompliance-production.up.railway.app` observed 200 on 2026-06-12 |
-| Manifest URL | `https://breakcompliance-production.up.railway.app/manifest` observed on 2026-06-12 |
+| Live base URL | `https://breakcompliance-production.up.railway.app` observed 200 on 2026-06-13; environment observation only until same-SHA deploy |
+| Manifest URL | `https://breakcompliance-production.up.railway.app/manifest` observed on 2026-06-13; environment observation only until same-SHA deploy |
 | Manifest scopes | Observed exactly `REPORTS_READ`, `TIME_ENTRY_READ`, `USER_READ`; no `_WRITE`, no `WORKSPACE_READ` |
 | Privacy URL/doc | `docs/PRIVACY.md` |
 | Security URL/doc | `docs/SECURITY.md` |
@@ -20,7 +20,7 @@ Use this as the paste-ready release checklist for Clockify marketplace review.
 | Live install evidence | v0.1.0 evidence present; v0.2.0 refresh pending |
 | Live uninstall cleanup evidence | v0.1.0 evidence present; v0.2.0 refresh pending |
 | Screenshots/videos attached | Installed screenshot present; v0.2.0 sidebar/settings screenshots pending |
-| Known non-blocking follow-ups | Fresh v0.2.0 Clockify UI evidence when logged-in dev workspace access is available |
+| Known non-blocking follow-ups | Fresh v0.2.0 Clockify UI evidence and same-SHA Railway deploy evidence when deployment is intentionally approved |
 
 ## Final submission gates
 

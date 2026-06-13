@@ -1,6 +1,6 @@
 # Operations Runbook — Break Compliance
 
-_Last updated: 2026-06-12._
+_Last updated: 2026-06-13._
 
 Break Compliance is a read-only Clockify marketplace add-on hosted on Railway.
 This runbook is for deploys, rollbacks, monitoring, key rotation, incident
@@ -148,7 +148,8 @@ for the table-by-table policy and emergency manual SQL.
 
 After erasure, verify workspace counts are zero for installations, settings,
 time entries, findings, reviews, ingestion runs, refresh signals, templates,
-assignments, group memberships, audit logs, and webhook tokens.
+assignments, group memberships, audit logs, workspace holidays, workspace
+time-off rows, and webhook tokens.
 
 ## Incident playbooks
 

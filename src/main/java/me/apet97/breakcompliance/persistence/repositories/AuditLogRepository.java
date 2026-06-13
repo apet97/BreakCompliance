@@ -11,6 +11,8 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
 
     List<AuditLog> findByWorkspaceIdOrderByCreatedAtDesc(String workspaceId);
 
+    List<AuditLog> findByWorkspaceIdAndActorOrderByCreatedAtDesc(String workspaceId, String actor);
+
     List<AuditLog> findByWorkspaceIdAndCreatedAtBetweenOrderByCreatedAtDesc(
             String workspaceId, Instant fromInclusive, Instant toExclusive, Pageable pageable);
 }

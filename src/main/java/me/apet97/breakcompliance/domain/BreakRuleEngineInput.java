@@ -12,8 +12,10 @@ import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
  * engine itself stays pure. {@code workspaceWideHolidayDates} short-circuits
  * every (userId, date) bucket whose date is in the set;
  * {@code userSpecificSuppressedDates} suppresses only the matching user's
- * day (used for per-user holiday assignments AND approved time-off
- * windows). Both default to empty for callers that don't care.
+ * day for per-user holiday assignments. Approved time-off windows are
+ * represented as evaluation-only {@code TIME_OFF} entries so partial-day
+ * requests keep interval precision. Both default to empty for callers that
+ * don't care.
  */
 public record BreakRuleEngineInput(
         String workspaceId,

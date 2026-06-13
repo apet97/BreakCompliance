@@ -230,6 +230,28 @@ class DetailedReportFetcherTest {
     }
 
     @Test
+    void blankBodyThrowsInsteadOfReturningEmptyWorkspace() {
+        mockResponse("  \n  ");
+
+        assertThatThrownBy(() -> fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07")))
+                .isInstanceOf(ClockifyApiException.class)
+                .hasMessageContaining("blank detailed report");
+    }
+
+    @Test
+    void nullBodyThrowsInsteadOfReturningEmptyWorkspace() {
+        mockResponse(null);
+
+        assertThatThrownBy(() -> fetcher.fetch(
+                WS, REPORTS_URL, TOKEN,
+                LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-07")))
+                .isInstanceOf(ClockifyApiException.class)
+                .hasMessageContaining("blank detailed report");
+    }
+
+    @Test
     void parsesTypedFieldsWhileRetainingRawPayload() {
         mockResponse("""
                 {

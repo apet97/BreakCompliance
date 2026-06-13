@@ -652,9 +652,9 @@ class BreakRuleEngineTest {
     }
 
     @Test
-    void perUserTimeOff_suppressesAllRulesIncludingMaxContinuous() {
-        // Approved time-off on this day; the engine should suppress both
-        // the missing-break and max-continuous-work rules in one go —
+    void perUserHoliday_suppressesAllRulesIncludingMaxContinuous() {
+        // User-specific holiday on this day; the engine should suppress
+        // both the missing-break and max-continuous-work rules in one go —
         // suppression happens at bucketing time, before any rule fires.
         WorkspaceSettings settings = workspaceSettings(240, 15, 5);
         List<TimeEntry> entries = List.of(

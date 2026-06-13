@@ -25,6 +25,8 @@ import me.apet97.breakcompliance.persistence.entities.TemplateAssignment;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.TimezoneStrategy;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceSettings;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
+import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
 import me.apet97.breakcompliance.persistence.repositories.AuditLogRepository;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
 import me.apet97.breakcompliance.persistence.repositories.GroupMembershipRepository;
@@ -33,7 +35,9 @@ import me.apet97.breakcompliance.persistence.repositories.RefreshSignalRepositor
 import me.apet97.breakcompliance.persistence.repositories.RuleTemplateRepository;
 import me.apet97.breakcompliance.persistence.repositories.TemplateAssignmentRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceSettingsRepository;
+import me.apet97.breakcompliance.persistence.repositories.WorkspaceTimeOffRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +69,8 @@ class WorkspaceDataDeletionServiceTest {
     @Autowired FindingRepository findingsRepo;
     @Autowired RefreshSignalRepository signalsRepo;
     @Autowired AuditLogRepository auditRepo;
+    @Autowired WorkspaceHolidayRepository holidaysRepo;
+    @Autowired WorkspaceTimeOffRepository timeOffRepo;
 
     @BeforeEach
     void clean() {
@@ -85,6 +91,9 @@ class WorkspaceDataDeletionServiceTest {
         assertThat(runsRepo.findAll()).hasSizeGreaterThanOrEqualTo(2);
         assertThat(findingsRepo.findAll()).hasSizeGreaterThanOrEqualTo(2);
         assertThat(signalsRepo.findAll()).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(holidaysRepo.findByWorkspaceIdAndDateBetween(
+                WS_A, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31))).isNotEmpty();
+        assertThat(timeOffRepo.findByWorkspaceIdAndUserId(WS_A, "user-1")).isNotEmpty();
 
         service.deleteWorkspaceData(WS_A);
 
@@ -97,6 +106,9 @@ class WorkspaceDataDeletionServiceTest {
         assertThat(findingsRepo.findByWorkspaceIdAndDateBetween(
                 WS_A, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31))).isEmpty();
         assertThat(signalsRepo.findByWorkspaceIdOrderByReceivedAtDesc(WS_A)).isEmpty();
+        assertThat(holidaysRepo.findByWorkspaceIdAndDateBetween(
+                WS_A, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31))).isEmpty();
+        assertThat(timeOffRepo.findByWorkspaceIdAndUserId(WS_A, "user-1")).isEmpty();
     }
 
     @Test
@@ -112,6 +124,9 @@ class WorkspaceDataDeletionServiceTest {
         assertThat(findingsRepo.findByWorkspaceIdAndDateBetween(
                 WS_B, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31))).isNotEmpty();
         assertThat(signalsRepo.findByWorkspaceIdOrderByReceivedAtDesc(WS_B)).isNotEmpty();
+        assertThat(holidaysRepo.findByWorkspaceIdAndDateBetween(
+                WS_B, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31))).isNotEmpty();
+        assertThat(timeOffRepo.findByWorkspaceIdAndUserId(WS_B, "user-1")).isNotEmpty();
     }
 
     @Test
@@ -227,5 +242,24 @@ class WorkspaceDataDeletionServiceTest {
         audit.setAction("test.seed");
         audit.setCreatedAt(now);
         auditRepo.save(audit);
+
+        WorkspaceHoliday holiday = new WorkspaceHoliday();
+        holiday.setWorkspaceId(ws);
+        holiday.setSourceId("holiday-" + ws);
+        holiday.setDate(LocalDate.of(2026, 5, 1));
+        holiday.setAppliesToUserId("user-1");
+        holiday.setName("May Day");
+        holiday.setIngestedAt(now);
+        holidaysRepo.save(holiday);
+
+        WorkspaceTimeOff timeOff = new WorkspaceTimeOff();
+        timeOff.setWorkspaceId(ws);
+        timeOff.setSourceId("pto-" + ws);
+        timeOff.setUserId("user-1");
+        timeOff.setStartAt(Instant.parse("2026-05-02T08:00:00Z"));
+        timeOff.setEndAt(Instant.parse("2026-05-02T12:00:00Z"));
+        timeOff.setStatus("APPROVED");
+        timeOff.setIngestedAt(now);
+        timeOffRepo.save(timeOff);
     }
 }

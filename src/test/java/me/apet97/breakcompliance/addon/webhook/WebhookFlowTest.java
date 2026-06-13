@@ -43,6 +43,8 @@ class WebhookFlowTest {
     private static final String PATH = "/webhook/new-time-entry";
     private static final String STORED_AUTH_TOKEN = "webhook-secret-001";
     private static final String EVENT_TYPE = "NEW_TIME_ENTRY";
+    private static final String TIME_OFF_PATH = "/webhook/time-off-approved";
+    private static final String TIME_OFF_EVENT_TYPE = "TIME_OFF_REQUEST_APPROVED";
 
     @Autowired
     MockMvc mockMvc;
@@ -89,6 +91,17 @@ class WebhookFlowTest {
         webhookRepo.saveAndFlush(wat);
     }
 
+    private void seedWebhookToken(String path, String eventType, String authToken) {
+        WebhookAuthToken wat = new WebhookAuthToken();
+        wat.setWorkspaceId(WORKSPACE);
+        wat.setAddonId(ADDON);
+        wat.setPath(path);
+        wat.setEventType(eventType);
+        wat.setAuthToken(EncryptedToken.of(codec.encrypt(authToken)));
+        wat.setCreatedAt(Instant.now());
+        webhookRepo.saveAndFlush(wat);
+    }
+
     private String forgeSignature(String authToken, String workspaceId, String addonId) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("workspaceId", workspaceId);
@@ -110,6 +123,58 @@ class WebhookFlowTest {
                 .andExpect(status().isNoContent());
 
         assertThat(signalRepo.findByWorkspaceIdOrderByReceivedAtDesc(WORKSPACE)).hasSize(1);
+    }
+
+    @Test
+    void timeOffWebhook_nestedPeriodStart_recordsDateHint() throws Exception {
+        seedWebhookToken(TIME_OFF_PATH, TIME_OFF_EVENT_TYPE, STORED_AUTH_TOKEN);
+        String sig = forgeSignature(STORED_AUTH_TOKEN, WORKSPACE, ADDON);
+
+        mockMvc.perform(post(TIME_OFF_PATH)
+                        .header("Clockify-Signature", sig)
+                        .header("Clockify-Webhook-Event-Type", TIME_OFF_EVENT_TYPE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "id": "pto-1",
+                                  "timeOffPeriod": {
+                                    "period": {
+                                      "start": "2026-12-20T23:00:00Z",
+                                      "end": "2026-12-21T22:59:59Z"
+                                    },
+                                    "halfDay": false
+                                  }
+                                }
+                                """))
+                .andExpect(status().isNoContent());
+
+        assertThat(signalRepo.findByWorkspaceIdOrderByReceivedAtDesc(WORKSPACE))
+                .singleElement()
+                .satisfies(signal -> assertThat(signal.getDateHint()).isEqualTo("2026-12-20"));
+    }
+
+    @Test
+    void timeOffWebhook_legacyDirectStartStillRecordsDateHint() throws Exception {
+        seedWebhookToken(TIME_OFF_PATH, TIME_OFF_EVENT_TYPE, STORED_AUTH_TOKEN);
+        String sig = forgeSignature(STORED_AUTH_TOKEN, WORKSPACE, ADDON);
+
+        mockMvc.perform(post(TIME_OFF_PATH)
+                        .header("Clockify-Signature", sig)
+                        .header("Clockify-Webhook-Event-Type", TIME_OFF_EVENT_TYPE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "id": "pto-2",
+                                  "timeOffPeriod": {
+                                    "start": "2026-12-22"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isNoContent());
+
+        assertThat(signalRepo.findByWorkspaceIdOrderByReceivedAtDesc(WORKSPACE))
+                .singleElement()
+                .satisfies(signal -> assertThat(signal.getDateHint()).isEqualTo("2026-12-22"));
     }
 
     @Test

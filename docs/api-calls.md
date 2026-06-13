@@ -120,7 +120,7 @@ encrypted `breakcompliance_installations.auth_token` column (decrypt via
 |---|---|
 | 200 + `timeentries` parses | Iterate entries, upsert each into `breakcompliance_time_entries`. |
 | 200 + parse fail | Throw `ClockifyApiException("failed to parse detailed report", 0, e)` — the run is recorded as FAILED for admin audit. |
-| 200 + missing entries array / page-cap exhaustion | Throw `ClockifyApiException` — fail-loud rather than returning false "all clear" findings. |
+| 200 + blank/null body, missing entries array, or page-cap exhaustion | Throw `ClockifyApiException` — fail-loud rather than returning false "all clear" findings. |
 | 401 | `ClockifyApi.executeWithRetry` throws `ClockifyApiException(message, 401, e)`. `IngestionController` maps to HTTP 503 with `{error: "reports_unavailable", message: …}` so the sidebar shows a friendly banner instead of an opaque error. |
 | 429 | Retry honoring `Retry-After` (seconds or HTTP-date), capped at 30s, max 4 retries. |
 | 5xx | Retry with exponential backoff (1s → 2s → 4s, cap 30s), max 4 retries. |
@@ -223,6 +223,12 @@ Two probe-corrected shapes (vs. earlier OpenAPI assumption):
 1. `status` is `{statusType, note, changedAt, …}` — read `status.statusType`.
 2. The covered window is at `timeOffPeriod.period.{start,end}`, one level
    deeper than what OpenAPI's schema (loosely typed as `object`) suggested.
+
+Cached approved requests are stored with their exact instants. Evaluation
+converts each overlapping cache row into synthetic, non-persisted `TIME_OFF`
+entries clipped to the requested UTC date range; it no longer expands approved
+time off into whole suppressed user-days. That keeps partial-day PTO from
+hiding real work outside the approved interval.
 
 ## 1c. Outbound: user-directory refresh (P2.3)
 
@@ -350,7 +356,34 @@ Processing flow:
 
 ---
 
-## 3a. Sidebar-facing API (`/api/*` — verified by `AddonTokenAuthFilter`)
+## 3a. Inbound: time-off webhooks
+
+`POST {our base}/webhook/time-off-approved`
+`POST {our base}/webhook/time-off-rejected`
+`POST {our base}/webhook/time-off-withdrawn`
+
+Receiver: `src/main/java/me/apet97/breakcompliance/addon/webhook/WebhookController.java`.
+
+The webhook body is best-effort only; auth and idempotency are the same as
+time-entry webhooks. For `dateHint`, the receiver first reads the live-probed
+time-off request shape at `timeOffPeriod.period.start`, then defensively falls
+back to legacy `timeOffPeriod.start`. Malformed or missing starts still record
+the signal with a null hint so the consumer can use its fallback refresh window.
+
+```jsonc
+{
+  "id": "pto-1",
+  "timeOffPeriod": {
+    "period": {
+      "start": "2026-12-20T23:00:00Z",
+      "end": "2026-12-21T22:59:59Z"
+    },
+    "halfDay": false
+  }
+}
+```
+
+## 4. Sidebar-facing API (`/api/*` — verified by `AddonTokenAuthFilter`)
 
 These endpoints exist because we want sidebar UX that the native settings tab
 can't deliver — preset selection that previews values before applying, async

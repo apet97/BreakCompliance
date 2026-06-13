@@ -82,7 +82,7 @@ public class DetailedReportFetcher {
             org.springframework.http.ResponseEntity<String> response = api.postWithHeaders(workspaceId, reportsUrl, addonToken, path, body, String.class);
             String raw = response.getBody();
             if (raw == null || raw.isBlank()) {
-                break;
+                throw new ClockifyApiException("failed to parse detailed report: blank detailed report body", 0);
             }
             JsonNode root;
             try {

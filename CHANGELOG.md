@@ -20,6 +20,18 @@ the Clockify marketplace. The first marketplace submission ships as
 
 ### Fixed
 
+- Approved time-off cache rows now enter evaluation as synthetic, non-persisted
+  `TIME_OFF` intervals instead of suppressing the entire user-day, so
+  partial-day PTO no longer hides same-day work outside the approved window.
+- Time-off webhooks now extract `dateHint` from the live nested
+  `timeOffPeriod.period.start` shape while retaining the legacy
+  `timeOffPeriod.start` fallback.
+- Blank or null Detailed Report response bodies now fail loud with
+  `ClockifyApiException` instead of ending ingestion as a false empty report.
+- DSAR exports now include current-workspace audit log rows where the requested
+  user appears as the audit actor.
+- Emergency erasure documentation now includes workspace holiday and time-off
+  suppression cache tables, matching lifecycle deletion behavior.
 - Async ingest runs no longer expose `COMPLETED` before holiday/time-off
   suppression refresh has attempted, preventing sidebar evaluations and
   refresh-signal callbacks from racing stale suppression data.

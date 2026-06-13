@@ -104,6 +104,9 @@ PTO and statutory holiday entries.
 This is why PTO and statutory holidays should be recorded as their
 canonical Clockify type rather than as a regular WORK entry against a
 "PTO" project — the type-based classification is what triggers the skip.
+For approved time-off requests that Clockify does not emit as Detailed Report
+rows, Break Compliance creates evaluation-only `TIME_OFF` intervals from the
+cached request window. Those synthetic intervals are not stored as time entries.
 
 ## 4. The `minBreakSegmentMinutes` floor
 

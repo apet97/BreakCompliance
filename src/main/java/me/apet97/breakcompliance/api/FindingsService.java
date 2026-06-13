@@ -2,7 +2,9 @@ package me.apet97.breakcompliance.api;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -68,11 +70,10 @@ public class FindingsService {
         Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         List<TimeEntry> entries = entriesRepo.findByWorkspaceIdAndStartAtBetween(workspaceId, fromInstant, toInstant);
 
-        // P1.1 / P1.2 — pull cached holidays + approved time-off and build
-        // the suppression sets the engine consumes. Workspace-wide
-        // holidays apply to every user's bucket for that date; per-user
-        // holidays + every approved time-off window only apply to the
-        // matching user.
+        // P1.1 / P1.2 — pull cached suppression data. Holidays remain
+        // date-level suppressions; approved time off is converted into
+        // evaluation-only TIME_OFF entries so partial-day requests keep
+        // their interval precision and real same-day WORK still evaluates.
         Set<LocalDate> workspaceWide = new HashSet<>();
         Map<String, Set<LocalDate>> perUser = new HashMap<>();
         for (WorkspaceHoliday h : holidayRepo.findByWorkspaceIdAndDateBetween(workspaceId, from, to)) {
@@ -83,22 +84,15 @@ public class FindingsService {
                         .add(h.getDate());
             }
         }
+        List<TimeEntry> evaluationEntries = new ArrayList<>(entries);
         for (WorkspaceTimeOff t : timeOffRepo
                 .findByWorkspaceIdAndStartAtLessThanAndEndAtGreaterThanEqual(
                         workspaceId, toInstant, fromInstant)) {
-            // Expand the (start, end) span into a set of LocalDates in UTC.
-            // Engine bucketing already handles per-entry timezones; we use
-            // UTC here as a safe baseline that matches Clockify's storage.
-            LocalDate dStart = t.getStartAt().atZone(ZoneOffset.UTC).toLocalDate();
-            LocalDate dEnd = t.getEndAt().atZone(ZoneOffset.UTC).toLocalDate();
-            Set<LocalDate> dates = perUser.computeIfAbsent(t.getUserId(), k -> new HashSet<>());
-            for (LocalDate d = dStart; !d.isAfter(dEnd); d = d.plusDays(1)) {
-                dates.add(d);
-            }
+            evaluationEntries.addAll(syntheticTimeOffEntries(workspaceId, t, from, to));
         }
 
         BreakRuleEngineInput input = new BreakRuleEngineInput(
-                workspaceId, settings, entries, from, to, workspaceWide, perUser);
+                workspaceId, settings, evaluationEntries, from, to, workspaceWide, perUser);
         List<FindingDraft> drafts = engine.evaluate(input);
 
         // Build a userId → userName lookup from the time entries we just
@@ -146,5 +140,45 @@ public class FindingsService {
      */
     public boolean exists(String workspaceId, String findingId) {
         return findingsRepo.existsById(new me.apet97.breakcompliance.persistence.entities.Finding.Pk(workspaceId, findingId));
+    }
+
+    private static List<TimeEntry> syntheticTimeOffEntries(
+            String workspaceId, WorkspaceTimeOff row, LocalDate from, LocalDate to) {
+        if (row.getStartAt() == null || row.getEndAt() == null || !row.getEndAt().isAfter(row.getStartAt())) {
+            return List.of();
+        }
+        Instant rangeStart = from.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant rangeEnd = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant clippedStart = row.getStartAt().isAfter(rangeStart) ? row.getStartAt() : rangeStart;
+        Instant clippedEnd = row.getEndAt().isBefore(rangeEnd) ? row.getEndAt() : rangeEnd;
+        if (!clippedEnd.isAfter(clippedStart)) {
+            return List.of();
+        }
+
+        List<TimeEntry> synthetic = new ArrayList<>();
+        LocalDate day = clippedStart.atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate lastDay = clippedEnd.minus(1, ChronoUnit.NANOS).atZone(ZoneOffset.UTC).toLocalDate();
+        for (LocalDate d = day; !d.isAfter(lastDay); d = d.plusDays(1)) {
+            Instant dayStart = d.atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant dayEnd = d.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant start = clippedStart.isAfter(dayStart) ? clippedStart : dayStart;
+            Instant end = clippedEnd.isBefore(dayEnd) ? clippedEnd : dayEnd;
+            if (!end.isAfter(start)) {
+                continue;
+            }
+            TimeEntry e = new TimeEntry();
+            e.setWorkspaceId(workspaceId);
+            e.setSourceEntryId("timeoff:" + row.getSourceId() + ":" + d);
+            e.setUserId(row.getUserId());
+            e.setStartAt(start);
+            e.setEndAt(end);
+            e.setDurationSeconds(java.time.Duration.between(start, end).toSeconds());
+            e.setBillable(false);
+            e.setTags(List.of());
+            e.setRaw(Map.of("type", "TIME_OFF", "synthetic", true));
+            e.setIngestedAt(row.getIngestedAt() != null ? row.getIngestedAt() : Instant.now());
+            synthetic.add(e);
+        }
+        return synthetic;
     }
 }

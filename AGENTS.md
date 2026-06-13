@@ -26,7 +26,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 352 green. Postgres + Redis spin up via Testcontainers.
+# Expect 362 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -73,9 +73,10 @@ any API call shape.
 | `/sidebar` must not render inline scripts under `script-src 'self'`; theme bootstrap lives in `/theme-init.js`. | Inline scripts are CSP-blocked in the iframe and cause dark-mode theme flicker. |
 | Settings = native structured-settings only. No `/settings` iframe. | Per `docs/clockify-marketplace/build/manifest/structured-settings.md`. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` — confirmed by 2026-05-11 live probe. | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single `{id,value}` shape. Unknown shapes drift-log + return 200. |
-| Detailed-report response key is `timeentries` (ALL LOWERCASE); `timeEntries` is accepted defensively, but missing/non-array entry keys fail loud. | Spec mislabels as `timeEntries`. Live API returns lowercase. Silent empty reports create false "all clear" compliance output. |
+| Detailed-report response key is `timeentries` (ALL LOWERCASE); `timeEntries` is accepted defensively, but blank/null bodies and missing/non-array entry keys fail loud. | Spec mislabels as `timeEntries`. Live API returns lowercase. Silent empty reports create false "all clear" compliance output. |
 | Body dates are `yyyy-MM-dd'T'HH:mm:ss` (no `Z` suffix). | Server interprets in user timezone. |
 | `type=TIME_OFF`/`HOLIDAY` entries → `EntryClassifier.Kind.IGNORED` (§25/§29). | Engine skips only those entries, splits the continuous-work chain, blocks gap synthesis across them, and still evaluates same-day WORK. |
+| Cached approved time-off rows become synthetic, non-persisted `TIME_OFF` entries for evaluation. | Partial-day PTO must not suppress a whole user-day; same-day WORK outside the approved interval still evaluates. |
 | `/api/*` is `X-Addon-Token`-header-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook auth fail-closed via `AddonTokenAuthFilter` + `WebhookAuthFilter`. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive` banner. |
 | Async ingests stay `RUNNING` until detailed-report entries are persisted and holiday, time-off, and user-directory refresh attempts return. | The sidebar and refresh-signal consumer must not evaluate or mark webhook signals consumed while suppression data is still stale. Best-effort suppression failures still complete, and one supplemental failure must not skip the others. |
@@ -122,6 +123,12 @@ entries break the prev-work chain so no synthesis spans them. The 120-min ceilin
 hardcoded private constant (`MAX_GAP_AS_BREAK_MINUTES`) — gaps above that are treated
 as a new shift, not a break. Sidebar renders `Break: 30m · 30m detected` only when
 synthetic > 0. `IGNORED` entries are not credited as break minutes.
+
+Approved time-off cache rows are evaluation-only inputs: `FindingsService`
+clips each overlapping `WorkspaceTimeOff` interval to the requested UTC date
+range and appends synthetic `TIME_OFF` entries without persisting them to
+`breakcompliance_time_entries`. Do not reintroduce whole-day user-date
+suppression for PTO; partial-day requests must leave same-day work visible.
 
 ## Don'ts
 
@@ -348,3 +355,10 @@ synthetic > 0. `IGNORED` entries are not credited as break minutes.
   independent attempts; sidebar token `iat` replay checks now accept `Date`,
   NumericDate numbers, and numeric strings; Redis repositories are disabled
   because Redis is template-backed only. 352 tests green on 2026-06-13.
+- **§34** — Audit remediation: approved time-off cache rows now become
+  synthetic, non-persisted `TIME_OFF` entries so partial-day PTO does not hide
+  same-day work outside the approved interval; time-off webhooks read
+  `timeOffPeriod.period.start` with a legacy direct-start fallback;
+  blank/null Detailed Report bodies fail loud; DSAR exports include actor audit
+  logs; lifecycle deletion tests and emergency SQL cover workspace holiday and
+  time-off cache tables. 362 tests green on 2026-06-13.

@@ -29,7 +29,7 @@ find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**352 tests expected** (§33 after DB/report/auth hardening).
+**362 tests expected** (§34 after audit-remediation hardening).
 Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
@@ -159,13 +159,14 @@ live-probed shape.
 | `X-Addon-Token` header (not `Authorization`) for outbound. | Clockify rejects `Authorization`. |
 | Threshold fields = native structured-settings; preset selection = sidebar. | Clockify renders each native field independently and never re-fetches siblings after a change, so a backend-driven cross-field write isn't visible until reload. Sidebar lets us preview, confirm, and apply atomically. |
 | `SETTINGS_UPDATED` is the canonical wrapper `{workspaceId, addonId, settings: [{id,value},…]}` (§24). | `SettingsUpdatedPayload.extractUpdates` also accepts the legacy bare-array + defensive single-object shapes; unknown shapes drift-log + 200. |
-| Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback and throws when neither key is an array. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Missing/invalid entry arrays must fail loud, not look like an empty workspace. |
+| Detailed-report response key is `timeentries` (ALL LOWERCASE) — parser ALSO accepts `timeEntries` as a defensive fallback and throws when the body is blank/null or neither key is an array. | Live API returns lowercase; the camelCase fallback (P0 commit `029b0da`) is belt-and-suspenders in case Clockify ever migrates the wire format to match its own spec. Missing/invalid entry arrays and blank bodies must fail loud, not look like an empty workspace. |
 | `lifecycle.deleted` is guarded by `iat < installedAt - 30s` rejection (P0 commit `029b0da`). | Clockify retries up to ~24h; a stale DELETED arriving after a reinstall would otherwise wipe the fresh install. |
 | `IngestionService.prepareRun` throws `IngestionRunInProgressException` (→ controller 409) if a RUNNING run for the same `(workspaceId, dateRange)` exists. V15 also enforces this with a partial unique index, retires pre-existing duplicate RUNNING rows, and releases CLAIMED signals attached to retired duplicates. | Admin double-click "Refresh" or webhook+admin overlap can't queue duplicate ingests, even under DB-level concurrency. |
 | `IngestionRun.status=COMPLETED` is written only after detailed-report entries are persisted and holiday, time-off, and user-directory refresh attempts return. | Sidebar evaluation and refresh-signal callbacks must not observe a completed run while suppression data is still stale; best-effort suppression failures still complete, and one supplemental failure must not skip the others. |
 | Refresh-signal consumer state machine: `PENDING → CLAIMED → CONSUMED` (or `COALESCED` / `FAILED`). | The webhook handler records `PENDING` and returns 204; the `@Scheduled` consumer drains the queue after `debounce-ms` (default 20s), dedupes against in-flight runs, dispatches via `beginAsyncForRefresh`, and `IngestionRunReaper` releases stale CLAIMED signals. |
 | Dates in detailed-report body are `yyyy-MM-dd'T'HH:mm:ss` (no `Z`). | Server interprets in user timezone. |
 | `type=TIME_OFF` / `type=HOLIDAY` entries are `IGNORED` by the engine (§25/§29). | They skip only their own duration, split the continuous-work chain, and block gap synthesis across PTO/holiday windows; mixed days still evaluate real WORK entries. |
+| Cached approved time-off rows become synthetic, non-persisted `TIME_OFF` entries for evaluation. | Partial-day PTO must not suppress a whole user-day; same-day WORK outside the approved interval still evaluates. |
 | `/api/*` is header-token-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook/api filters all fail-closed. |
 | CSP uses `script-src 'self'`; `/sidebar` must not render inline scripts. | Theme bootstrap lives in `/theme-init.js`, loaded before CSS. Add/keep the no-inline sidebar contract test for any HTML shell change. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive`. |
@@ -262,7 +263,7 @@ src/main/resources/
   static/               sidebar.js, sidebar/*.js, sidebar/css/*.css, styles.css,
                         theme-init.js, icon.svg (64×64 designed mark)
 
-src/test/...            352 green expected (JDK 21 + Postgres + Redis Testcontainers).
+src/test/...            362 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:
                         find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
                         Spring Boot 4 test slices live in the webmvc/data-jpa/jdbc

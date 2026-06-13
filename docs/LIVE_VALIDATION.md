@@ -1,35 +1,56 @@
 # Live validation — Break Compliance
 
-## v0.2.0 marketplace-readiness refresh — 2026-06-12 status
+## v0.2.0 audit-remediation refresh — 2026-06-13 status
 
-This branch has **not** been live-validated as the deployed Railway service.
-During the 2026-06-12 readiness pass:
+This remediation worktree started from commit `13734eb`
+(`fix(core): harden report and suppression correctness`) and was verified
+locally before commit. A Git commit cannot include its own final SHA, so the
+pushed commit SHA is reported by Git history; this section records the exact
+pre-commit base and proof commands for the working tree that became the
+remediation commit.
 
-- JDK 21 was available locally.
-- Docker/Testcontainers was available through Docker Desktop at
-  `unix:///var/run/docker.sock`.
-- Local artifact proof passed:
-  - `mvn -B -ntp test` with JDK 21: 304 tests, 0 failures/errors/skips.
-  - `mvn -B -ntp -DskipTests package` with JDK 21: built
-    `target/break-compliance-0.2.0.jar`.
-- `railway status` was logged into project `break-compliance` / environment
-  `production`, but the selected service was `Postgres`, not
-  `BreakCompliance`; deployment was treated as ambiguous and skipped.
-- `/tmp/clockify-livetest.env` was missing, so no fresh dev-workspace Detailed
-  Report payload or Clockify UI screenshots could be captured.
-- Public endpoint probes succeeded:
-  - `docs/evidence/v0.2.0-healthz.txt`
-  - `docs/evidence/v0.2.0-manifest.json`
-  - `docs/evidence/v0.2.0-manifest-scopes.txt`
-  - `docs/evidence/v0.2.0-prometheus.txt`
+Local environment:
 
-The public manifest probe showed read-only scopes (`REPORTS_READ`,
-`TIME_ENTRY_READ`, `USER_READ`) but also exposed settings ids that are not
-present in this checkout. Treat those public endpoint files as **environment
-observation only**, not proof that this branch/SHA is deployed. Before
-marketplace submission, deploy the verified artifact intentionally and capture
-fresh install, sidebar, webhook refresh, CSV/review, metrics, and uninstall
-cleanup evidence against that exact SHA.
+- JDK 21 from `/opt/homebrew/opt/openjdk@21`.
+- Docker/Testcontainers available through Docker Desktop at
+  `unix:///var/run/docker.sock` (Docker Server 28.3.2 / API 1.51).
+- No Railway deployment was performed in this run; the operator requested a
+  `main` push, not a Railway deploy.
+- `/tmp/clockify-livetest.env` was missing, so the dev-workspace Detailed
+  Report probe was skipped. The skip marker is stored in
+  `docs/evidence/2026-06-13-clockify-detailed-report-count.txt`.
+
+Local artifact proof:
+
+```sh
+find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+# exit 0, no output
+
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
+  mvn -B -ntp test
+# Tests run: 362, Failures: 0, Errors: 0, Skipped: 0
+
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
+  mvn -B -ntp -DskipTests package
+# BUILD SUCCESS; built target/break-compliance-0.2.0.jar
+```
+
+Public endpoint observations captured without deploying:
+
+- `docs/evidence/2026-06-13-healthz.txt` — `/healthz` returned HTTP 200 with
+  CSP, HSTS, `Referrer-Policy`, `X-Content-Type-Options`, and
+  `Permissions-Policy`.
+- `docs/evidence/2026-06-13-manifest.json` — manifest schema `1.3`, key
+  `break-compliance-jvm`, six webhooks, 17 structured settings, and read-only
+  scopes only: `TIME_ENTRY_READ`, `USER_READ`, `REPORTS_READ`.
+- `docs/evidence/2026-06-13-prometheus.txt` — `/actuator/prometheus` was
+  reachable and emitted `breakcompliance_ingest_run_duration_seconds*`.
+
+Treat these public endpoint files as **environment observation only**, not
+proof that the remediation worktree is deployed. Before marketplace
+submission, deploy the verified artifact intentionally and capture fresh
+install, sidebar, webhook refresh, CSV/review, metrics, and uninstall cleanup
+evidence against the deployed commit.
 
 ---
 
@@ -229,7 +250,8 @@ docker version
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 \
 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect for v0.2.0: Tests run: 304, Failures: 0, Errors: 0, BUILD SUCCESS
+# Expect for v0.2.0 after the 2026-06-13 remediation:
+# Tests run: 362, Failures: 0, Errors: 0, BUILD SUCCESS
 
 # 3. Probe the live deploy.
 curl -isS https://breakcompliance-production.up.railway.app/healthz

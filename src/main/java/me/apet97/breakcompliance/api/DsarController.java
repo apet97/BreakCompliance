@@ -7,10 +7,12 @@ import java.util.List;
 import java.util.Map;
 import me.apet97.breakcompliance.addon.auth.NormalizedClaims;
 import me.apet97.breakcompliance.addon.auth.RequestAttributes;
+import me.apet97.breakcompliance.persistence.entities.AuditLog;
 import me.apet97.breakcompliance.persistence.entities.Finding;
 import me.apet97.breakcompliance.persistence.entities.TimeEntry;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceHoliday;
 import me.apet97.breakcompliance.persistence.entities.WorkspaceTimeOff;
+import me.apet97.breakcompliance.persistence.repositories.AuditLogRepository;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
 import me.apet97.breakcompliance.persistence.repositories.TimeEntryRepository;
 import me.apet97.breakcompliance.persistence.repositories.WorkspaceHolidayRepository;
@@ -24,9 +26,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * P6.1 — Data Subject Access Request export. Returns every row of every
- * workspace-scoped table that references the requested {@code userId}.
- * Workspace boundary is the JWT's workspaceId; admin-only.
+ * P6.1 — Data Subject Access Request export. Returns workspace-scoped rows
+ * that reference the requested {@code userId}, including audit logs where
+ * that user is the actor. Workspace boundary is the JWT's workspaceId;
+ * admin-only.
  *
  * <p>Pairs with the workspace-wide wipe documented in
  * {@code docs/DATA_RETENTION.md}. Operators can hand a user the JSON file
@@ -41,16 +44,19 @@ public class DsarController {
     private final FindingRepository findingsRepo;
     private final WorkspaceHolidayRepository holidayRepo;
     private final WorkspaceTimeOffRepository timeOffRepo;
+    private final AuditLogRepository auditRepo;
 
     public DsarController(
             TimeEntryRepository entriesRepo,
             FindingRepository findingsRepo,
             WorkspaceHolidayRepository holidayRepo,
-            WorkspaceTimeOffRepository timeOffRepo) {
+            WorkspaceTimeOffRepository timeOffRepo,
+            AuditLogRepository auditRepo) {
         this.entriesRepo = entriesRepo;
         this.findingsRepo = findingsRepo;
         this.holidayRepo = holidayRepo;
         this.timeOffRepo = timeOffRepo;
+        this.auditRepo = auditRepo;
     }
 
     @GetMapping(value = "/{userId}", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -71,6 +77,8 @@ public class DsarController {
         List<WorkspaceHoliday> holidays =
                 holidayRepo.findByWorkspaceIdAndAppliesToUserId(workspaceId, userId);
         List<WorkspaceTimeOff> timeOff = timeOffRepo.findByWorkspaceIdAndUserId(workspaceId, userId);
+        List<AuditLog> auditLogs =
+                auditRepo.findByWorkspaceIdAndActorOrderByCreatedAtDesc(workspaceId, userId);
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("schema", "break-compliance/dsar/v1");
@@ -81,11 +89,13 @@ public class DsarController {
                 "timeEntries", entries.size(),
                 "findings", findings.size(),
                 "holidayAssignments", holidays.size(),
-                "timeOffRequests", timeOff.size()));
+                "timeOffRequests", timeOff.size(),
+                "auditLogs", auditLogs.size()));
         body.put("timeEntries", entries.stream().map(DsarController::toTimeEntryShape).toList());
         body.put("findings", findings.stream().map(DsarController::toFindingShape).toList());
         body.put("holidayAssignments", holidays.stream().map(DsarController::toHolidayShape).toList());
         body.put("timeOffRequests", timeOff.stream().map(DsarController::toTimeOffShape).toList());
+        body.put("auditLogs", auditLogs.stream().map(DsarController::toAuditLogShape).toList());
 
         // Suggest a filename so operators can hand the user a self-
         // describing artefact instead of "response.json".
@@ -140,6 +150,18 @@ public class DsarController {
         m.put("startAt", t.getStartAt() != null ? t.getStartAt().toString() : null);
         m.put("endAt", t.getEndAt() != null ? t.getEndAt().toString() : null);
         m.put("status", t.getStatus());
+        return m;
+    }
+
+    private static Map<String, Object> toAuditLogShape(AuditLog a) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", a.getId() != null ? a.getId().toString() : null);
+        m.put("actor", a.getActor());
+        m.put("action", a.getAction());
+        m.put("entityType", a.getEntityType());
+        m.put("entityId", a.getEntityId());
+        m.put("details", a.getDetails() != null ? a.getDetails() : Map.of());
+        m.put("createdAt", a.getCreatedAt() != null ? a.getCreatedAt().toString() : null);
         return m;
     }
 }

@@ -19,8 +19,10 @@ never sends Clockify messages, and never adds outbound write scopes.
   does not use them.
 - Holidays and approved time off are cached suppression data. Workspace-wide
   holidays suppress every user's bucket for that date; user-specific holidays
-  and time off suppress only matching users. Group-only holidays are skipped
-  until group membership expansion exists.
+  suppress only matching users. Approved time-off cache rows are converted into
+  evaluation-only `TIME_OFF` entries so partial-day requests keep interval
+  precision and same-day work outside PTO still evaluates. Group-only holidays
+  are skipped until group membership expansion exists.
 
 ## Key Runtime Invariants
 
@@ -52,4 +54,4 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
   mvn -B -ntp -DskipTests package
 ```
 
-Expected test baseline after the §33 hardening pass: 352 green.
+Expected test baseline after the §34 audit-remediation pass: 362 green.

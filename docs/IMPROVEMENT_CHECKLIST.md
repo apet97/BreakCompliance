@@ -66,11 +66,14 @@ admin complaints.
 - [x] **P1.2 Approved-time-off suppression** — shipped
   - Fetch `POST /v1/workspaces/{ws}/time-off/requests` (the search variant; the
     `GET` returns 405 per the OpenAPI). Persist approved requests in
-    `breakcompliance_time_off_requests(workspaceId, userId, startAt, endAt,
+    `breakcompliance_workspace_time_off(workspaceId, userId, startAt, endAt,
     status)`.
-  - Skip `(userId, date)` buckets that fall inside an APPROVED window.
-  - Touches: `clockify/TimeOffFetcher.java` (new), `domain/BreakRuleEngine.java`,
-    `api/IngestionService.java`.
+  - Evaluation converts overlapping approved windows into synthetic,
+    non-persisted `TIME_OFF` entries clipped to the requested UTC date range;
+    partial-day PTO does not suppress same-day work outside the approved
+    interval.
+  - Touches: `clockify/TimeOffFetcher.java`, `api/FindingsService.java`,
+    `domain/BreakRuleEngine.java`, `api/IngestionService.java`.
 
 - [x] **P1.3 Approval-state filter on detailed report** — shipped (setting + detailed-report body filter)
   - Admin setting `excludeUnsubmittedEntries` (CHECKBOX, default false). When
@@ -266,7 +269,8 @@ admin complaints.
 
 - [x] **P6.1 [shipped] DSAR (data-subject access request) export**
   - `GET /api/dsar/{userId}` (admin-gated) returns a JSON bundle of every row
-    referencing that userId. Document in `DATA_RETENTION.md`.
+    referencing that userId, including audit log rows where the user is the
+    actor. Document in `DATA_RETENTION.md`.
   - Touches: `api/DsarController.java` (new), `docs/DATA_RETENTION.md`.
 
 - [x] **P6.2 [shipped] Per-user exemption list**

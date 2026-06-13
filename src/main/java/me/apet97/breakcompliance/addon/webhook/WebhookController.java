@@ -81,9 +81,10 @@ public class WebhookController {
     }
 
     /**
-     * Time-off payloads carry {@code timeOffPeriod.start} (ISO instant).
-     * Falls back to null on any parse failure — the consumer's
-     * fallback-window covers us.
+     * Time-off payloads carry {@code timeOffPeriod.period.start} (ISO
+     * instant). A legacy {@code timeOffPeriod.start} shape is accepted as a
+     * defensive fallback. Falls back to null on any parse failure — the
+     * consumer's fallback-window covers us.
      */
     private String extractTimeOffDateHint(byte[] rawBody) {
         if (rawBody == null || rawBody.length == 0) return null;
@@ -94,7 +95,10 @@ public class WebhookController {
             return null;
         }
         if (root == null || !root.isObject()) return null;
-        JsonNode start = root.path("timeOffPeriod").path("start");
+        JsonNode start = root.path("timeOffPeriod").path("period").path("start");
+        if (start.isMissingNode()) {
+            start = root.path("timeOffPeriod").path("start");
+        }
         if (start.isMissingNode() || !start.isTextual()) return null;
         try {
             return OffsetDateTime.parse(start.asText())
