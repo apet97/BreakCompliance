@@ -45,6 +45,22 @@ packages (`org.springframework.boot.webmvc.test.autoconfigure`,
 `org.springframework.boot.jdbc.test.autoconfigure`) plus Spring Framework's
 `@MockitoBean` / `@MockitoSpyBean`.
 
+## Repo hygiene + direct main push
+
+Before a direct `main` push handoff:
+
+- Review `git status --short --untracked-files=all`.
+- Stage only intentional repo files. Do not stage local helper artifacts such as
+  `.claude/`, `docs/superpowers/`, or stale plan drafts unless the operator
+  explicitly asks.
+- If the operator asks to remove untracked items, delete them explicitly and
+  recheck that `git status --short --untracked-files=all` is clean before
+  editing or committing.
+- Prove fast-forward safety with `git fetch origin main` and
+  `git merge-base --is-ancestor origin/main HEAD` before `git push origin main`.
+- Final handoff should name the commit SHA, verification commands/results,
+  push result, and any live/deploy proof intentionally skipped.
+
 ## Runtime config (Railway env vars)
 
 Spring profile **not** activated in prod — `application.yaml` is the base. Local

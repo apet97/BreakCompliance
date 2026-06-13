@@ -22,6 +22,6 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Findings Considered And Rejected
 
-- Re-reporting the six findings from `plans/2026-06-13-break-compliance-audit-remediation.md`: rejected for this queue because current HEAD `2c969bb` already includes the synthetic `TIME_OFF`, nested time-off webhook hint, blank Detailed Report body failure, DSAR audit-log, lifecycle deletion, and proof-count remediation work.
+- Re-reporting the six findings from the earlier 2026-06-13 audit-remediation handoff: rejected for this queue because current HEAD `2c969bb` already includes the synthetic `TIME_OFF`, nested time-off webhook hint, blank Detailed Report body failure, DSAR audit-log, lifecycle deletion, and proof-count remediation work.
 - Editing comments inside applied Flyway migration `V13__workspace_holidays_and_time_off.sql`: rejected because Flyway validates migration checksums; comment-only edits can break deployed database validation.
 - Dependency/version update plan: rejected for this queue because the audit did not verify a current vulnerable dependency or a concrete upgrade need.

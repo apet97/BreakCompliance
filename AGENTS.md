@@ -41,6 +41,22 @@ railway up --service BreakCompliance --ci
 railway logs --service BreakCompliance
 ```
 
+## Finish + push hygiene
+
+Before a direct `main` push:
+
+1. Run `git status --short --untracked-files=all`.
+2. Stage only intentional repo files. Leave `.claude/`, `docs/superpowers/`,
+   stale plan drafts, and other local helper artifacts out unless the operator
+   explicitly asks to remove or commit them.
+3. If asked to remove untracked items, delete them explicitly and re-run status
+   until it is clean.
+4. Re-verify the relevant proof gates after tracked edits.
+5. Prove fast-forward safety with `git fetch origin main` plus
+   `git merge-base --is-ancestor origin/main HEAD`, then push.
+6. Keep the final reply high-signal: commit SHA, pushed branch, verification
+   results, and any live/deploy evidence intentionally skipped.
+
 ## Probing live Clockify (dev workspace)
 
 API key + workspace id in `/tmp/clockify-livetest.env` — never copy into the repo.

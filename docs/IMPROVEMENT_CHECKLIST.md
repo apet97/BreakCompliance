@@ -335,3 +335,5 @@ admin complaints.
 
 6. **Commit hygiene** — small, focused commits per item. Reference the checklist
    id in the message (e.g. `feat(engine): P1.1 holiday-aware suppression`).
+   Before pushing to `main`, remove or intentionally ignore untracked local
+   helper artifacts, stage only repo-owned files, and prove fast-forward safety.
