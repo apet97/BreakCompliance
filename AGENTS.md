@@ -47,9 +47,10 @@ railway logs --service BreakCompliance
 Before a direct `main` push:
 
 1. Run `git status --short --untracked-files=all`.
-2. Stage only intentional repo files. Leave `.claude/`, `docs/superpowers/`,
-   stale plan drafts, and other local helper artifacts out unless the operator
-   explicitly asks to remove or commit them.
+2. Stage only intentional repo files. Local agent tooling (`.claude/`,
+   `docs/superpowers/`) and OS junk (`.DS_Store`) are gitignored — keep them out.
+   Leave stale plan drafts and other local helper artifacts out too unless the
+   operator explicitly asks to remove or commit them.
 3. If asked to remove untracked items, delete them explicitly and re-run status
    until it is clean.
 4. Re-verify the relevant proof gates after tracked edits.

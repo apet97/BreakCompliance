@@ -52,9 +52,10 @@ packages (`org.springframework.boot.webmvc.test.autoconfigure`,
 Before a direct `main` push handoff:
 
 - Review `git status --short --untracked-files=all`.
-- Stage only intentional repo files. Do not stage local helper artifacts such as
-  `.claude/`, `docs/superpowers/`, or stale plan drafts unless the operator
-  explicitly asks.
+- Stage only intentional repo files. Local agent tooling (`.claude/`,
+  `docs/superpowers/`) and OS junk (`.DS_Store`) are gitignored and must stay out
+  of the repo; do not stage stale plan drafts or other local helper artifacts
+  unless the operator explicitly asks.
 - If the operator asks to remove untracked items, delete them explicitly and
   recheck that `git status --short --untracked-files=all` is clean before
   editing or committing.

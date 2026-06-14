@@ -23,7 +23,12 @@ dependency-reduced-pom.xml
 
 # OS / temp
 .DS_Store
+**/.DS_Store
 *.log
+
+# Agent tooling — local only, never part of the marketplace repo
+.claude/
+docs/superpowers/
 
 # Secrets
 .env
