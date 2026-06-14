@@ -4,7 +4,7 @@ export const state = {
     preset: "this_week",
     customStart: "",
     customEnd: "",
-    view: "pivot",
+    view: "triage",
     findings: [],
     findingsRange: null,
     lastRun: null,

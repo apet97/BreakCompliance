@@ -123,7 +123,8 @@ public class SidebarHtmlController {
                   <div class="results-toolbar">
                     <fieldset class="view-toggle" aria-label="View mode">
                       <legend class="sr-only" data-i18n="view.label">View</legend>
-                      <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot" checked><span data-i18n="view.pivot">Pivot Table</span></label>
+                      <label class="toggle-option"><input type="radio" name="view-toggle" value="triage" checked><span data-i18n="view.triage">Triage</span></label>
+                      <label class="toggle-option"><input type="radio" name="view-toggle" value="pivot"><span data-i18n="view.pivot">Pivot</span></label>
                       <label class="toggle-option"><input type="radio" name="view-toggle" value="checklist"><span data-i18n="view.checklist">Checklist</span></label>
                     </fieldset>
                     <select id="user-filter-select" class="user-filter-select" aria-label="Filter findings by user" hidden></select>

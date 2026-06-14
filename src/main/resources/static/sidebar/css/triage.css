@@ -1,0 +1,222 @@
+/* Break Compliance — Triage view (default).
+ *
+ * Brings the design system's data-display components (KpiCard, FindingCard,
+ * RosterRow, Avatar) into the production sidebar as the triage-first surface:
+ * summary KPIs -> prioritized "Needs attention" feed -> "People with findings"
+ * roster. The bc-* rules are ported verbatim from the design system
+ * (css/components.css, data-display section); the triage-* layout classes are
+ * adapted from concepts/insights/insights.css for the narrow Clockify column.
+ *
+ * Every rule is token-driven, so light/dark theming comes for free.
+ */
+
+/* ===== Triage layout (narrow-sidebar scaffold) ========================== */
+
+.triage-hero {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+/* Compact the design-system KpiCard for a 3-up row in a ~360-480px column. */
+.triage-hero .bc-kpi {
+  min-height: 0;
+  padding: var(--space-5) var(--space-6);
+  gap: var(--space-1);
+  border-radius: var(--radius);
+}
+.triage-hero .bc-kpi-value { font-size: 22px; letter-spacing: -0.5px; }
+.triage-hero .bc-kpi-value .unit,
+.triage-hero .bc-kpi-value .sub-of { font-size: 13px; }
+.triage-hero .bc-kpi-label { font-size: var(--text-2xs); }
+.triage-hero .bc-kpi-sub { font-size: var(--text-xs); }
+
+.triage-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-5);
+  margin: 0 0 var(--space-6);
+}
+.triage-section-head h2 {
+  font-size: var(--text-h2);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+  letter-spacing: -0.1px;
+}
+.triage-section-head .ct {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.triage-section-head .clear-filter {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--accent-color);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-weight: var(--weight-medium);
+  padding: 0;
+}
+.triage-section-head .clear-filter:hover { text-decoration: underline; }
+
+.triage-section + .triage-section { margin-top: var(--space-10); }
+
+.feed { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.roster {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.all-clear {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-10);
+  background: var(--pass-bg);
+  border: 1px solid var(--pass-color);
+  border-radius: 10px;
+}
+.all-clear .check {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--pass-color);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: var(--space-2);
+}
+.all-clear h3 { margin: 0; font-size: var(--text-h1); color: var(--pass-color); }
+.all-clear p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 340px;
+}
+
+/* Very narrow hosts: stack the KPI row so values don't truncate. */
+@media (max-width: 380px) {
+  .triage-hero { grid-template-columns: 1fr; }
+}
+
+/* ===== KpiCard (design system: css/components.css) ===================== */
+
+.bc-kpi {
+  background: var(--bg-card); border: 1px solid var(--border-color);
+  border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; gap: 4px; min-height: 132px;
+}
+.bc-kpi-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: var(--weight-semibold); }
+.bc-kpi-value { font-size: 38px; font-weight: 650; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+.bc-kpi-value .unit { font-size: 20px; font-weight: 500; color: var(--text-secondary); }
+.bc-kpi-value .sub-of { font-size: 18px; font-weight: 500; color: var(--text-secondary); }
+.bc-kpi-sub { font-size: var(--text-sm); color: var(--text-secondary); margin-top: auto; }
+.bc-kpi-sub .fail { color: var(--fail-color); font-weight: var(--weight-semibold); }
+.bc-kpi-sub .warn { color: var(--warn-color); font-weight: var(--weight-semibold); }
+.bc-kpi-sub .pass { color: var(--pass-color); font-weight: var(--weight-semibold); }
+
+/* ===== Avatar (shared) ================================================= */
+
+.bc-avatar {
+  border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-secondary); border: 1px solid var(--border-color);
+  font-weight: var(--weight-semibold); color: var(--text-secondary); flex-shrink: 0;
+}
+.bc-avatar.risk { border-color: var(--fail-color); color: var(--fail-color); }
+
+/* ===== FindingCard ===================================================== */
+
+.bc-finding {
+  position: relative;
+  display: grid; grid-template-columns: 4px 36px 1fr auto; gap: 12px; align-items: start;
+  background: var(--bg-card); border: 1px solid var(--border-color);
+  border-radius: 10px; padding: 14px 16px 14px 0; overflow: hidden;
+  box-shadow: var(--shadow-sm); transition: box-shadow .15s, transform .15s, opacity .2s;
+}
+@media (prefers-reduced-motion: no-preference) { .bc-finding:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); } }
+.bc-finding-rail { width: 4px; align-self: stretch; }
+.bc-finding-rail.fail { background: var(--fail-color); }
+.bc-finding-rail.warn { background: var(--warn-color); }
+.bc-finding-rail.pass { background: var(--pass-color); }
+.bc-finding .bc-avatar { width: 36px; height: 36px; margin-top: 2px; font-size: 12px; }
+.bc-finding-main { min-width: 0; }
+.bc-finding-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+.bc-finding-person { font-size: 13.5px; font-weight: var(--weight-semibold); }
+.bc-finding-when { font-size: var(--text-sm); color: var(--text-secondary); }
+.bc-finding-rule { font-size: var(--text-body); font-weight: var(--weight-semibold); margin: 2px 0; }
+.bc-finding-rule .sev-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.bc-finding-rule .sev-dot.fail { background: var(--fail-color); }
+.bc-finding-rule .sev-dot.warn { background: var(--warn-color); }
+.bc-finding-rule .sev-dot.pass { background: var(--pass-color); }
+.bc-finding-detail { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; text-wrap: pretty; }
+.bc-finding-evidence {
+  margin-top: 7px; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--text-secondary); background: var(--bg-secondary);
+  border: 1px solid var(--border-color); border-radius: var(--radius-pill); padding: 2px 9px; cursor: pointer;
+  font-variant-numeric: tabular-nums; transition: border-color .15s, color .15s;
+}
+.bc-finding-evidence:hover { color: var(--text-primary); border-color: var(--accent-color); }
+.bc-finding-evidence:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.bc-evidence-ids { margin-top: 8px; padding: 8px 11px; background: var(--bg-secondary); border-radius: var(--radius-sm); display: grid; gap: 2px; }
+.bc-evidence-ids .lbl { font-size: var(--text-xs); color: var(--text-secondary); margin-bottom: 2px; }
+.bc-evidence-ids code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); word-break: break-all; }
+.bc-evidence-ids .rule-drill-note { margin: 4px 0 0; font-size: var(--text-xs); color: var(--text-secondary); line-height: 1.45; }
+.bc-finding-actions { display: flex; flex-direction: column; gap: 6px; padding: 2px 16px 0 0; align-items: stretch; }
+.bc-act-btn {
+  padding: 5px 12px; border-radius: var(--radius-sm); font: var(--weight-semibold) 12px var(--font-family);
+  cursor: pointer; white-space: nowrap; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary);
+  transition: background .15s, border-color .15s;
+}
+.bc-act-btn.primary { background: var(--accent-color); border-color: var(--accent-color); color: #fff; }
+.bc-act-btn.primary:hover { background: var(--accent-hover); }
+.bc-act-btn.ghost:hover { background: var(--bg-secondary); border-color: var(--accent-color); }
+.bc-act-btn:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.bc-act-btn:disabled,
+.bc-act-btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+.bc-finding.reviewed { opacity: 0.72; }
+.bc-finding.reviewed .bc-finding-rule, .bc-finding.reviewed .bc-finding-detail { opacity: 0.8; }
+.bc-review-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px; border-radius: var(--radius-pill); font-size: 10.5px; font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.3px;
+}
+.bc-review-tag.ack { background: var(--pass-bg); color: var(--pass-color); }
+.bc-review-tag.override { background: var(--warn-bg); color: var(--warn-color); }
+.bc-undo-btn { font-size: 11.5px; color: var(--text-secondary); background: none; border: 0; cursor: pointer; padding: 4px 0 0; text-align: left; }
+.bc-undo-btn:hover { color: var(--accent-color); }
+.bc-undo-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ===== RosterRow ====================================================== */
+
+.bc-roster-row {
+  display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center;
+  padding: 11px 14px; border-bottom: 1px solid var(--border-color); cursor: pointer;
+  transition: background .12s; width: 100%; text-align: left; background: none; border-left: 0; border-right: 0; border-top: 0; font-family: inherit;
+}
+.bc-roster-row:last-child { border-bottom: none; }
+.bc-roster-row:hover { background: var(--bg-secondary); }
+.bc-roster-row.selected { background: var(--accent-ring); }
+.bc-roster-row:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; }
+.bc-roster-row .bc-avatar { width: 32px; height: 32px; font-size: 11.5px; }
+.bc-roster-mid { min-width: 0; }
+.bc-roster-name { font-size: var(--text-body); font-weight: var(--weight-semibold); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-roster-strip { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+.bc-strip-dot { width: 14px; height: 6px; border-radius: 3px; background: var(--none-color); }
+.bc-strip-dot.status-pass { background: var(--pass-color); }
+.bc-strip-dot.status-warn { background: var(--warn-color); }
+.bc-strip-dot.status-fail { background: var(--fail-color); }
+.bc-strip-dot.status-none { background: var(--border-color); }
+.bc-roster-rate { text-align: right; }
+.bc-roster-pct { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; color: var(--text-primary); }
+.bc-roster-pct.low { color: var(--fail-color); }
+.bc-roster-pct.mid { color: var(--warn-color); }
+.bc-roster-open { font-size: 10.5px; color: var(--text-secondary); }

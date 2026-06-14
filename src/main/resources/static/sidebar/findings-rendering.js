@@ -1,4 +1,15 @@
 import { severityClass } from "./date-range.js";
+import { t } from "./i18n.js";
+
+// Short, human display title for a finding code (presentation only — the
+// persisted code/message/severity/CSV are unchanged). Falls back to the raw
+// code when no translation key is registered.
+export function findingRuleLabel(code) {
+    if (!code) return "";
+    const key = `finding.rule.${code}`;
+    const label = t(key);
+    return label === key ? code : label;
+}
 
 export function displayUserName(findings, userId) {
     for (const f of findings) {

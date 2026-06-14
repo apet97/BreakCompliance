@@ -33,12 +33,13 @@ import {
 import { clearChildren, create, el } from "./sidebar/dom.js";
 import { applyFindingsCountToLastRun, diagnosticMetricRows } from "./sidebar/diagnostics.js";
 import { downloadFindingsCsv as downloadFindingsCsvFile } from "./sidebar/findings-export.js";
-import { displayUserName, reviewBadgeClass, reviewBadgeText, statusIconMeta } from "./sidebar/findings-rendering.js";
+import { displayUserName, findingRuleLabel, reviewBadgeClass, reviewBadgeText, statusIconMeta } from "./sidebar/findings-rendering.js";
 import { loadI18n, t } from "./sidebar/i18n.js";
 import { describeIngestFailure, pollIngestionRun } from "./sidebar/ingest-polling.js";
 import { fieldsThatDivergeFromPreset, PRESET_LABELS, TIMEZONE_LABELS } from "./sidebar/presets.js";
 import { requestReviewNote } from "./sidebar/review-dialog.js";
 import { state } from "./sidebar/state.js";
+import { buildRoster, initialsFor, prioritizedFeed, triageMetrics } from "./sidebar/triage-metrics.js";
 
 // ───────────────────────────── Constants ─────────────────────────────
 
@@ -623,7 +624,8 @@ function renderResults() {
         }
         return;
     }
-    if (state.view === "pivot") renderPivot(container);
+    if (state.view === "triage") renderTriage(container);
+    else if (state.view === "pivot") renderPivot(container);
     else renderChecklist(container);
 }
 
@@ -759,12 +761,21 @@ function renderPivot(container) {
 }
 
 // Cycle a finding through OPEN -> ACKNOWLEDGED -> OVERRIDDEN -> OPEN.
-// Non-OPEN transitions can carry an optional audit note captured through
-// the first-party review dialog module.
+// Used by the checklist's single per-row button. The triage FindingCard
+// instead drives explicit Acknowledge / Override / Undo transitions —
+// both funnel through submitReview below.
 async function cycleReview(findingId, currentStatus) {
     const next = currentStatus === "ACKNOWLEDGED" ? "OVERRIDDEN"
         : currentStatus === "OVERRIDDEN" ? "OPEN"
         : "ACKNOWLEDGED";
+    await submitReview(findingId, next);
+}
+
+// Apply an explicit review transition. Non-OPEN transitions can carry an
+// optional audit note captured through the first-party review dialog module.
+// Fail-closed on non-admins (the server gates the endpoint too).
+async function submitReview(findingId, next) {
+    if (!isAdmin()) return;
     let note = null;
     if (next !== "OPEN") {
         const entered = await requestReviewNote(next);
@@ -933,6 +944,292 @@ function renderChecklist(container) {
         list.appendChild(card);
     }
     container.appendChild(list);
+}
+
+// ─────────────────── Triage view (default) ───────────────────
+
+// Triage-first surface: summary KPIs -> prioritized "Needs attention" feed ->
+// "People with findings" roster. Built from the same state.findings the pivot
+// and checklist render — no fabricated compliance %, since the backend only
+// persists problem days (no compliant-day denominator). Renders into the
+// shared #results-container; renderResults() handles the zero-findings empty
+// states before dispatching here.
+function renderTriage(container) {
+    const metrics = triageMetrics(state.findings);
+
+    // 1. KPI hero — computed over ALL findings so the headline stays stable
+    //    while the feed below filters by selected person.
+    const hero = create("div", { className: "triage-hero" });
+    hero.appendChild(kpiCard(t("triage.open"), String(metrics.open),
+        metrics.open > 0
+            ? openSplitSub(metrics.openFail, metrics.openWarn)
+            : kpiSub(t("triage.openNone"))));
+    hero.appendChild(kpiCard(t("triage.peopleAffected"), String(metrics.peopleAffected),
+        kpiSub(t("triage.peopleAffectedSub"))));
+    hero.appendChild(kpiCardOf(t("triage.reviewed"), String(metrics.reviewed), metrics.total,
+        kpiSub(t("triage.reviewedSub"))));
+    container.appendChild(hero);
+
+    const feed = prioritizedFeed(state.findings, state.userFilter);
+
+    // 2. Needs attention.
+    const attn = create("div", { className: "triage-section" });
+    const attnHead = create("div", { className: "triage-section-head" });
+    attnHead.appendChild(create("h2", { text: t("triage.needsAttention") }));
+    attnHead.appendChild(create("span", { className: "ct", text: String(feed.open.length) }));
+    if (state.userFilter) {
+        const clear = create("button", { className: "clear-filter", text: t("triage.clearFilter") });
+        clear.type = "button";
+        clear.addEventListener("click", () => { state.userFilter = null; renderResults(); });
+        attnHead.appendChild(clear);
+    }
+    attn.appendChild(attnHead);
+    if (feed.open.length === 0) {
+        attn.appendChild(allClearBlock());
+    } else {
+        const list = create("div", { className: "feed" });
+        for (const f of feed.open) list.appendChild(createFindingCard(f));
+        attn.appendChild(list);
+    }
+    container.appendChild(attn);
+
+    // 3. Reviewed (only when there are reviewed findings in scope).
+    if (feed.reviewed.length > 0) {
+        const rev = create("div", { className: "triage-section" });
+        const revHead = create("div", { className: "triage-section-head" });
+        revHead.appendChild(create("h2", { text: t("triage.reviewedSection") }));
+        revHead.appendChild(create("span", { className: "ct", text: String(feed.reviewed.length) }));
+        rev.appendChild(revHead);
+        const revList = create("div", { className: "feed" });
+        for (const f of feed.reviewed) revList.appendChild(createFindingCard(f));
+        rev.appendChild(revList);
+        container.appendChild(rev);
+    }
+
+    // 4. People with findings (risk-sorted). Clicking filters the feed and
+    //    keeps the #user-filter-select dropdown in sync via shared state.
+    const roster = buildRoster(state.findings, state.lastRunRange);
+    if (roster.length > 0) {
+        const section = create("div", { className: "triage-section" });
+        const head = create("div", { className: "triage-section-head" });
+        head.appendChild(create("h2", { text: t("triage.peopleWithFindings") }));
+        head.appendChild(create("span", { className: "ct", text: t("triage.byRisk") }));
+        section.appendChild(head);
+        const card = create("div", { className: "roster" });
+        for (const person of roster) card.appendChild(createRosterRow(person));
+        section.appendChild(card);
+        container.appendChild(section);
+    }
+}
+
+function kpiCard(label, value, subNode) {
+    const card = create("div", { className: "bc-kpi" });
+    card.appendChild(create("div", { className: "bc-kpi-label", text: label }));
+    card.appendChild(create("div", { className: "bc-kpi-value", text: value }));
+    if (subNode) card.appendChild(subNode);
+    return card;
+}
+
+// KpiCard whose value carries a muted "/ N" denominator (e.g. Reviewed 1 / 4).
+function kpiCardOf(label, value, ofTotal, subNode) {
+    const card = create("div", { className: "bc-kpi" });
+    card.appendChild(create("div", { className: "bc-kpi-label", text: label }));
+    const valueEl = create("div", { className: "bc-kpi-value" });
+    valueEl.appendChild(document.createTextNode(value));
+    valueEl.appendChild(create("span", { className: "sub-of", text: ` / ${ofTotal}` }));
+    card.appendChild(valueEl);
+    if (subNode) card.appendChild(subNode);
+    return card;
+}
+
+function kpiSub(text) {
+    return create("div", { className: "bc-kpi-sub", text });
+}
+
+function openSplitSub(fail, warn) {
+    const sub = create("div", { className: "bc-kpi-sub" });
+    sub.appendChild(create("span", { className: "fail", text: `${fail} fail` }));
+    sub.appendChild(document.createTextNode(" · "));
+    sub.appendChild(create("span", { className: "warn", text: `${warn} warn` }));
+    return sub;
+}
+
+function allClearBlock() {
+    const block = create("div", { className: "all-clear" });
+    const check = create("div", { className: "check", text: "✓" });
+    check.setAttribute("aria-hidden", "true");
+    block.appendChild(check);
+    block.appendChild(create("h3", { text: t("triage.nothingOpen") }));
+    const detail = state.userFilter
+        ? t("triage.nothingOpenForPerson", { name: rosterNameFor(state.userFilter) })
+        : t("triage.nothingOpenDetail");
+    block.appendChild(create("p", { text: detail }));
+    return block;
+}
+
+function rosterNameFor(userId) {
+    const f = state.findings.find(x => x.userId === userId);
+    return f ? displayUserName([f], userId) : userId;
+}
+
+// One design-system FindingCard, hand-rendered (no React). Open findings show
+// Acknowledge / Override actions; reviewed findings dim and show a tag + Undo.
+function createFindingCard(f) {
+    const admin = isAdmin();
+    const status = severityClass(f.severity); // pass | warn | fail
+    const reviewStatus = f.review?.status ?? "OPEN";
+    const reviewed = reviewStatus !== "OPEN";
+    const name = displayUserName([f], f.userId);
+
+    const card = create("div", { className: "bc-finding" + (reviewed ? " reviewed" : "") });
+    card.appendChild(create("div", { className: `bc-finding-rail ${status}` }));
+
+    const avatar = create("div", { className: "bc-avatar" + (reviewed ? "" : " risk"), text: initialsFor(name) });
+    avatar.setAttribute("aria-hidden", "true");
+    card.appendChild(avatar);
+
+    const main = create("div", { className: "bc-finding-main" });
+    const top = create("div", { className: "bc-finding-top" });
+    top.appendChild(create("span", { className: "bc-finding-person", title: f.userId, text: name }));
+    const { weekday, monthDay } = createDateFormatters(state.session?.userTimeZone);
+    const d = new Date(`${f.date}T12:00:00Z`);
+    const whenLabel = isNaN(d.getTime())
+        ? t("triage.worked", { duration: formatMinutes(f.evidence?.workMinutes) })
+        : `${weekday.format(d)} ${monthDay.format(d)} · ${t("triage.worked", { duration: formatMinutes(f.evidence?.workMinutes) })}`;
+    top.appendChild(create("span", { className: "bc-finding-when", text: whenLabel }));
+    main.appendChild(top);
+
+    const rule = create("div", { className: "bc-finding-rule" });
+    rule.appendChild(create("span", { className: `sev-dot ${status}`, title: statusIconMeta(f.severity).srLabel }));
+    rule.appendChild(document.createTextNode(findingRuleLabel(f.code)));
+    main.appendChild(rule);
+
+    main.appendChild(create("div", { className: "bc-finding-detail", text: f.message }));
+
+    appendEvidenceDrill(main, f);
+    card.appendChild(main);
+
+    const actions = create("div", { className: "bc-finding-actions" });
+    if (!reviewed) {
+        const ack = create("button", { className: "bc-act-btn primary", text: t("triage.acknowledge") });
+        ack.type = "button";
+        const ovr = create("button", { className: "bc-act-btn ghost", text: t("triage.override") });
+        ovr.type = "button";
+        if (admin) {
+            ack.addEventListener("click", () => submitReview(f.id, "ACKNOWLEDGED"));
+            ovr.addEventListener("click", () => submitReview(f.id, "OVERRIDDEN"));
+        } else {
+            for (const b of [ack, ovr]) {
+                b.disabled = true;
+                b.setAttribute("aria-disabled", "true");
+                b.title = "Workspace admin required to review findings";
+            }
+        }
+        actions.appendChild(ack);
+        actions.appendChild(ovr);
+    } else {
+        const tagCls = reviewStatus === "ACKNOWLEDGED" ? "ack" : "override";
+        actions.appendChild(create("span", {
+            className: `bc-review-tag ${tagCls}`,
+            text: reviewStatus === "ACKNOWLEDGED" ? "Ack" : "Override",
+            title: f.review?.note ? `Note: ${f.review.note}` : "No note recorded",
+        }));
+        const undo = create("button", { className: "bc-undo-btn", text: t("triage.undo") });
+        undo.type = "button";
+        if (admin) {
+            undo.addEventListener("click", () => submitReview(f.id, "OPEN"));
+        } else {
+            undo.disabled = true;
+            undo.setAttribute("aria-disabled", "true");
+            undo.title = "Workspace admin required to review findings";
+        }
+        actions.appendChild(undo);
+    }
+    card.appendChild(actions);
+    return card;
+}
+
+// Collapsible evidence chip on a FindingCard — same payload the checklist
+// drill-down surfaces (entry ids + running-timer / overnight notes).
+function appendEvidenceDrill(main, f) {
+    const entryIds = Array.isArray(f.evidence?.entryIds) ? f.evidence.entryIds : [];
+    const runningSkipped = Number(f.evidence?.runningEntriesSkipped) || 0;
+    const overnightShifts = Number(f.evidence?.overnightShifts) || 0;
+    if (entryIds.length === 0 && runningSkipped === 0 && overnightShifts === 0) return;
+
+    const toggle = create("button", {
+        className: "bc-finding-evidence",
+        text: t("triage.evidenceCount", { n: entryIds.length })
+            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : ""),
+    });
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label",
+        `Show ${entryIds.length} contributing time-entry id${entryIds.length === 1 ? "" : "s"} for this finding`);
+
+    const body = create("div", { className: "bc-evidence-ids" });
+    body.hidden = true;
+    if (entryIds.length > 0) {
+        body.appendChild(create("span", { className: "lbl", text: "Time entries" }));
+        for (const id of entryIds) body.appendChild(create("code", { text: id }));
+    }
+    if (runningSkipped > 0) {
+        body.appendChild(create("p", {
+            className: "rule-drill-note",
+            text: `${runningSkipped} running timer${runningSkipped === 1 ? "" : "s"} skipped — refresh once the user stops the entry to include it.`,
+        }));
+    }
+    if (overnightShifts > 0) {
+        body.appendChild(create("p", {
+            className: "rule-drill-note",
+            text: `${overnightShifts} entr${overnightShifts === 1 ? "y" : "ies"} crossed midnight — the full shift is attributed to the start-day; review before acting.`,
+        }));
+    }
+    toggle.addEventListener("click", () => {
+        const open = body.hidden;
+        body.hidden = !open;
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    main.appendChild(toggle);
+    main.appendChild(body);
+}
+
+// One roster row. The right-side number is the open-finding count (colored by
+// worst open severity) — not a compliance %, which the backend can't supply.
+function createRosterRow(person) {
+    const selected = state.userFilter === person.userId;
+    const row = create("button", { className: "bc-roster-row" + (selected ? " selected" : "") });
+    row.type = "button";
+    row.setAttribute("aria-pressed", selected ? "true" : "false");
+
+    const avatar = create("div", { className: "bc-avatar" + (person.open > 0 ? " risk" : ""), text: person.initials });
+    avatar.setAttribute("aria-hidden", "true");
+    row.appendChild(avatar);
+
+    const mid = create("div", { className: "bc-roster-mid" });
+    mid.appendChild(create("div", { className: "bc-roster-name", title: person.userId, text: person.name }));
+    const strip = create("div", { className: "bc-roster-strip" });
+    for (const day of person.strip) {
+        strip.appendChild(create("span", {
+            className: `bc-strip-dot status-${day.status}`,
+            title: `${day.date} — ${day.status === "none" ? "no findings" : day.status}`,
+        }));
+    }
+    mid.appendChild(strip);
+    row.appendChild(mid);
+
+    const rate = create("div", { className: "bc-roster-rate" });
+    const pctCls = person.worstOpenStatus === "fail" ? " low"
+        : person.worstOpenStatus === "warn" ? " mid" : "";
+    rate.appendChild(create("div", { className: "bc-roster-pct" + pctCls, text: String(person.open) }));
+    rate.appendChild(create("div", { className: "bc-roster-open", text: `${person.total} total` }));
+    row.appendChild(rate);
+
+    row.addEventListener("click", () => {
+        state.userFilter = selected ? null : person.userId;
+        renderResults();
+    });
+    return row;
 }
 
 // ─────────────────── Main flow: Check Compliance ───────────────────

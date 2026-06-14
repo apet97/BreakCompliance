@@ -30,7 +30,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
-NODE_OPTIONS=--no-warnings node --test src/test/js/sidebar-diagnostics.test.mjs
+NODE_OPTIONS=--no-warnings node --test src/test/js/*.mjs
 
 # Targeted run.
 mvn -B -ntp test -Dtest='LifecycleControllerTest,BreakRuleEngineTest'
@@ -408,3 +408,20 @@ suppression for PTO; partial-day requests must leave same-day work visible.
   the diagnostics renderer omits unknown values instead of printing `null`.
   Added the repo's first focused Node sidebar behavior test at
   `src/test/js/sidebar-diagnostics.test.mjs`.
+- **§39** — Triage-first sidebar redesign, built from the bundled design system
+  (`.claude/.skills/Break Compliance Design System/`). New default **Triage**
+  view in the results toolbar (Pivot + Checklist kept as alternate detail views):
+  honest summary KPIs (**Open** fail/warn split · **People affected** ·
+  **Reviewed** n/total — deliberately **no** compliance %, since the backend
+  persists findings only for problem days and there is no compliant-day
+  denominator), a prioritized **Needs attention** feed of design-system
+  FindingCards with inline Acknowledge/Override + evidence drill-down, and a
+  risk-sorted **People with findings** roster whose rows filter the feed
+  (kept in sync with the existing user-filter dropdown). Vanilla JS, no bundler,
+  CSP `script-src 'self'` intact; **no** backend/engine/Flyway/scope change.
+  DS tokens added additively to `sidebar/css/base.css`; `bc-*` component CSS in
+  new `sidebar/css/triage.css`; pure derivations in `sidebar/triage-metrics.js`
+  covered by new `src/test/js/triage-metrics.test.mjs`; views render in
+  `sidebar.js#renderTriage`; `finding.rule.*` short labels are presentation-only
+  (persisted codes/messages/severity/CSV unchanged). Documented JS gate widened
+  to `src/test/js/*.mjs`. 368 Java tests + 12 JS tests green on 2026-06-14.

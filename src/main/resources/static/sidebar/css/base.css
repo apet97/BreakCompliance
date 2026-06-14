@@ -35,8 +35,54 @@
 
   --radius:    6px;
   --radius-sm: 4px;
+  --radius-pill: 999px;
 
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:   ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Typography ramp — mirrors the design system tokens (tokens/typography.css)
+     so the bc-* data-display components in triage.css resolve correctly. */
+  --text-h1:   16px;
+  --text-h2:   14px;
+  --text-body: 13px;
+  --text-sm:   12px;
+  --text-xs:   11px;
+  --text-2xs:  10px;
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --leading-tight: 1.25;
+  --leading-base:  1.5;
+  --tracking-label: 0.4px;
+
+  /* Spacing scale + layout (tokens/spacing.css) */
+  --space-1:  2px;
+  --space-2:  4px;
+  --space-3:  6px;
+  --space-4:  8px;
+  --space-5:  10px;
+  --space-6:  12px;
+  --space-7:  14px;
+  --space-8:  16px;
+  --space-10: 24px;
+  --space-12: 40px;
+  --sidebar-max: 480px;
+
+  /* Elevation + motion (tokens/effects.css) */
+  --shadow-popover: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --shadow-dialog:  0 12px 32px rgba(0, 0, 0, 0.24);
+  --transition-fast: 0.15s;
+  --press-scale: 0.98;
+  --ease: ease;
+
+  /* Severity aliases (tokens/colors.css) — settings/validation banners +
+     preset badges + bc-* tints. Light-only, matching the design system. */
+  --severity-pass-bg:    #E6F4EA;
+  --severity-pass-text:  #1E6B3A;
+  --severity-warn-bg:    #FFF7E0;
+  --severity-warn-text:  #5C3A00;
+  --severity-warn-border:#D99500;
+  --severity-fail-text:  #B00000;
 }
 
 html[data-clockify-theme='dark'],
