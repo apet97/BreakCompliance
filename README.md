@@ -9,12 +9,6 @@ Clockify marketplace add-on that reviews whether workspace users took required b
 
 **Read-only.** No write scopes. The addon never creates, edits, or deletes time entries, never posts to Clockify, never messages users. See `docs/PRIVACY.md`.
 
-## Improvement backlog
-
-Active backlog of engine / UX / marketplace polish items is tracked in
-[`docs/IMPROVEMENT_CHECKLIST.md`](docs/IMPROVEMENT_CHECKLIST.md). Items are
-grouped P1–P6 by user-facing impact.
-
 Domain context and durable decisions live in [`CONTEXT.md`](CONTEXT.md) and
 [`docs/adr/`](docs/adr/).
 
