@@ -216,7 +216,7 @@
 .bc-strip-dot.status-fail { background: var(--fail-color); }
 .bc-strip-dot.status-none { background: var(--border-color); }
 .bc-roster-rate { text-align: right; }
-.bc-roster-pct { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; color: var(--text-primary); }
-.bc-roster-pct.low { color: var(--fail-color); }
-.bc-roster-pct.mid { color: var(--warn-color); }
+.bc-roster-count { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; color: var(--text-primary); }
+.bc-roster-count.low { color: var(--fail-color); }
+.bc-roster-count.mid { color: var(--warn-color); }
 .bc-roster-open { font-size: 10.5px; color: var(--text-secondary); }

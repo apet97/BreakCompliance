@@ -422,7 +422,24 @@ suppression for PTO; partial-day requests must leave same-day work visible.
   CSP `script-src 'self'` intact; **no** backend/engine/Flyway/scope change.
   DS tokens added additively to `sidebar/css/base.css`; `bc-*` component CSS in
   new `sidebar/css/triage.css`; pure derivations in `sidebar/triage-metrics.js`
-  covered by new `src/test/js/triage-metrics.test.mjs`; views render in
-  `sidebar.js#renderTriage`; `finding.rule.*` short labels are presentation-only
-  (persisted codes/messages/severity/CSV unchanged). Documented JS gate widened
-  to `src/test/js/*.mjs`. 368 Java tests + 12 JS tests green on 2026-06-14.
+  covered by new `src/test/js/triage-metrics.test.mjs`; `finding.rule.*` short
+  labels are presentation-only (persisted codes/messages/severity/CSV unchanged).
+  Documented JS gate widened to `src/test/js/*.mjs`. 368 Java + 12 JS tests green
+  on 2026-06-14.
+- **§40** — Thermo-nuclear review follow-up: structural simplification of the
+  sidebar after §39 left `sidebar.js` at 1667 lines. Each findings view is now
+  its own module — `sidebar/views/{triage,pivot,checklist}.js` — plus the preset
+  surface `sidebar/views/preset-ui.js` (orchestrator injects api/showBanner via
+  `configurePresetUi`) and the admin gate `sidebar/roles.js`; `sidebar.js` is back
+  to a ~900-line orchestrator. De-duplicated helpers: `displayUserName` (deleted
+  the parallel `bestName`), `pickWorstSeverityFinding` + `evidenceNotes`
+  (single copy in `findings-rendering.js`), `visibleFindings` (in
+  `triage-metrics.js`), and one `kpiCard` (merged the `kpiCardOf` variant).
+  Deleted the dead `severityToStatus` alias and the `cycleReview` indirection
+  (cycle logic inlined in the checklist). Fixed the `renderUserFilter` hidden
+  state mutation (filter is now reconciled once in `renderResults`), built the
+  finding-card date formatters once per render instead of per card, and renamed
+  the misleading `.bc-roster-pct` → `.bc-roster-count`. Added an import-smoke
+  test `src/test/js/sidebar-modules.test.mjs` that loads the module graph (catches
+  renamed-export breaks `node --check` misses). 368 Java + 15 JS tests green on
+  2026-06-15.

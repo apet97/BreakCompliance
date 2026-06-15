@@ -179,10 +179,17 @@ Acknowledge/Override, and a risk-sorted **People with findings** roster whose
 rows filter the feed. **Pivot** and **Checklist** are unchanged alternate detail
 views. Implementation is vanilla JS (no bundler, CSP `script-src 'self'` intact):
 DS tokens were added to `sidebar/css/base.css`, the `bc-*` component CSS lives in
-`sidebar/css/triage.css`, pure derivations in `sidebar/triage-metrics.js` (covered
-by `src/test/js/triage-metrics.test.mjs`), and the views render in
-`sidebar.js#renderTriage`. Finding short-labels (`finding.rule.*`) are
-presentation-only — persisted codes/messages/severity/CSV are untouched.
+`sidebar/css/triage.css`, and pure derivations in `sidebar/triage-metrics.js`
+(covered by `src/test/js/triage-metrics.test.mjs`). Each view is its own module
+under `sidebar/views/` — `triage.js`, `pivot.js`, `checklist.js`, and the preset
+surface `preset-ui.js` (configured by the orchestrator via `configurePresetUi`);
+`sidebar.js` is the ~900-line orchestrator that dispatches to them. The admin
+gate is `sidebar/roles.js`; shared finding-display helpers (`displayUserName`,
+`pickWorstSeverityFinding`, `evidenceNotes`) live in `sidebar/findings-rendering.js`.
+A `src/test/js/sidebar-modules.test.mjs` import-smoke test guards the module graph
+(`node --check` only parses; it won't catch a renamed export). Finding
+short-labels (`finding.rule.*`) are presentation-only — persisted
+codes/messages/severity/CSV are untouched.
 
 ## Outbound Clockify calls
 
@@ -304,8 +311,11 @@ src/main/resources/
                         workspace-holiday scope_key so applies_to_user_id can
                         stay null for workspace-wide holidays.
   logback-spring.xml    Token-redacting log pattern; logger levels via application.yaml
-  static/               sidebar.js, sidebar/*.js, sidebar/css/*.css, styles.css,
-                        theme-init.js, i18n/en.json, icon.svg (64×64 designed mark)
+  static/               sidebar.js (orchestrator), sidebar/*.js (state, api,
+                        dom, roles, triage-metrics, findings-rendering, …),
+                        sidebar/views/*.js (triage, pivot, checklist, preset-ui),
+                        sidebar/css/*.css, styles.css, theme-init.js,
+                        i18n/en.json, icon.svg (64×64 designed mark)
 
 src/test/...            368 green expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:

@@ -16,35 +16,39 @@
 // use `{ title, body }`; the parser also tolerates the legacy
 // `{ action, payload }` shape some older builds emit.
 //
-// This file is hand-authored ES module — no bundler, no package.json.
+// This file is the orchestrator: auth/messenger boot, the Check-Compliance
+// flow, banners/diagnostics/staleness, audit wiring, and event wiring. The
+// findings views (triage / pivot / checklist) and the preset surface live in
+// their own modules under sidebar/views/. This file is hand-authored ES
+// module — no bundler, no package.json.
 
 import { renderAuditPanel } from "./sidebar/audit-panel.js";
 import { createApiClient, HttpError } from "./sidebar/api-client.js";
 import { applyTheme, createMessenger, readAuthTokenFromQuery, stripAuthTokenFromUrl } from "./sidebar/auth-messenger.js";
-import {
-    createDateFormatters,
-    DATE_PRESETS,
-    enumerateDates,
-    formatBreakWithSynthetic,
-    formatMinutes,
-    formatRelativeTime,
-    severityClass,
-} from "./sidebar/date-range.js";
+import { DATE_PRESETS, formatRelativeTime } from "./sidebar/date-range.js";
 import { clearChildren, create, el } from "./sidebar/dom.js";
 import { applyFindingsCountToLastRun, diagnosticMetricRows } from "./sidebar/diagnostics.js";
 import { downloadFindingsCsv as downloadFindingsCsvFile } from "./sidebar/findings-export.js";
-import { displayUserName, findingRuleLabel, reviewBadgeClass, reviewBadgeText, statusIconMeta } from "./sidebar/findings-rendering.js";
 import { loadI18n, t } from "./sidebar/i18n.js";
 import { describeIngestFailure, pollIngestionRun } from "./sidebar/ingest-polling.js";
-import { fieldsThatDivergeFromPreset, PRESET_LABELS, TIMEZONE_LABELS } from "./sidebar/presets.js";
 import { requestReviewNote } from "./sidebar/review-dialog.js";
+import { isAdmin } from "./sidebar/roles.js";
 import { state } from "./sidebar/state.js";
-import { buildRoster, initialsFor, prioritizedFeed, triageMetrics } from "./sidebar/triage-metrics.js";
+import {
+    configurePresetUi,
+    loadPresetCatalog,
+    renderActiveTemplate,
+    renderCustomizedPill,
+    toggleActiveTemplateDetails,
+    togglePresetChooser,
+} from "./sidebar/views/preset-ui.js";
+import { renderChecklist } from "./sidebar/views/checklist.js";
+import { renderPivot } from "./sidebar/views/pivot.js";
+import { renderTriage } from "./sidebar/views/triage.js";
 
 // ───────────────────────────── Constants ─────────────────────────────
 
 const ADDON_TITLE = "Break Compliance";
-const ADDON_KEY = "break-compliance-jvm";
 const TOKEN_REFRESH_INTERVAL_MS = 25 * 60 * 1000;
 
 // ────────────────────────── Module state ──────────────────────────
@@ -55,17 +59,10 @@ const api = createApiClient(() => addonToken);
 
 // ─────────────────── Admin-role gating ───────────────────
 
-// True only when the session's workspaceRole resolves to a Clockify admin
-// or owner. Anything else (MEMBER, missing claim, unexpected value) returns
-// false — fail-closed, matching the server's RequestValidator.requireAdmin.
-function isAdmin() {
-    const role = String(state.session?.workspaceRole ?? "").toUpperCase();
-    return role === "ADMIN" || role === "OWNER";
-}
-
 // Hide / disable every control that POSTs to an admin-gated endpoint so
 // non-admins don't trigger 401/403 round-trips. Read-only surfaces (findings
 // list, active-template chip, view toggle, date pickers) stay interactive.
+// The admin check itself lives in sidebar/roles.js (fail-closed).
 function renderAdminGates() {
     const admin = isAdmin();
     const note = document.getElementById("admin-required-note");
@@ -279,251 +276,6 @@ function renderValidationWarnings() {
     node.appendChild(create("p", { className: "settings-warning-foot", text: t("settings.warningFoot") }));
 }
 
-// ─────────────────── Preset chooser ───────────────────
-
-async function loadPresetCatalog() {
-    if (state.presetCatalog) return state.presetCatalog;
-    const response = await api("/api/presets");
-    state.presetCatalog = response.presets ?? [];
-    return state.presetCatalog;
-}
-
-function activePresetFromCatalog() {
-    const key = state.session?.appliedPresetKey;
-    if (!key || !state.presetCatalog) return null;
-    return state.presetCatalog.find(p => p.key === key) ?? null;
-}
-
-function clearCustomizedPillInteraction(pill) {
-    pill.removeAttribute("role");
-    pill.removeAttribute("aria-label");
-    pill.tabIndex = -1;
-    pill.onclick = null;
-    pill.onkeydown = null;
-}
-
-function renderCustomizedPill() {
-    const pill = el("customized-pill");
-    const activePreset = activePresetFromCatalog();
-    const activeTemplate = state.session?.activeTemplate;
-    if (!activePreset || !activeTemplate) {
-        pill.hidden = true;
-        clearCustomizedPillInteraction(pill);
-        return;
-    }
-    const divergent = fieldsThatDivergeFromPreset(activeTemplate, activePreset);
-    if (divergent.length === 0) {
-        pill.hidden = false;
-        pill.className = "customized-pill matches";
-        pill.textContent = "Matches preset";
-        clearCustomizedPillInteraction(pill);
-    } else if (!isAdmin()) {
-        // Non-admins see the informational "Customized" label without the
-        // clickable Reset affordance — the apply endpoint would 403 anyway.
-        pill.hidden = false;
-        pill.className = "customized-pill diverged";
-        pill.textContent = "Customized";
-        clearCustomizedPillInteraction(pill);
-    } else {
-        pill.hidden = false;
-        pill.className = "customized-pill diverged";
-        pill.textContent = `Customized · Reset to ${activePreset.label}?`;
-        pill.setAttribute("role", "button");
-        pill.setAttribute("aria-label", `Reset customized thresholds to ${activePreset.label}`);
-        pill.tabIndex = 0;
-        const resetToPreset = () => applyPreset(activePreset.key, { skipDivergenceConfirm: true });
-        pill.onclick = resetToPreset;
-        pill.onkeydown = event => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            resetToPreset();
-        };
-    }
-}
-
-async function togglePresetChooser(force) {
-    state.chooserOpen = typeof force === "boolean" ? force : !state.chooserOpen;
-    const panel = el("preset-chooser");
-    const trigger = el("switch-preset-btn");
-    trigger.setAttribute("aria-expanded", state.chooserOpen ? "true" : "false");
-    if (!state.chooserOpen) {
-        panel.hidden = true;
-        return;
-    }
-    panel.hidden = false;
-    try {
-        await loadPresetCatalog();
-    } catch (err) {
-        clearChildren(panel);
-        panel.appendChild(create("p", { className: "muted", text: "Couldn't load presets — try again." }));
-        return;
-    }
-    renderPresetChooser();
-}
-
-function renderPresetChooser() {
-    const panel = el("preset-chooser");
-    if (!state.chooserOpen) { panel.hidden = true; return; }
-    clearChildren(panel);
-    const activeKey = state.session?.appliedPresetKey;
-    const activeTemplate = state.session?.activeTemplate;
-    for (const preset of state.presetCatalog ?? []) {
-        const card = create("div", { className: "preset-card" + (preset.key === activeKey ? " active" : "") });
-        const header = create("div", { className: "preset-card-header" });
-        header.appendChild(create("span", { className: "preset-card-title", text: preset.label }));
-        if (preset.key === activeKey) {
-            const divergent = fieldsThatDivergeFromPreset(activeTemplate, preset);
-            const badge = create("span", {
-                className: "preset-card-badge " + (divergent.length === 0 ? "matches" : "diverged"),
-                text: divergent.length === 0 ? "Active · matches" : `Active · customized (${divergent.length})`,
-            });
-            header.appendChild(badge);
-        }
-        card.appendChild(header);
-
-        const t = preset.thresholds;
-        const summary = create("ul", { className: "preset-card-summary" });
-        summary.appendChild(create("li", { text: `Work threshold: ${formatMinutes(t.workThresholdMinutes)}` }));
-        summary.appendChild(create("li", { text: `Required break: ${formatMinutes(t.breakThresholdMinutes)}` }));
-        summary.appendChild(create("li", { text: `Min segment: ${formatMinutes(t.minBreakSegmentMinutes)}` }));
-        if (t.secondWorkThresholdMinutes) {
-            summary.appendChild(create("li", { text: `2nd tier: ${formatMinutes(t.secondWorkThresholdMinutes)} → ${formatMinutes(t.secondBreakThresholdMinutes)}` }));
-        }
-        summary.appendChild(create("li", { text: `Split breaks: ${t.allowSplitBreaks ? "allowed" : "one block required"}` }));
-        card.appendChild(summary);
-
-        if (preset.description) {
-            card.appendChild(create("p", { className: "preset-card-desc", text: preset.description }));
-        }
-
-        const applyBtn = create("button", {
-            className: "btn-secondary preset-card-apply",
-            text: preset.key === activeKey ? "Re-apply" : "Apply this preset",
-        });
-        applyBtn.type = "button";
-        applyBtn.disabled = state.chooserBusy === preset.key;
-        if (state.chooserBusy === preset.key) applyBtn.textContent = "Applying…";
-        applyBtn.addEventListener("click", () => applyPreset(preset.key));
-        card.appendChild(applyBtn);
-
-        panel.appendChild(card);
-    }
-}
-
-async function applyPreset(presetKey, options = {}) {
-    if (!isAdmin()) return;
-    const activePreset = activePresetFromCatalog();
-    const target = (state.presetCatalog ?? []).find(p => p.key === presetKey);
-    const activeTemplate = state.session?.activeTemplate;
-    if (!target) return;
-
-    // Confirm if applying would overwrite user customizations. Skip the
-    // prompt when the user explicitly chose "Reset to preset" via the pill.
-    if (!options.skipDivergenceConfirm && activePreset && activeTemplate) {
-        const divergent = fieldsThatDivergeFromPreset(activeTemplate, activePreset);
-        if (divergent.length > 0) {
-            const ok = window.confirm(
-                `Applying "${target.label}" will overwrite ${divergent.length} customized field${divergent.length === 1 ? "" : "s"}. Continue?`);
-            if (!ok) return;
-        }
-    }
-
-    state.chooserBusy = presetKey;
-    renderPresetChooser();
-    try {
-        await api("/api/presets/apply", {
-            method: "POST",
-            body: JSON.stringify({ presetKey }),
-        });
-        // Re-fetch the session so the chip + popover + customized pill
-        // reflect the new threshold values.
-        state.session = await api("/api/session");
-        renderActiveTemplate();
-        renderCustomizedPill();
-        renderValidationWarnings();
-        renderSettingsHint();
-        showBanner("ok", `Applied "${target.label}". Reload the Clockify settings page if you want to fine-tune individual fields.`);
-        togglePresetChooser(false);
-    } catch (err) {
-        showBanner("err", err instanceof HttpError
-            ? `Couldn't apply preset: ${err.message}`
-            : "Couldn't apply preset.");
-    } finally {
-        state.chooserBusy = null;
-        renderPresetChooser();
-    }
-}
-
-function renderActiveTemplate() {
-    const labelNode = el("active-template-label");
-    const chip = el("active-template-chip");
-    const details = el("active-template-details");
-
-    const presetKey = state.session?.appliedPresetKey ?? "custom-basic";
-    // Prefer the catalog's label so any future preset addition shows up
-    // correctly without a sidebar.js update. Fall back to the static map.
-    const catalogEntry = (state.presetCatalog ?? []).find(p => p.key === presetKey);
-    const presetLabel = catalogEntry?.label ?? PRESET_LABELS[presetKey] ?? presetKey;
-    labelNode.textContent = presetLabel;
-
-    clearChildren(details);
-    const active = state.session?.activeTemplate;
-    if (!active) {
-        details.appendChild(create("p", { className: "muted", text: "Thresholds not configured yet — open the settings page in Clockify." }));
-        chip.removeAttribute("data-preview");
-        return;
-    }
-
-    // P2.5 — one-line summary on chip hover, so admins don't have to click
-    // the chip to glance at the current rule.
-    // P2.7 — also mirror onto aria-label so screen-reader users get the
-    // same context (CSS ::after pseudo-content is invisible to AT).
-    const splitNote = active.allowSplitBreaks ? "split allowed" : "single block required";
-    const segmentNote = `${active.minBreakSegmentMinutes ?? 0}m segments OK`;
-    const preview = `≥${active.workThresholdMinutes ?? 0}m work → ≥${active.breakThresholdMinutes ?? 0}m break (${segmentNote}, ${splitNote})`;
-    chip.setAttribute("data-preview", preview);
-    chip.setAttribute("aria-label", `Active preset: ${presetLabel}. ${preview}. Click to see full thresholds.`);
-
-    const rows = [
-        ["Work threshold", formatMinutes(active.workThresholdMinutes)],
-        ["Required break", formatMinutes(active.breakThresholdMinutes)],
-        ["Min break segment", formatMinutes(active.minBreakSegmentMinutes)],
-        ["Max continuous work", formatMinutes(active.maxContinuousWorkMinutes)],
-        ["Grace period", formatMinutes(active.gracePeriodMinutes)],
-        ["Split breaks", active.allowSplitBreaks
-            ? "Allowed (sum of qualifying segments)"
-            : "Not allowed (single uninterrupted break required — California meal-rule)"],
-    ];
-    if (active.secondWorkThresholdMinutes && active.secondWorkThresholdMinutes > 0) {
-        rows.push(["Second-tier work threshold", formatMinutes(active.secondWorkThresholdMinutes)]);
-        rows.push(["Second-tier required break", formatMinutes(active.secondBreakThresholdMinutes)]);
-    } else {
-        rows.push(["Second tier", "Disabled"]);
-    }
-    rows.push(["Timezone strategy", TIMEZONE_LABELS[active.timezoneStrategy] ?? (active.timezoneStrategy ?? "—")]);
-    rows.push(["Fallback detection", active.fallbackDetectionEnabled ? "On" : "Off"]);
-
-    const dl = create("dl", { className: "threshold-list" });
-    for (const [k, v] of rows) {
-        dl.appendChild(create("dt", { text: k }));
-        dl.appendChild(create("dd", { text: v }));
-    }
-    details.appendChild(dl);
-    chip.setAttribute("aria-expanded", state.detailsOpen ? "true" : "false");
-    details.hidden = !state.detailsOpen;
-}
-
-function toggleActiveTemplateDetails(force) {
-    state.detailsOpen = typeof force === "boolean" ? force : !state.detailsOpen;
-    renderActiveTemplate();
-}
-
-function pickWorstSeverityFinding(findings) {
-    const rank = { VIOLATION: 3, WARNING: 2, INFO: 1 };
-    return findings.reduce((worst, current) =>
-        rank[current.severity] > rank[worst.severity] ? current : worst, findings[0]);
-}
-
 function renderExportButton() {
     const btn = document.getElementById("export-csv-btn");
     if (!btn) return;
@@ -597,6 +349,13 @@ async function downloadFindingsCsv() {
 function renderResults() {
     const container = el("results-container");
     clearChildren(container);
+    // Drop a stale user filter that points at someone no longer present in the
+    // current findings (e.g. after a range change) so a hidden filter can't
+    // silently empty the views. Done here, once — not as a side effect buried
+    // inside renderUserFilter.
+    if (state.userFilter && !state.findings.some(f => f.userId === state.userFilter)) {
+        state.userFilter = null;
+    }
     renderExportButton();
     renderUserFilter();
     if (state.findings.length === 0) {
@@ -624,14 +383,14 @@ function renderResults() {
         }
         return;
     }
-    if (state.view === "triage") renderTriage(container);
+    if (state.view === "triage") renderTriage(container, { submitReview, rerender: renderResults });
     else if (state.view === "pivot") renderPivot(container);
-    else renderChecklist(container);
+    else renderChecklist(container, { submitReview });
 }
 
 // P2.1 — populate the user-filter dropdown from the userIds currently in
-// state.findings. Hidden when there are no findings or only one user.
-// Client-side filter via state.userFilter; downstream renderers respect it.
+// state.findings. Hidden when there are no findings or only one user. Pure
+// render: the filter value itself is reconciled in renderResults.
 function renderUserFilter() {
     const sel = document.getElementById("user-filter-select");
     if (!sel) return;
@@ -650,7 +409,6 @@ function renderUserFilter() {
     }
     if (byUserId.size < 2) {
         sel.hidden = true;
-        state.userFilter = null;
         return;
     }
     sel.hidden = false;
@@ -666,114 +424,10 @@ function renderUserFilter() {
     sel.value = state.userFilter ?? "";
 }
 
-function visibleFindings() {
-    // P2.1 — apply the user-filter dropdown selection. Empty / null
-    // selection = no filter; show everyone.
-    if (!state.userFilter) return state.findings;
-    return state.findings.filter(f => f.userId === state.userFilter);
-}
-
-function renderPivot(container) {
-    const findingsView = visibleFindings();
-    const byUser = new Map();
-    for (const f of findingsView) {
-        if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
-        const byDate = byUser.get(f.userId);
-        if (!byDate.has(f.date)) byDate.set(f.date, []);
-        byDate.get(f.date).push(f);
-    }
-
-    // Show every day in the run's range (not just days with findings) so an
-    // 8h block of green cells reads as "this user was checked and passed",
-    // not "the table is missing days". Fall back to the union of finding
-    // dates if no range is recorded (defensive).
-    let sortedDates = state.lastRunRange
-        ? enumerateDates(state.lastRunRange.start, state.lastRunRange.end)
-        : [];
-    if (sortedDates.length === 0) {
-        const fromFindings = new Set();
-        for (const f of state.findings) fromFindings.add(f.date);
-        sortedDates = [...fromFindings].sort();
-    }
-
-    // Pre-compute display names so each row picks the best available name.
-    const namesByUser = new Map();
-    for (const [userId, byDate] of byUser) {
-        const allFindings = [...byDate.values()].flat();
-        namesByUser.set(userId, displayUserName(allFindings, userId));
-    }
-
-    const scroll = create("div", { className: "pivot-scroll-container" });
-    const table = create("table", { className: "pivot-table" });
-    const thead = create("thead");
-    const headerRow = create("tr");
-    headerRow.appendChild(create("th", { className: "user-col", text: "User" }));
-    const { weekday, monthDay } = createDateFormatters(state.session?.userTimeZone);
-    for (const date of sortedDates) {
-        // Anchor the calendar date at noon UTC so DST transitions in the
-        // user's timezone can't shift the rendered date by a day.
-        const d = new Date(`${date}T12:00:00Z`);
-        const dayName = weekday.format(d);
-        const dayDate = monthDay.format(d);
-        const th = create("th", { className: "day-col", title: date });
-        th.appendChild(create("div", { className: "day-name", text: dayName }));
-        th.appendChild(create("div", { className: "day-date", text: dayDate }));
-        headerRow.appendChild(th);
-    }
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    const tbody = create("tbody");
-    for (const [userId, byDate] of byUser) {
-        const row = create("tr");
-        const display = namesByUser.get(userId) ?? userId;
-        row.appendChild(create("td", { className: "user-col", title: userId, text: display }));
-        for (const date of sortedDates) {
-            const findings = byDate.get(date) ?? [];
-            if (findings.length === 0) {
-                // No findings for this user-day. Could be a clean pass, a
-                // PTO/holiday day (engine filters TIME_OFF/HOLIDAY), or no
-                // entries recorded. "·" + a tooltip explains.
-                const cell = create("td", {
-                    className: "day-cell status-none",
-                    title: `${date} — no findings`,
-                });
-                cell.appendChild(create("span", { className: "sr-only", text: "No findings" }));
-                cell.appendChild(create("span", { className: "status-icon", text: "·" }));
-                row.appendChild(cell);
-                continue;
-            }
-            const worst = pickWorstSeverityFinding(findings);
-            const cls = severityClass(worst.severity);
-            const { icon, srLabel } = statusIconMeta(worst.severity);
-            const summary = `${formatMinutes(worst.evidence.workMinutes)} · ${formatBreakWithSynthetic(worst.evidence)}`;
-            const cell = create("td", { className: `day-cell status-${cls}`, title: worst.message });
-            cell.appendChild(create("span", { className: "sr-only", text: `${srLabel}: ` }));
-            cell.appendChild(create("span", { className: "status-icon", text: icon }));
-            cell.appendChild(create("div", { className: "cell-detail", text: summary }));
-            row.appendChild(cell);
-        }
-        tbody.appendChild(row);
-    }
-    table.appendChild(tbody);
-    scroll.appendChild(table);
-    container.appendChild(scroll);
-}
-
-// Cycle a finding through OPEN -> ACKNOWLEDGED -> OVERRIDDEN -> OPEN.
-// Used by the checklist's single per-row button. The triage FindingCard
-// instead drives explicit Acknowledge / Override / Undo transitions —
-// both funnel through submitReview below.
-async function cycleReview(findingId, currentStatus) {
-    const next = currentStatus === "ACKNOWLEDGED" ? "OVERRIDDEN"
-        : currentStatus === "OVERRIDDEN" ? "OPEN"
-        : "ACKNOWLEDGED";
-    await submitReview(findingId, next);
-}
-
 // Apply an explicit review transition. Non-OPEN transitions can carry an
 // optional audit note captured through the first-party review dialog module.
-// Fail-closed on non-admins (the server gates the endpoint too).
+// Fail-closed on non-admins (the server gates the endpoint too). Shared by the
+// triage FindingCard (explicit Ack/Override/Undo) and the checklist (cycle).
 async function submitReview(findingId, next) {
     if (!isAdmin()) return;
     let note = null;
@@ -808,428 +462,6 @@ async function submitReview(findingId, next) {
             ? `Couldn't update review: ${err.message}`
             : "Couldn't update review.");
     }
-}
-
-function renderChecklist(container) {
-    const findingsView = visibleFindings();
-    const byUser = new Map();
-    const admin = isAdmin();
-    for (const f of findingsView) {
-        if (!byUser.has(f.userId)) byUser.set(f.userId, new Map());
-        const byDate = byUser.get(f.userId);
-        if (!byDate.has(f.date)) byDate.set(f.date, []);
-        byDate.get(f.date).push(f);
-    }
-    if (byUser.size === 0) {
-        container.appendChild(create("p", { className: "no-data", text: "No findings." }));
-        return;
-    }
-    const list = create("div", { className: "checklist-container" });
-    for (const [userId, byDate] of byUser) {
-        const card = create("div", { className: "user-card" });
-        const allFindings = [...byDate.values()].flat();
-        const display = displayUserName(allFindings, userId);
-        card.appendChild(create("div", { className: "user-name", title: userId, text: display }));
-        const days = create("div", { className: "day-list" });
-        for (const date of [...byDate.keys()].sort()) {
-            const findings = byDate.get(date);
-            const worst = pickWorstSeverityFinding(findings);
-            const cls = severityClass(worst.severity);
-            const { icon, srLabel } = statusIconMeta(worst.severity);
-            const summary = `Work: ${formatMinutes(worst.evidence.workMinutes)} | Break: ${formatBreakWithSynthetic(worst.evidence)}`;
-            const section = create("div", { className: `day-section status-${cls}` });
-            const header = create("div", { className: "day-header" });
-            header.appendChild(create("span", { className: "sr-only", text: `${srLabel}: ` }));
-            header.appendChild(create("span", { className: "day-status-icon", text: icon }));
-            header.appendChild(create("span", { className: "day-label", text: date }));
-            header.appendChild(create("span", { className: "day-summary", text: summary }));
-            section.appendChild(header);
-            const items = create("ul", { className: "rule-list" });
-            for (const f of findings) {
-                const itemCls = severityClass(f.severity);
-                const itemIcon = itemCls === "pass" ? "✓" : itemCls === "warn" ? "!" : "✗";
-                const reviewStatus = f.review?.status ?? "OPEN";
-                const liClasses = ["rule-item"];
-                if (reviewStatus !== "OPEN") liClasses.push("rule-item--reviewed");
-                const li = create("li", { className: liClasses.join(" ") });
-                li.appendChild(create("span", { className: `rule-icon status-${itemCls}`, text: itemIcon }));
-                li.appendChild(create("span", { className: "rule-name", text: f.code }));
-                li.appendChild(create("span", { className: "rule-detail", text: f.message }));
-                const badgeText = reviewBadgeText(reviewStatus);
-                if (badgeText) {
-                    const badge = create("span", {
-                        className: reviewBadgeClass(reviewStatus),
-                        text: badgeText,
-                        title: f.review?.note ? `Note: ${f.review.note}` : "No note recorded",
-                    });
-                    li.appendChild(badge);
-                }
-                const reviewBtn = create("button", {
-                    className: "btn-link rule-review-btn",
-                    text: reviewStatus === "OPEN" ? "Mark…"
-                        : reviewStatus === "ACKNOWLEDGED" ? "→ Override"
-                        : "→ Re-open",
-                    title: "Cycle this finding's review state (admin only)",
-                });
-                reviewBtn.type = "button";
-                reviewBtn.disabled = !admin;
-                if (!admin) reviewBtn.title = "Workspace admin required to review findings";
-                reviewBtn.addEventListener("click", () => {
-                    if (!admin) return;
-                    cycleReview(f.id, reviewStatus);
-                });
-                li.appendChild(reviewBtn);
-
-                // P2.2 — drill-down: surface entryIds + runningEntriesSkipped
-                // + overnightShifts already in the evidence payload. No new
-                // endpoint needed.
-                const entryIds = Array.isArray(f.evidence?.entryIds) ? f.evidence.entryIds : [];
-                const runningSkipped = Number(f.evidence?.runningEntriesSkipped) || 0;
-                const overnightShifts = Number(f.evidence?.overnightShifts) || 0;
-                if (entryIds.length > 0 || runningSkipped > 0 || overnightShifts > 0) {
-                    const drillBtn = create("button", {
-                        className: "btn-link rule-drill-btn",
-                        text: `▾ ${entryIds.length} ${entryIds.length === 1 ? "entry" : "entries"}`
-                            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : ""),
-                        title: "Show contributing time-entry ids",
-                    });
-                    drillBtn.type = "button";
-                    drillBtn.setAttribute("aria-expanded", "false");
-                    // P2.7 — screen-reader friendly label so the button
-                    // announces its target clearly.
-                    drillBtn.setAttribute("aria-label",
-                        `Show ${entryIds.length} contributing time-entry id${entryIds.length === 1 ? "" : "s"} for this finding`);
-                    const drillBody = create("div", { className: "rule-drill-body" });
-                    drillBody.hidden = true;
-                    if (entryIds.length > 0) {
-                        const idList = create("ul", { className: "rule-drill-ids" });
-                        for (const id of entryIds) {
-                            idList.appendChild(create("li", { className: "rule-drill-id", text: id }));
-                        }
-                        drillBody.appendChild(idList);
-                    }
-                    if (runningSkipped > 0) {
-                        drillBody.appendChild(create("p", {
-                            className: "rule-drill-note",
-                            // P1.5 — admins refresh after the user stops the timer.
-                            text: `${runningSkipped} running timer${runningSkipped === 1 ? "" : "s"} skipped — refresh once the user stops the entry to include it in the evaluation.`,
-                        }));
-                    }
-                    if (overnightShifts > 0) {
-                        drillBody.appendChild(create("p", {
-                            className: "rule-drill-note",
-                            // P1.4 — flag that the work-minutes here include
-                            // the tail of an overnight shift, so admins can
-                            // double-check before acting.
-                            text: `${overnightShifts} entr${overnightShifts === 1 ? "y" : "ies"} crossed midnight — the full shift is attributed to the start-day; review before acting.`,
-                        }));
-                    }
-                    drillBtn.addEventListener("click", () => {
-                        const open = drillBody.hidden;
-                        drillBody.hidden = !open;
-                        drillBtn.setAttribute("aria-expanded", open ? "true" : "false");
-                        drillBtn.firstChild.nodeValue = (open ? "▴ " : "▾ ")
-                            + `${entryIds.length} ${entryIds.length === 1 ? "entry" : "entries"}`
-                            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : "");
-                    });
-                    li.appendChild(drillBtn);
-                    li.appendChild(drillBody);
-                }
-                items.appendChild(li);
-            }
-            section.appendChild(items);
-            days.appendChild(section);
-        }
-        card.appendChild(days);
-        list.appendChild(card);
-    }
-    container.appendChild(list);
-}
-
-// ─────────────────── Triage view (default) ───────────────────
-
-// Triage-first surface: summary KPIs -> prioritized "Needs attention" feed ->
-// "People with findings" roster. Built from the same state.findings the pivot
-// and checklist render — no fabricated compliance %, since the backend only
-// persists problem days (no compliant-day denominator). Renders into the
-// shared #results-container; renderResults() handles the zero-findings empty
-// states before dispatching here.
-function renderTriage(container) {
-    const metrics = triageMetrics(state.findings);
-
-    // 1. KPI hero — computed over ALL findings so the headline stays stable
-    //    while the feed below filters by selected person.
-    const hero = create("div", { className: "triage-hero" });
-    hero.appendChild(kpiCard(t("triage.open"), String(metrics.open),
-        metrics.open > 0
-            ? openSplitSub(metrics.openFail, metrics.openWarn)
-            : kpiSub(t("triage.openNone"))));
-    hero.appendChild(kpiCard(t("triage.peopleAffected"), String(metrics.peopleAffected),
-        kpiSub(t("triage.peopleAffectedSub"))));
-    hero.appendChild(kpiCardOf(t("triage.reviewed"), String(metrics.reviewed), metrics.total,
-        kpiSub(t("triage.reviewedSub"))));
-    container.appendChild(hero);
-
-    const feed = prioritizedFeed(state.findings, state.userFilter);
-
-    // 2. Needs attention.
-    const attn = create("div", { className: "triage-section" });
-    const attnHead = create("div", { className: "triage-section-head" });
-    attnHead.appendChild(create("h2", { text: t("triage.needsAttention") }));
-    attnHead.appendChild(create("span", { className: "ct", text: String(feed.open.length) }));
-    if (state.userFilter) {
-        const clear = create("button", { className: "clear-filter", text: t("triage.clearFilter") });
-        clear.type = "button";
-        clear.addEventListener("click", () => { state.userFilter = null; renderResults(); });
-        attnHead.appendChild(clear);
-    }
-    attn.appendChild(attnHead);
-    if (feed.open.length === 0) {
-        attn.appendChild(allClearBlock());
-    } else {
-        const list = create("div", { className: "feed" });
-        for (const f of feed.open) list.appendChild(createFindingCard(f));
-        attn.appendChild(list);
-    }
-    container.appendChild(attn);
-
-    // 3. Reviewed (only when there are reviewed findings in scope).
-    if (feed.reviewed.length > 0) {
-        const rev = create("div", { className: "triage-section" });
-        const revHead = create("div", { className: "triage-section-head" });
-        revHead.appendChild(create("h2", { text: t("triage.reviewedSection") }));
-        revHead.appendChild(create("span", { className: "ct", text: String(feed.reviewed.length) }));
-        rev.appendChild(revHead);
-        const revList = create("div", { className: "feed" });
-        for (const f of feed.reviewed) revList.appendChild(createFindingCard(f));
-        rev.appendChild(revList);
-        container.appendChild(rev);
-    }
-
-    // 4. People with findings (risk-sorted). Clicking filters the feed and
-    //    keeps the #user-filter-select dropdown in sync via shared state.
-    const roster = buildRoster(state.findings, state.lastRunRange);
-    if (roster.length > 0) {
-        const section = create("div", { className: "triage-section" });
-        const head = create("div", { className: "triage-section-head" });
-        head.appendChild(create("h2", { text: t("triage.peopleWithFindings") }));
-        head.appendChild(create("span", { className: "ct", text: t("triage.byRisk") }));
-        section.appendChild(head);
-        const card = create("div", { className: "roster" });
-        for (const person of roster) card.appendChild(createRosterRow(person));
-        section.appendChild(card);
-        container.appendChild(section);
-    }
-}
-
-function kpiCard(label, value, subNode) {
-    const card = create("div", { className: "bc-kpi" });
-    card.appendChild(create("div", { className: "bc-kpi-label", text: label }));
-    card.appendChild(create("div", { className: "bc-kpi-value", text: value }));
-    if (subNode) card.appendChild(subNode);
-    return card;
-}
-
-// KpiCard whose value carries a muted "/ N" denominator (e.g. Reviewed 1 / 4).
-function kpiCardOf(label, value, ofTotal, subNode) {
-    const card = create("div", { className: "bc-kpi" });
-    card.appendChild(create("div", { className: "bc-kpi-label", text: label }));
-    const valueEl = create("div", { className: "bc-kpi-value" });
-    valueEl.appendChild(document.createTextNode(value));
-    valueEl.appendChild(create("span", { className: "sub-of", text: ` / ${ofTotal}` }));
-    card.appendChild(valueEl);
-    if (subNode) card.appendChild(subNode);
-    return card;
-}
-
-function kpiSub(text) {
-    return create("div", { className: "bc-kpi-sub", text });
-}
-
-function openSplitSub(fail, warn) {
-    const sub = create("div", { className: "bc-kpi-sub" });
-    sub.appendChild(create("span", { className: "fail", text: `${fail} fail` }));
-    sub.appendChild(document.createTextNode(" · "));
-    sub.appendChild(create("span", { className: "warn", text: `${warn} warn` }));
-    return sub;
-}
-
-function allClearBlock() {
-    const block = create("div", { className: "all-clear" });
-    const check = create("div", { className: "check", text: "✓" });
-    check.setAttribute("aria-hidden", "true");
-    block.appendChild(check);
-    block.appendChild(create("h3", { text: t("triage.nothingOpen") }));
-    const detail = state.userFilter
-        ? t("triage.nothingOpenForPerson", { name: rosterNameFor(state.userFilter) })
-        : t("triage.nothingOpenDetail");
-    block.appendChild(create("p", { text: detail }));
-    return block;
-}
-
-function rosterNameFor(userId) {
-    const f = state.findings.find(x => x.userId === userId);
-    return f ? displayUserName([f], userId) : userId;
-}
-
-// One design-system FindingCard, hand-rendered (no React). Open findings show
-// Acknowledge / Override actions; reviewed findings dim and show a tag + Undo.
-function createFindingCard(f) {
-    const admin = isAdmin();
-    const status = severityClass(f.severity); // pass | warn | fail
-    const reviewStatus = f.review?.status ?? "OPEN";
-    const reviewed = reviewStatus !== "OPEN";
-    const name = displayUserName([f], f.userId);
-
-    const card = create("div", { className: "bc-finding" + (reviewed ? " reviewed" : "") });
-    card.appendChild(create("div", { className: `bc-finding-rail ${status}` }));
-
-    const avatar = create("div", { className: "bc-avatar" + (reviewed ? "" : " risk"), text: initialsFor(name) });
-    avatar.setAttribute("aria-hidden", "true");
-    card.appendChild(avatar);
-
-    const main = create("div", { className: "bc-finding-main" });
-    const top = create("div", { className: "bc-finding-top" });
-    top.appendChild(create("span", { className: "bc-finding-person", title: f.userId, text: name }));
-    const { weekday, monthDay } = createDateFormatters(state.session?.userTimeZone);
-    const d = new Date(`${f.date}T12:00:00Z`);
-    const whenLabel = isNaN(d.getTime())
-        ? t("triage.worked", { duration: formatMinutes(f.evidence?.workMinutes) })
-        : `${weekday.format(d)} ${monthDay.format(d)} · ${t("triage.worked", { duration: formatMinutes(f.evidence?.workMinutes) })}`;
-    top.appendChild(create("span", { className: "bc-finding-when", text: whenLabel }));
-    main.appendChild(top);
-
-    const rule = create("div", { className: "bc-finding-rule" });
-    rule.appendChild(create("span", { className: `sev-dot ${status}`, title: statusIconMeta(f.severity).srLabel }));
-    rule.appendChild(document.createTextNode(findingRuleLabel(f.code)));
-    main.appendChild(rule);
-
-    main.appendChild(create("div", { className: "bc-finding-detail", text: f.message }));
-
-    appendEvidenceDrill(main, f);
-    card.appendChild(main);
-
-    const actions = create("div", { className: "bc-finding-actions" });
-    if (!reviewed) {
-        const ack = create("button", { className: "bc-act-btn primary", text: t("triage.acknowledge") });
-        ack.type = "button";
-        const ovr = create("button", { className: "bc-act-btn ghost", text: t("triage.override") });
-        ovr.type = "button";
-        if (admin) {
-            ack.addEventListener("click", () => submitReview(f.id, "ACKNOWLEDGED"));
-            ovr.addEventListener("click", () => submitReview(f.id, "OVERRIDDEN"));
-        } else {
-            for (const b of [ack, ovr]) {
-                b.disabled = true;
-                b.setAttribute("aria-disabled", "true");
-                b.title = "Workspace admin required to review findings";
-            }
-        }
-        actions.appendChild(ack);
-        actions.appendChild(ovr);
-    } else {
-        const tagCls = reviewStatus === "ACKNOWLEDGED" ? "ack" : "override";
-        actions.appendChild(create("span", {
-            className: `bc-review-tag ${tagCls}`,
-            text: reviewStatus === "ACKNOWLEDGED" ? "Ack" : "Override",
-            title: f.review?.note ? `Note: ${f.review.note}` : "No note recorded",
-        }));
-        const undo = create("button", { className: "bc-undo-btn", text: t("triage.undo") });
-        undo.type = "button";
-        if (admin) {
-            undo.addEventListener("click", () => submitReview(f.id, "OPEN"));
-        } else {
-            undo.disabled = true;
-            undo.setAttribute("aria-disabled", "true");
-            undo.title = "Workspace admin required to review findings";
-        }
-        actions.appendChild(undo);
-    }
-    card.appendChild(actions);
-    return card;
-}
-
-// Collapsible evidence chip on a FindingCard — same payload the checklist
-// drill-down surfaces (entry ids + running-timer / overnight notes).
-function appendEvidenceDrill(main, f) {
-    const entryIds = Array.isArray(f.evidence?.entryIds) ? f.evidence.entryIds : [];
-    const runningSkipped = Number(f.evidence?.runningEntriesSkipped) || 0;
-    const overnightShifts = Number(f.evidence?.overnightShifts) || 0;
-    if (entryIds.length === 0 && runningSkipped === 0 && overnightShifts === 0) return;
-
-    const toggle = create("button", {
-        className: "bc-finding-evidence",
-        text: t("triage.evidenceCount", { n: entryIds.length })
-            + (runningSkipped > 0 ? ` + ${runningSkipped} running` : ""),
-    });
-    toggle.type = "button";
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.setAttribute("aria-label",
-        `Show ${entryIds.length} contributing time-entry id${entryIds.length === 1 ? "" : "s"} for this finding`);
-
-    const body = create("div", { className: "bc-evidence-ids" });
-    body.hidden = true;
-    if (entryIds.length > 0) {
-        body.appendChild(create("span", { className: "lbl", text: "Time entries" }));
-        for (const id of entryIds) body.appendChild(create("code", { text: id }));
-    }
-    if (runningSkipped > 0) {
-        body.appendChild(create("p", {
-            className: "rule-drill-note",
-            text: `${runningSkipped} running timer${runningSkipped === 1 ? "" : "s"} skipped — refresh once the user stops the entry to include it.`,
-        }));
-    }
-    if (overnightShifts > 0) {
-        body.appendChild(create("p", {
-            className: "rule-drill-note",
-            text: `${overnightShifts} entr${overnightShifts === 1 ? "y" : "ies"} crossed midnight — the full shift is attributed to the start-day; review before acting.`,
-        }));
-    }
-    toggle.addEventListener("click", () => {
-        const open = body.hidden;
-        body.hidden = !open;
-        toggle.setAttribute("aria-expanded", open ? "true" : "false");
-    });
-    main.appendChild(toggle);
-    main.appendChild(body);
-}
-
-// One roster row. The right-side number is the open-finding count (colored by
-// worst open severity) — not a compliance %, which the backend can't supply.
-function createRosterRow(person) {
-    const selected = state.userFilter === person.userId;
-    const row = create("button", { className: "bc-roster-row" + (selected ? " selected" : "") });
-    row.type = "button";
-    row.setAttribute("aria-pressed", selected ? "true" : "false");
-
-    const avatar = create("div", { className: "bc-avatar" + (person.open > 0 ? " risk" : ""), text: person.initials });
-    avatar.setAttribute("aria-hidden", "true");
-    row.appendChild(avatar);
-
-    const mid = create("div", { className: "bc-roster-mid" });
-    mid.appendChild(create("div", { className: "bc-roster-name", title: person.userId, text: person.name }));
-    const strip = create("div", { className: "bc-roster-strip" });
-    for (const day of person.strip) {
-        strip.appendChild(create("span", {
-            className: `bc-strip-dot status-${day.status}`,
-            title: `${day.date} — ${day.status === "none" ? "no findings" : day.status}`,
-        }));
-    }
-    mid.appendChild(strip);
-    row.appendChild(mid);
-
-    const rate = create("div", { className: "bc-roster-rate" });
-    const pctCls = person.worstOpenStatus === "fail" ? " low"
-        : person.worstOpenStatus === "warn" ? " mid" : "";
-    rate.appendChild(create("div", { className: "bc-roster-pct" + pctCls, text: String(person.open) }));
-    rate.appendChild(create("div", { className: "bc-roster-open", text: `${person.total} total` }));
-    row.appendChild(rate);
-
-    row.addEventListener("click", () => {
-        state.userFilter = selected ? null : person.userId;
-        renderResults();
-    });
-    return row;
 }
 
 // ─────────────────── Main flow: Check Compliance ───────────────────
@@ -1425,6 +657,14 @@ function renderSettingsHint() {
     if (fallback) {
         fallback.hidden = false;
     }
+}
+
+// Re-render the validation-warning banner + settings hint after a preset
+// apply. Handed to the preset module via configurePresetUi so it can refresh
+// these orchestrator-owned surfaces without importing back into this file.
+function afterPresetApplied() {
+    renderValidationWarnings();
+    renderSettingsHint();
 }
 
 async function loadInitialData() {
@@ -1646,6 +886,8 @@ function initAuthAndMessenger() {
 
 async function init() {
     document.title = ADDON_TITLE;
+    // Give the preset module its cross-cutting dependencies before any load.
+    configurePresetUi({ api, showBanner, afterApply: afterPresetApplied });
     try {
         await loadI18n("en");
         document.title = t("app.title");

@@ -5,8 +5,8 @@ import {
     buildRoster,
     initialsFor,
     prioritizedFeed,
-    severityToStatus,
     triageMetrics,
+    visibleFindings,
 } from "../../main/resources/static/sidebar/triage-metrics.js";
 
 // id, userId, userName, date, severity, review
@@ -21,10 +21,10 @@ const FIXTURE = [
     finding("f4", "u3", "Sam O", "2026-06-11", "WARNING"),                            // open warn
 ];
 
-test("severityToStatus maps severity to the pass/warn/fail vocabulary", () => {
-    assert.equal(severityToStatus("VIOLATION"), "fail");
-    assert.equal(severityToStatus("WARNING"), "warn");
-    assert.equal(severityToStatus("INFO"), "pass");
+test("visibleFindings narrows to the selected user, or returns all when unfiltered", () => {
+    assert.equal(visibleFindings(FIXTURE, null).length, 4);
+    assert.deepEqual(visibleFindings(FIXTURE, "u1").map(f => f.id), ["f1", "f2"]);
+    assert.deepEqual(visibleFindings(undefined, "u1"), []);
 });
 
 test("initialsFor builds at most two uppercase letters", () => {

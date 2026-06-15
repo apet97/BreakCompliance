@@ -12,6 +12,7 @@
 // the same way sidebar/diagnostics.js is.
 
 import { enumerateDates, severityClass } from "./date-range.js";
+import { displayUserName } from "./findings-rendering.js";
 
 // How many trailing day-dots the roster strip shows. The strip is a compact
 // recency glance, not a full ledger; long ranges (e.g. the 90-day backlog)
@@ -22,14 +23,17 @@ const MAX_STRIP_DAYS = 14;
 // ranks lowest (0) so it sorts to the top.
 const STATUS_RANK = { fail: 0, warn: 1, pass: 2, none: 3 };
 
-export function severityToStatus(severity) {
-    return severityClass(severity);
-}
-
 // A finding is open when it has no review row or its review is still OPEN.
 export function isOpenFinding(finding) {
     const status = finding?.review?.status;
     return !status || status === "OPEN";
+}
+
+// Findings narrowed to the selected user (null/empty = everyone). Shared by the
+// pivot and checklist views; the triage feed filters via prioritizedFeed.
+export function visibleFindings(findings, userFilter) {
+    const list = Array.isArray(findings) ? findings : [];
+    return userFilter ? list.filter(f => f.userId === userFilter) : list;
 }
 
 function statusRank(status) {
@@ -51,14 +55,6 @@ export function initialsFor(name) {
     const parts = trimmed.split(/\s+/).filter(Boolean);
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function bestName(findings, userId) {
-    for (const f of findings) {
-        const name = f.userName && String(f.userName).trim();
-        if (name) return name;
-    }
-    return userId;
 }
 
 // Summary KPIs over the full findings set (never filtered by the selected
@@ -127,10 +123,11 @@ export function buildRoster(findings, dateRange = null) {
             const onDay = userFindings.filter(f => f.date === date);
             return { date, status: onDay.length ? worstStatus(onDay) : "none" };
         });
+        const name = displayUserName(userFindings, userId);
         rows.push({
             userId,
-            name: bestName(userFindings, userId),
-            initials: initialsFor(bestName(userFindings, userId)),
+            name,
+            initials: initialsFor(name),
             open: openFindings.length,
             total: userFindings.length,
             worstOpenStatus: openFindings.length ? worstStatus(openFindings) : null,
