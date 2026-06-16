@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.3",
+  "schemaVersion": "1.5",
   "key": "break-compliance-jvm",
   "name": "Break Compliance",
   "baseUrl": "https://breakcompliance-production.up.railway.app",
@@ -41,6 +41,18 @@
     {
       "event": "TIME_ENTRY_DELETED",
       "path": "/webhook/time-entry-deleted"
+    },
+    {
+      "event": "TIME_OFF_REQUEST_APPROVED",
+      "path": "/webhook/time-off-approved"
+    },
+    {
+      "event": "TIME_OFF_REQUEST_REJECTED",
+      "path": "/webhook/time-off-rejected"
+    },
+    {
+      "event": "TIME_OFF_REQUEST_WITHDRAWN",
+      "path": "/webhook/time-off-withdrawn"
     }
   ],
   "components": [
@@ -140,7 +152,8 @@
             "type": "DROPDOWN_SINGLE",
             "value": "Use entry's local time zone",
             "allowedValues": [
-              "Use entry's local time zone"
+              "Use entry's local time zone",
+              "Use UTC for every entry"
             ],
             "required": true
           },
@@ -152,6 +165,86 @@
             "type": "CHECKBOX",
             "value": false,
             "allowedValues": []
+          },
+          {
+            "id": "exemptUserIds",
+            "name": "Exempt user ids",
+            "description": "Optional. User ids listed here are skipped during evaluation — useful for execs, contractors, or anyone whose schedule isn't subject to the workspace's break policy.",
+            "placeholder": "Comma-separated Clockify user ids",
+            "accessLevel": "ADMINS",
+            "type": "TXT",
+            "value": " ",
+            "allowedValues": []
+          },
+          {
+            "id": "refreshDebounceSeconds",
+            "name": "Refresh debounce (seconds)",
+            "description": "Optional. How long the addon waits after a Clockify webhook before refreshing findings — bursts of edits coalesce into one re-ingest within this window. Heavy workspaces benefit from longer windows; quiet ones from shorter.",
+            "placeholder": "0 = use default (20s); accepted range 5–300",
+            "accessLevel": "ADMINS",
+            "type": "NUMBER",
+            "value": 0,
+            "allowedValues": []
+          },
+          {
+            "id": "excludeUnsubmittedEntries",
+            "name": "Only evaluate approved entries",
+            "description": "ON: only entries already approved in Clockify count toward break compliance. Work still being edited won't trigger findings. Recommended for workspaces with mandatory approval workflows.",
+            "accessLevel": "ADMINS",
+            "type": "CHECKBOX",
+            "value": false,
+            "allowedValues": []
+          },
+          {
+            "id": "severityOverrideMissingBreak",
+            "name": "Severity — missing break",
+            "description": "How severe a missing-required-break finding is. Downgrade to WARNING or INFO if you want softer signals during a rollout.",
+            "accessLevel": "ADMINS",
+            "type": "DROPDOWN_SINGLE",
+            "value": "VIOLATION",
+            "allowedValues": [
+              "VIOLATION",
+              "WARNING",
+              "INFO"
+            ]
+          },
+          {
+            "id": "severityOverrideInsufficientBreak",
+            "name": "Severity — insufficient break",
+            "description": "Severity used when a user took some break but below the required total.",
+            "accessLevel": "ADMINS",
+            "type": "DROPDOWN_SINGLE",
+            "value": "VIOLATION",
+            "allowedValues": [
+              "VIOLATION",
+              "WARNING",
+              "INFO"
+            ]
+          },
+          {
+            "id": "severityOverrideMaxContinuous",
+            "name": "Severity — max continuous work",
+            "description": "Severity used when a user exceeded the max-continuous-work limit without a qualifying break.",
+            "accessLevel": "ADMINS",
+            "type": "DROPDOWN_SINGLE",
+            "value": "VIOLATION",
+            "allowedValues": [
+              "VIOLATION",
+              "WARNING",
+              "INFO"
+            ]
+          },
+          {
+            "id": "nightShiftAttribution",
+            "name": "Overnight shift bucketing",
+            "description": "How to attribute time entries whose start and end span a calendar midnight. start-day = whole shift counted on the day it began (default). end-day = whole shift counted on the day it ended.",
+            "accessLevel": "ADMINS",
+            "type": "DROPDOWN_SINGLE",
+            "value": "start-day",
+            "allowedValues": [
+              "start-day",
+              "end-day"
+            ]
           }
         ]
       }

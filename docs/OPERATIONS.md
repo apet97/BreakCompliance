@@ -1,6 +1,6 @@
 # Operations Runbook — Break Compliance
 
-_Last updated: 2026-06-14._
+_Last updated: 2026-06-17._
 
 Break Compliance is a read-only Clockify marketplace add-on hosted on Railway.
 This runbook is for deploys, rollbacks, monitoring, key rotation, incident
@@ -110,6 +110,12 @@ Check these during smoke tests and incidents:
   - `breakcompliance_ingest_run_duration_seconds_*`
   - `breakcompliance_ingest_entries_processed_total`
   - `breakcompliance_ingest_run_failed_total{reason=...}`
+  - Current posture: publicly reachable on the Railway base URL for operational
+    evidence. Treat that as intentional for this deployment only while metrics
+    remain operational counters/timers with no tenant payloads, Clockify tokens,
+    or user identifiers. To restrict it, choose Railway/private networking,
+    reverse proxy/IP allowlist, or Spring security first, then verify `/healthz`
+    and `/actuator/health` still stay public.
 - Railway logs:
   - lifecycle install/delete lines
   - `refresh.consumer.*`

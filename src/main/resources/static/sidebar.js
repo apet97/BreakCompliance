@@ -288,7 +288,11 @@ function renderExportButton() {
 // requiring a Check Compliance click in this tab first.
 function currentFindingsRange() {
     if (state.lastRunRange?.start && state.lastRunRange?.end) {
-        return { start: state.lastRunRange.start, end: state.lastRunRange.end };
+        return {
+            start: state.lastRunRange.start,
+            end: state.lastRunRange.end,
+            openOnly: Boolean(state.lastRunRange.openOnly),
+        };
     }
     const computed = computeDateRange();
     if ("error" in computed) return null;
@@ -339,8 +343,9 @@ async function loadAuditLog() {
 }
 
 async function downloadFindingsCsv() {
+    const range = currentFindingsRange();
     await downloadFindingsCsvFile({
-        range: currentFindingsRange(),
+        range: range ? { ...range, userId: state.userFilter } : null,
         token: addonToken,
         showBanner,
     });

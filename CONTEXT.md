@@ -62,4 +62,5 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
   mvn -B -ntp -DskipTests package
 ```
 
-Expected test baseline after the §37 MessageSource runtime repair: 368 green.
+Expected test baseline after the §41 CSV export filter-parity repair: 370 Java
+tests green plus 17 Node sidebar tests green.

@@ -16,6 +16,7 @@ import me.apet97.breakcompliance.persistence.PostgresTestcontainersConfig;
 import me.apet97.breakcompliance.persistence.entities.Finding;
 import me.apet97.breakcompliance.persistence.entities.FindingCode;
 import me.apet97.breakcompliance.persistence.entities.FindingReview;
+import me.apet97.breakcompliance.persistence.entities.ReviewStatus;
 import me.apet97.breakcompliance.persistence.entities.Severity;
 import me.apet97.breakcompliance.persistence.repositories.FindingRepository;
 import me.apet97.breakcompliance.persistence.repositories.FindingReviewRepository;
@@ -184,6 +185,55 @@ class FindingsControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void export_openOnly_omitsAcknowledgedAndOverriddenFindings() throws Exception {
+        Finding open = seedFinding("u-open", LocalDate.parse("2025-01-03"));
+        Finding acknowledged = seedFinding("u-ack", LocalDate.parse("2025-01-04"));
+        Finding overridden = seedFinding("u-override", LocalDate.parse("2025-01-05"));
+        seedReview(acknowledged, ReviewStatus.ACKNOWLEDGED);
+        seedReview(overridden, ReviewStatus.OVERRIDDEN);
+
+        MvcResult result = mockMvc.perform(get("/api/findings/export")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
+                        .param("dateRangeStart", "2025-01-01")
+                        .param("dateRangeEnd", "2025-01-07")
+                        .param("openOnly", "true"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(body)
+                .contains(",u-open,")
+                .doesNotContain(",u-ack,")
+                .doesNotContain(",u-override,");
+        org.assertj.core.api.Assertions.assertThat(open.getId()).isNotBlank();
+    }
+
+    @Test
+    void export_userIdsAndOpenOnlyCompose() throws Exception {
+        Finding matchingOpen = seedFinding("u-keep", LocalDate.parse("2025-01-03"));
+        Finding filteredUser = seedFinding("u-other", LocalDate.parse("2025-01-04"));
+        Finding reviewedRequestedUser = seedFinding("u-reviewed", LocalDate.parse("2025-01-05"));
+        seedReview(reviewedRequestedUser, ReviewStatus.ACKNOWLEDGED);
+
+        MvcResult result = mockMvc.perform(get("/api/findings/export")
+                        .header("X-Addon-Token", TestJwtForger.forgeInstalledToken())
+                        .param("dateRangeStart", "2025-01-01")
+                        .param("dateRangeEnd", "2025-01-07")
+                        .param("openOnly", "true")
+                        .param("userIds", "u-keep,u-reviewed"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(body)
+                .contains(",u-keep,")
+                .doesNotContain(",u-other,")
+                .doesNotContain(",u-reviewed,");
+        org.assertj.core.api.Assertions.assertThat(matchingOpen.getId()).isNotBlank();
+        org.assertj.core.api.Assertions.assertThat(filteredUser.getId()).isNotBlank();
+    }
+
     // ─────────────────── Finding review (P2 #4) ───────────────────
 
     @Test
@@ -283,6 +333,15 @@ class FindingsControllerTest {
     private Finding seedFindingWith(
             String userId, LocalDate date, String userName, String message, Map<String, Object> evidence) {
         return seedFindingFor(TestJwtForger.DEFAULT_WORKSPACE_ID, userId, date, userName, message, evidence);
+    }
+
+    private FindingReview seedReview(Finding finding, ReviewStatus status) {
+        FindingReview review = new FindingReview();
+        review.setWorkspaceId(finding.getWorkspaceId());
+        review.setFindingId(finding.getId());
+        review.setStatus(status);
+        review.setUpdatedAt(Instant.parse("2025-01-04T10:00:00Z"));
+        return reviewRepo.saveAndFlush(review);
     }
 
     private Finding seedFindingFor(

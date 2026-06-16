@@ -1,5 +1,71 @@
 # Live validation — Break Compliance
 
+## v0.2.0 final-state remediation — 2026-06-17 public evidence refresh
+
+This section records public endpoint observations captured while remediating the
+2026-06-16 final-state audit. No Railway deploy was performed for this evidence
+refresh; it describes the currently served public app, not a fresh deployment
+from this working tree.
+
+Generated evidence files:
+
+- `docs/evidence/2026-06-17-healthz.txt` — `/healthz` returned
+  `{"status":"ok"}`.
+- `docs/evidence/2026-06-17-actuator-health.txt` — `/actuator/health`
+  returned `{"groups":["liveness","readiness"],"status":"UP"}`.
+- `docs/evidence/manifest.json` and `docs/evidence/v0.2.0-manifest.json` —
+  refreshed from the live `/manifest`.
+- `docs/evidence/2026-06-17-prometheus.txt` — public
+  `/actuator/prometheus` emitted the app-specific `breakcompliance_*` series.
+
+Local proof in the pre-commit working tree:
+
+```sh
+find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+# exit 0, no output
+
+NODE_OPTIONS=--no-warnings node --test src/test/js/*.mjs
+# tests 17, pass 17, fail 0
+
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
+  mvn -B -ntp test
+# Tests run: 370, Failures: 0, Errors: 0, Skipped: 0
+# BUILD SUCCESS
+```
+
+Public endpoint observations:
+
+```sh
+curl -fsS https://breakcompliance-production.up.railway.app/healthz
+# {"status":"ok"}
+
+curl -fsS https://breakcompliance-production.up.railway.app/actuator/health
+# {"groups":["liveness","readiness"],"status":"UP"}
+
+curl -fsS https://breakcompliance-production.up.railway.app/manifest \
+  | jq '{schemaVersion,key,scopes,settingsType:(.settings|type),txtDefault:([.settings.tabs[].settings[]|select(.id=="exemptUserIds")][0].value),txtDefaultLength:([.settings.tabs[].settings[]|select(.id=="exemptUserIds")][0].value|length),components}'
+# schemaVersion 1.5, key break-compliance-jvm,
+# scopes TIME_ENTRY_READ, USER_READ, REPORTS_READ,
+# settingsType object, exemptUserIds default " " length 1,
+# admin sidebar component at /sidebar
+
+curl -fsS https://breakcompliance-production.up.railway.app/actuator/prometheus \
+  | rg '^breakcompliance_'
+# breakcompliance_ingest_entries_processed_total{application="break-compliance"} 15.0
+# breakcompliance_ingest_run_duration_seconds_count{application="break-compliance"} 9
+# breakcompliance_ingest_run_duration_seconds_sum{application="break-compliance"} 10.97826869
+# breakcompliance_ingest_run_duration_seconds_max{application="break-compliance"} 0.0
+```
+
+Operational note: Prometheus is currently reachable on the public Railway URL.
+The exposed app-specific series are operational counters/timers and do not
+include tenant payloads, Clockify tokens, or user identifiers. If the deployment
+needs a stricter posture, restrict `/actuator/prometheus` at Railway/private
+networking, a reverse proxy/IP allowlist, or Spring security while keeping
+`/healthz` and `/actuator/health` public.
+
+---
+
 ## v0.2.0 plan-queue refresh — 2026-06-14 local proof
 
 This pass implements the 2026-06-13 fresh plan queue on top of pre-commit
@@ -30,6 +96,7 @@ find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
 
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
+# Historical result for this 2026-06-14 proof:
 # Tests run: 366, Failures: 0, Errors: 0, Skipped: 0
 
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
@@ -44,9 +111,10 @@ curl -fsS https://breakcompliance-production.up.railway.app/healthz
 # {"status":"ok"}
 
 curl -fsS https://breakcompliance-production.up.railway.app/manifest \
-  | jq '{schemaVersion, key, scopes}'
-# schemaVersion 1.3, key break-compliance-jvm,
-# scopes TIME_ENTRY_READ, USER_READ, REPORTS_READ
+  | jq '{schemaVersion,key,scopes,settingsType:(.settings|type),txtDefaultLength:([.settings.tabs[].settings[]|select(.id=="exemptUserIds")][0].value|length)}'
+# schemaVersion 1.5, key break-compliance-jvm,
+# scopes TIME_ENTRY_READ, USER_READ, REPORTS_READ,
+# settingsType object, exemptUserIds default length 1
 ```
 
 Treat those public endpoint checks as **environment observation only**, not
@@ -92,7 +160,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
 # BUILD SUCCESS; built target/break-compliance-0.2.0.jar
 ```
 
-Public endpoint observations captured without deploying:
+Historical public endpoint observations captured without deploying:
 
 - `docs/evidence/2026-06-13-healthz.txt` — `/healthz` returned HTTP 200 with
   CSP, HSTS, `Referrer-Policy`, `X-Content-Type-Options`, and
@@ -144,7 +212,7 @@ the request is HTTPS (Railway terminates TLS and forwards
 `HttpServletRequest.isSecure()` — see `SecurityHeadersFilter` for the
 guard added in the P1 hardening commit).
 
-## 2. `/manifest` — schema 1.3 + least-scope
+## 2. `/manifest` — historical schema 1.3 + least-scope
 
 ```
 $ curl -s …/manifest | jq '{schemaVersion, key, scopes}'
@@ -160,7 +228,8 @@ $ curl -s …/manifest | jq '{schemaVersion, key, scopes}'
 ```
 
 ✅ `WORKSPACE_READ` was dropped (P0 commit `029b0da`); only the three
-scopes the codebase actually consumes are requested. Full manifest in
+scopes the codebase actually consumes were requested. This May 2026 snapshot
+is historical; the current public manifest is schema `1.5` and is captured in
 `docs/evidence/manifest.json`.
 
 ## 3. Install lifecycle — `INSTALLED`
@@ -307,8 +376,8 @@ docker version
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 \
 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect for v0.2.0 after the 2026-06-14 plan-queue refresh:
-# Tests run: 366, Failures: 0, Errors: 0, BUILD SUCCESS
+# Expect for current v0.2.0 hardening builds: see `CLAUDE.md` / `AGENTS.md`
+# for the exact current test count, then require BUILD SUCCESS.
 
 # 3. Probe the live deploy.
 curl -isS https://breakcompliance-production.up.railway.app/healthz

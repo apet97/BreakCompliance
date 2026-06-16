@@ -1,6 +1,6 @@
 # Marketplace Submission Checklist
 
-_Last updated: 2026-06-14._
+_Last updated: 2026-06-17._
 
 Use this as the paste-ready release checklist for Clockify marketplace review.
 
@@ -8,10 +8,10 @@ Use this as the paste-ready release checklist for Clockify marketplace review.
 |---|---|
 | Code SHA validated | §37 MessageSource runtime repair committed as `ced9872` on `main`; this checklist refresh is docs-only evidence after the live deploy. |
 | App version | `0.2.0` |
-| Test command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp test` — 368 tests, 0 failures/errors/skips |
+| Test command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp test` — 370 tests, 0 failures/errors/skips on 2026-06-17 |
 | Package command/result | `JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH mvn -B -ntp -DskipTests package` — built `target/break-compliance-0.2.0.jar` (75M repackaged jar) |
 | Live base URL | `https://breakcompliance-production.up.railway.app/healthz` observed `{"status":"ok"}` after the 2026-06-14 Railway deploy. |
-| Manifest URL | `https://breakcompliance-production.up.railway.app/manifest` observed after deploy with `schemaVersion: "1.5"`, structured `settings` object, and native TXT default length 1. |
+| Manifest URL | `https://breakcompliance-production.up.railway.app/manifest` observed again on 2026-06-17 with `schemaVersion: "1.5"`, structured `settings` object, and native TXT default length 1. |
 | Manifest schema | Served manifest keeps the Clockify schema 1.5 compatibility repair: object `settings`, no empty native TXT value. |
 | Manifest scopes | Observed exactly `REPORTS_READ`, `TIME_ENTRY_READ`, `USER_READ`; no `_WRITE`, no `WORKSPACE_READ` |
 | Privacy URL/doc | `docs/PRIVACY.md` |

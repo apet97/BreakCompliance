@@ -66,7 +66,16 @@ rollback, monitoring, key rotation, and data-erasure procedures.
 ## Observability
 
 - **`/actuator/health`** — unauthenticated, used by Railway's healthcheck.
-- **`/actuator/prometheus`** — Micrometer Prometheus registry. Emits `breakcompliance_webhook_received{event}`, `…_webhook_duplicate{event}`, `…_refresh_signals_processed{outcome}`, `…_ingest_run_duration` (timer), `…_ingest_entries_processed`, `…_ingest_run_failed{reason}`. Scrape from inside the Railway network; narrow public access via reverse-proxy / IP allowlist before exposing externally.
+- **`/actuator/prometheus`** — Micrometer Prometheus registry. The current
+  Railway deployment exposes it publicly for operational evidence and it emits
+  `breakcompliance_webhook_received{event}`, `…_webhook_duplicate{event}`,
+  `…_refresh_signals_processed{outcome}`, `…_ingest_run_duration` (timer),
+  `…_ingest_entries_processed`, `…_ingest_run_failed{reason}`, and standard
+  JVM/Tomcat/Hikari/Spring series. These metrics must not include tenant
+  payloads, Clockify tokens, or user identifiers. If the operator chooses a
+  stricter posture, restrict this endpoint through Railway/private networking,
+  a reverse proxy/IP allowlist, or Spring security while preserving public
+  `/healthz` and `/actuator/health`.
 - **Admin audit log** — `GET /api/audit` plus the sidebar's admin-only audit panel show preset-apply and finding-review actions from `breakcompliance_audit_logs`.
 - **Redaction proof**: `LIVE_VALIDATION.md` §8 captures Railway log lines from a real install/ingest/uninstall cycle showing zero JWT triplets and zero token material in stdout.
 

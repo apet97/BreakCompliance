@@ -132,6 +132,7 @@ public class FindingsController {
             @RequestParam("dateRangeStart") String fromIso,
             @RequestParam("dateRangeEnd") String toIso,
             @RequestParam(value = "format", required = false, defaultValue = "csv") String format,
+            @RequestParam(value = "openOnly", required = false, defaultValue = "false") boolean openOnly,
             @RequestParam(value = "userIds", required = false) String userIdsCsv) {
         NormalizedClaims claims = RequestAttributes.claims(request);
         if (claims == null || claims.workspaceId() == null) {
@@ -146,6 +147,15 @@ public class FindingsController {
         LocalDate from = range.from();
         LocalDate to = range.to();
         List<Finding> findings = findingsService.list(claims.workspaceId(), from, to);
+        if (openOnly) {
+            Map<String, FindingReview> reviewsById = loadReviewsFor(claims.workspaceId(), findings);
+            findings = findings.stream()
+                    .filter(f -> {
+                        FindingReview r = reviewsById.get(f.getId());
+                        return r == null || r.getStatus() == ReviewStatus.OPEN;
+                    })
+                    .toList();
+        }
         // P2.1 — same userIds filter as the JSON list endpoint so the
         // exported CSV matches the rendered page.
         java.util.Set<String> userIdAllowlist = parseUserIds(userIdsCsv);

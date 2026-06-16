@@ -10,6 +10,18 @@ their workspace policy requires. **Never** creates/edits time entries, **never**
 messages, **never** writes anything to Clockify. Fail-closed on auth, fail-loud on
 misparse.
 
+## Current hardening checkpoint (§41)
+
+- CSV export parity is a current invariant: `openOnly=true` excludes
+  ACKNOWLEDGED/OVERRIDDEN findings, and `userIds=<id>` composes after that so
+  person-filtered exports match the visible sidebar rows.
+- Current manifest evidence is schema `1.5` with structured settings and a
+  one-character `exemptUserIds` TXT sentinel. Any schema `1.3` evidence is
+  historical unless explicitly dated as current.
+- `/actuator/prometheus` is currently public on Railway for operational evidence.
+  Do not change auth/security behavior without an operator decision; update docs
+  first if the posture changes.
+
 ## Before changing code
 
 1. **`CLAUDE.md`** — settings model, deploy info, hard rules.
@@ -26,7 +38,7 @@ misparse.
 # Full suite (JDK 21 required; system JDK 25 breaks Lombok).
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
   mvn -B -ntp test
-# Expect 368 green. Postgres + Redis spin up via Testcontainers.
+# Expect 370 green. Postgres + Redis spin up via Testcontainers.
 # Colima users add: DOCKER_HOST=unix:///Users/<you>/.colima/default/docker.sock
 
 find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -100,6 +112,7 @@ any API call shape.
 | `type=TIME_OFF`/`HOLIDAY` entries → `EntryClassifier.Kind.IGNORED` (§25/§29). | Engine skips only those entries, splits the continuous-work chain, blocks gap synthesis across them, and still evaluates same-day WORK. |
 | Cached approved time-off rows become synthetic, non-persisted `TIME_OFF` entries for evaluation. | Partial-day PTO must not suppress a whole user-day; same-day WORK outside the approved interval still evaluates. |
 | `/api/*` is `X-Addon-Token`-header-only. `/sidebar` accepts `?auth_token=` once, then JS scrubs it. | Lifecycle/webhook auth fail-closed via `AddonTokenAuthFilter` + `WebhookAuthFilter`. |
+| CSV export must match the sidebar's filtered findings view. | `GET /api/findings/export?format=csv&openOnly=true` omits ACKNOWLEDGED/OVERRIDDEN rows, and `userIds=<id>` composes after `openOnly` so roster/person-filter exports do not include hidden findings. |
 | `INACTIVE` installations cannot reach Clockify. | `IngestionService` throws `InstallationInactiveException` → 503 `installation_inactive` banner. |
 | Async ingests stay `RUNNING` until detailed-report entries are persisted and holiday, time-off, and user-directory refresh attempts return. | The sidebar and refresh-signal consumer must not evaluate or mark webhook signals consumed while suppression data is still stale. Best-effort suppression failures still complete, and one supplemental failure must not skip the others. |
 | Webhook idempotency = Redis SETNX with ≥ 24h TTL. | Clockify retries up to ~24h. |
@@ -443,3 +456,14 @@ suppression for PTO; partial-day requests must leave same-day work visible.
   test `src/test/js/sidebar-modules.test.mjs` that loads the module graph (catches
   renamed-export breaks `node --check` misses). 368 Java + 15 JS tests green on
   2026-06-15.
+- **§41** — Final-state audit remediation: CSV export filter parity restored so
+  "All open" and person-filtered sidebar views export exactly the visible
+  findings. `GET /api/findings/export` now accepts `openOnly` with the same
+  review semantics as `GET /api/findings` (no review row or explicit OPEN =
+  exportable; ACKNOWLEDGED/OVERRIDDEN omitted) and composes that with the
+  existing `userIds` allowlist. The sidebar preserves `state.lastRunRange.openOnly`
+  and passes `state.userFilter` to the CSV URL builder. Live evidence was refreshed
+  to schema `1.5` / one-character `exemptUserIds` TXT default, and public
+  Prometheus exposure is documented as the current Railway posture without
+  changing auth/security behavior. Expected proof gate after this section:
+  370 Java tests + 17 JS tests.

@@ -8,6 +8,18 @@ was dropped in P0 commit `029b0da` as unused).
 Fast domain context lives in `CONTEXT.md`; durable design decisions live in
 `docs/adr/`.
 
+## Current hardening checkpoint — §41
+
+- CSV export must preserve the sidebar's current findings filter:
+  `openOnly=true` excludes ACKNOWLEDGED/OVERRIDDEN findings, and
+  `userIds=<id>` composes after that for person-filtered exports.
+- Current live manifest evidence is schema `1.5` with structured settings and
+  the one-character `exemptUserIds` TXT sentinel; dated schema `1.3` evidence is
+  historical only.
+- `/actuator/prometheus` is currently public on Railway for operational
+  evidence. Do not change auth/security behavior without an operator decision;
+  docs describe the accepted current posture and restriction options.
+
 ## Live deploy
 
 | | |
@@ -31,7 +43,8 @@ NODE_OPTIONS=--no-warnings node --test src/test/js/*.mjs
 ```
 
 System Maven defaults to JDK 25 which breaks Lombok — JDK 21 required.
-**368 tests expected** (§37 after MessageSource runtime repair).
+**370 Java tests expected** (§41 after CSV export filter parity).
+**17 Node sidebar tests expected** after the export URL helper coverage.
 Postgres + Redis come up via Testcontainers.
 Surefire env in `pom.xml` provides `INSTALLATION_TOKEN_KEY` + `api.version=1.44` +
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` so the suite runs
@@ -274,7 +287,11 @@ src/main/java/me/apet97/breakcompliance/
                   The sidebar must load /api/findings for that latest range before
                   rendering an "All clear" empty state.
                   FindingsController also exposes GET /api/findings/export?format=csv
-                  (RFC 4180 attachment, P2 #3) and POST /api/findings/{id}/review
+                  (RFC 4180 attachment, P2 #3). Export must preserve the
+                  same filter semantics as the rendered sidebar view:
+                  `openOnly=true` omits ACKNOWLEDGED/OVERRIDDEN findings, and
+                  `userIds=<id>` narrows to the selected roster/user-filter row.
+                  It also exposes POST /api/findings/{id}/review
                   (admin-gated OPEN/ACKNOWLEDGED/OVERRIDDEN upsert with optional note,
                   P2 #4). GET /api/findings now embeds `review: {...} | null` inline
                   per row so the sidebar paints chip state without a second round-trip.
@@ -317,11 +334,12 @@ src/main/resources/
                         sidebar/css/*.css, styles.css, theme-init.js,
                         i18n/en.json, icon.svg (64×64 designed mark)
 
-src/test/...            368 green expected (JDK 21 + Postgres + Redis Testcontainers).
+src/test/...            370 Java tests expected (JDK 21 + Postgres + Redis Testcontainers).
                         Static frontend syntax gate:
                         find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
                         Focused sidebar behavior gate:
                         NODE_OPTIONS=--no-warnings node --test src/test/js/*.mjs
+                        Expect 17 Node tests after the CSV export URL-helper coverage.
                         Spring Boot 4 test slices live in the webmvc/data-jpa/jdbc
                         test modules; do not revert imports to Boot 3 packages.
                         Testcontainers pinned to 1.21.4 in pom.xml so the

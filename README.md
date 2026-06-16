@@ -95,7 +95,15 @@ GitHub Actions runs static JS syntax checks plus `mvn verify` on every push to `
 `spring-boot-starter-actuator` + `micrometer-registry-prometheus` expose:
 
 - `/actuator/health` — Railway healthcheck probe.
-- `/actuator/prometheus` — `breakcompliance_webhook_received{event}`, `_webhook_duplicate{event}`, `_refresh_signals_processed{outcome}`, `_ingest_run_duration` (Timer), `_ingest_entries_processed`, `_ingest_run_failed{reason}` plus the standard JVM + Tomcat + Hikari + Spring scheduled-task series. Narrow access via reverse-proxy / IP allowlist before exposing externally.
+- `/actuator/prometheus` — currently reachable on the public Railway URL for
+  operational evidence. It emits `breakcompliance_webhook_received{event}`,
+  `_webhook_duplicate{event}`, `_refresh_signals_processed{outcome}`,
+  `_ingest_run_duration` (Timer), `_ingest_entries_processed`,
+  `_ingest_run_failed{reason}` plus standard JVM + Tomcat + Hikari + Spring
+  scheduled-task series. It must not emit tenant payloads, Clockify tokens, or
+  user identifiers. If a stricter posture is required, narrow access via
+  Railway/private networking, reverse-proxy/IP allowlist, or Spring security
+  while keeping `/healthz` and `/actuator/health` public.
 
 Recommended scrape config + alert rules + Grafana dashboard layout in
 [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).

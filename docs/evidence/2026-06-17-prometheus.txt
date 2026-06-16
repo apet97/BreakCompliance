@@ -1,0 +1,4 @@
+breakcompliance_ingest_entries_processed_total{application="break-compliance"} 15.0
+breakcompliance_ingest_run_duration_seconds_count{application="break-compliance"} 9
+breakcompliance_ingest_run_duration_seconds_sum{application="break-compliance"} 10.97826869
+breakcompliance_ingest_run_duration_seconds_max{application="break-compliance"} 0.0

@@ -55,8 +55,9 @@ management:
     web:
       exposure:
         # Health unauthenticated for Railway's healthcheck. Prometheus
-        # exposed for the metrics scraper — narrow access via reverse
-        # proxy / IP allowlist if scraping from outside the cluster.
+        # Prometheus is currently public on Railway for operational evidence.
+        # Restrict via Railway/private networking, reverse proxy/IP allowlist,
+        # or Spring security if the operator chooses a stricter posture.
         include: health,info,prometheus
   endpoint:
     health:
