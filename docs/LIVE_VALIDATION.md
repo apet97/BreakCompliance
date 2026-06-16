@@ -1,5 +1,100 @@
 # Live validation — Break Compliance
 
+## v0.2.0 post-deploy smoke — 2026-06-17 Railway deploy
+
+This section records the Railway deployment and public smoke checks for commit
+`558e632cc4521a57a63a07c92f16f0983971c76d` (`fix(findings): preserve sidebar
+filters in CSV export`).
+
+Pre-deploy proof, run locally with Docker Desktop/Testcontainers available:
+
+```sh
+git rev-parse HEAD
+# 558e632cc4521a57a63a07c92f16f0983971c76d
+
+git rev-parse origin/main
+# 558e632cc4521a57a63a07c92f16f0983971c76d
+
+find src/main/resources/static -name '*.js' -print0 | xargs -0 -n1 node --check
+# exit 0, no output
+
+NODE_OPTIONS=--no-warnings node --test src/test/js/*.mjs
+# tests 17, pass 17, fail 0
+
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH \
+  mvn -B -ntp test
+# Tests run: 370, Failures: 0, Errors: 0, Skipped: 0
+# BUILD SUCCESS
+```
+
+Deployment:
+
+```sh
+railway up --service BreakCompliance --ci
+# BUILD SUCCESS
+# containerimage.digest: sha256:ad4e4085122ed96e155fdae5f4e9477616cefa54b30f7a2c9c6675632a0a1b95
+# Starting Healthcheck
+# Path: /healthz
+# Retry window: 30s
+# Deploy complete
+```
+
+Post-deploy public smoke checks:
+
+```sh
+curl -fsS -w '\nHTTP %{http_code}\n' \
+  https://breakcompliance-production.up.railway.app/healthz
+# {"status":"ok"}
+# HTTP 200
+
+curl -fsS https://breakcompliance-production.up.railway.app/actuator/health | jq .
+# {"groups":["liveness","readiness"],"status":"UP"}
+
+curl -fsS https://breakcompliance-production.up.railway.app/manifest \
+  | jq '{schemaVersion,key,baseUrl,scopes,componentPaths:[.components[].path],settingsType:(.settings|type),exemptUserDefault:([.settings.tabs[].settings[] | select(.id=="exemptUserIds")][0].value),exemptUserDefaultLength:([.settings.tabs[].settings[] | select(.id=="exemptUserIds")][0].value | length)}'
+# schemaVersion 1.5, key break-compliance-jvm,
+# baseUrl https://breakcompliance-production.up.railway.app,
+# scopes TIME_ENTRY_READ, USER_READ, REPORTS_READ,
+# componentPaths /sidebar, settingsType object,
+# exemptUserIds default " " length 1
+
+curl -fsS https://breakcompliance-production.up.railway.app/sidebar/findings-export.js \
+  | rg 'buildFindingsExportUrl|openOnly|userIds'
+# exported buildFindingsExportUrl is present and sets openOnly/userIds
+
+curl -fsS https://breakcompliance-production.up.railway.app/actuator/prometheus \
+  | rg '^breakcompliance_'
+# breakcompliance_ingest_run_duration_seconds_count{application="break-compliance"} 0
+# breakcompliance_ingest_run_duration_seconds_sum{application="break-compliance"} 0.0
+# breakcompliance_ingest_run_duration_seconds_max{application="break-compliance"} 0.0
+```
+
+Recent Railway log checks:
+
+```sh
+railway logs --service BreakCompliance --since 10m --filter '@level:error' --lines 100
+# no output
+
+railway logs --service BreakCompliance --since 10m --filter '@level:warn' --lines 100
+# no output
+
+railway logs --service BreakCompliance --http --since 10m --status '>=400' --lines 100
+# no output
+
+railway logs --service BreakCompliance --since 10m --lines 80 \
+  | rg -i 'started|error|exception|fail|leak|warn|ready|health|flyway|migrat|HikariPool'
+# HikariPool started; Flyway validated 16 migrations; schema version 16 is up
+# to date; Tomcat started on port 8080; BreakComplianceApplication started in
+# 10.28 seconds.
+```
+
+No authenticated Clockify install/sidebar smoke was run in this pass; the public
+post-deploy checks above verify process startup, manifest shape, shipped static
+asset content for the CSV-filter fix, metrics exposure, and absence of recent
+Railway app/HTTP errors.
+
+---
+
 ## v0.2.0 final-state remediation — 2026-06-17 public evidence refresh
 
 This section records public endpoint observations captured while remediating the
